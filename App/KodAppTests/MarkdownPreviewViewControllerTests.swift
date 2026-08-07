@@ -99,6 +99,26 @@ final class MarkdownPreviewViewControllerTests: XCTestCase {
         }
     }
 
+    func testRenderedMarkdownUsesAVisibleScrollingTextDocument() async {
+        let controller = await makeController(
+            markdown: "# Visible title\n\nRendered body.",
+            isWorkspaceTrusted: true
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        window.layoutIfNeeded()
+
+        XCTAssertTrue(controller.renderedText.contains("Visible title"))
+        XCTAssertTrue(controller.renderedText.contains("Rendered body."))
+        XCTAssertGreaterThan(controller.renderedTextViewFrame.width, 100)
+        XCTAssertGreaterThan(controller.renderedTextViewFrame.height, 0)
+    }
+
     // MARK: - Accessibility (SPEC 14)
 
     func testRemoteImagesButtonHasRealAccessibilityLabel() async {

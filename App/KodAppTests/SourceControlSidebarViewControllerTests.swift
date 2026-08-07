@@ -109,6 +109,65 @@ final class SourceControlSidebarViewControllerTests: XCTestCase {
         XCTAssertEqual(selections.first?.isUntracked, true)
     }
 
+    func testStatusPresentationsUseFamiliarGitLettersAndColorRoles() {
+        let modified = GitStatusEntry(
+            path: "modified.txt",
+            shape: .ordinary(indexStatus: .unmodified, worktreeStatus: .modified)
+        )
+        let added = GitStatusEntry(
+            path: "added.txt",
+            shape: .ordinary(indexStatus: .added, worktreeStatus: .unmodified)
+        )
+        let deleted = GitStatusEntry(
+            path: "deleted.txt",
+            shape: .ordinary(indexStatus: .unmodified, worktreeStatus: .deleted)
+        )
+        let untracked = GitStatusEntry(path: "new.txt", shape: .untracked)
+
+        XCTAssertEqual(
+            SourceControlSidebarViewController.statusPresentation(for: modified, in: .unstaged),
+            .init(letter: "M", colorRole: .modified)
+        )
+        XCTAssertEqual(
+            SourceControlSidebarViewController.statusPresentation(for: added, in: .staged),
+            .init(letter: "A", colorRole: .added)
+        )
+        XCTAssertEqual(
+            SourceControlSidebarViewController.statusPresentation(for: deleted, in: .unstaged),
+            .init(letter: "D", colorRole: .deleted)
+        )
+        XCTAssertEqual(
+            SourceControlSidebarViewController.statusPresentation(for: untracked, in: .untracked),
+            .init(letter: "U", colorRole: .untracked)
+        )
+    }
+
+    func testEntryChangedOnBothSidesUsesTheSelectedSectionsDiffTarget() throws {
+        var selections: [SourceControlSidebarViewController.FileSelection] = []
+        let controller = SourceControlSidebarViewController { selections.append($0) }
+        controller.loadView()
+        let changedOnBothSides = GitStatusEntry(
+            path: "both.txt",
+            shape: .ordinary(indexStatus: .added, worktreeStatus: .modified)
+        )
+        controller.update(snapshot: GitStatusSnapshot(entries: [changedOnBothSides]))
+
+        let outline = try XCTUnwrap(findOutlineView(in: controller.view))
+        let unstagedRow = (0..<outline.numberOfRows).first { row in
+            guard let item = outline.item(atRow: row) as? SourceControlSidebarViewController.FileItem else {
+                return false
+            }
+            return item.sectionKind == .unstaged
+        }
+        outline.selectRowIndexes(
+            IndexSet(integer: try XCTUnwrap(unstagedRow)),
+            byExtendingSelection: false
+        )
+        outline.sendAction(outline.action, to: outline.target)
+
+        XCTAssertEqual(selections.first?.target, .workingTreeVsIndex)
+    }
+
     func testNilSnapshotClearsSectionsAndShowsNoRepositoryStatus() throws {
         let controller = SourceControlSidebarViewController { _ in }
         controller.loadView()

@@ -1,6 +1,7 @@
 import AppKit
 import CodeViewport
 import FontCore
+import GitCore
 import PreviewCore
 import SourceModel
 import ThemeCore
@@ -99,7 +100,7 @@ final class EditorGroupViewController: NSViewController {
         }
     }
 
-    private let tabBarStack = NSStackView()
+    private let tabBarView = EditorTabBarView(frame: .zero)
     private let headerRow = NSStackView()
     private let backButton: NSButton
     private let forwardButton: NSButton
@@ -123,6 +124,7 @@ final class EditorGroupViewController: NSViewController {
     /// keep a `documentControllers` entry too, so toggling to "Source"
     /// never has to reload anything.
     private var previewControllers: [EditorTabID: PreviewViewController] = [:]
+    private var diffControllers: [EditorTabID: GitDiffViewController] = [:]
     /// The detected `PreviewKind` for a tab, cached once at open/reload
     /// time so repeated content-display decisions don't re-sniff bytes.
     private var previewKinds: [EditorTabID: PreviewKind] = [:]
@@ -140,6 +142,8 @@ final class EditorGroupViewController: NSViewController {
     /// is no meaningful "Source" view to toggle to).
     private var imageOnlyTabIDs: Set<EditorTabID> = []
     private var loadTask: Task<Void, Never>?
+    private var previewBuildTasks: [EditorTabID: Task<Void, Never>] = [:]
+    private var previewBuildGenerations: [EditorTabID: Int] = [:]
     private var activationMouseMonitor: LocalEventMonitor?
 
     init(groupID: EditorGroupID, state: EditorGroupState) {
@@ -206,6 +210,7 @@ final class EditorGroupViewController: NSViewController {
 
     deinit {
         loadTask?.cancel()
+        previewBuildTasks.values.forEach { $0.cancel() }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -222,11 +227,7 @@ final class EditorGroupViewController: NSViewController {
         let container = NSView()
         container.identifier = NSUserInterfaceItemIdentifier("editorGroup.\(groupID.rawValue)")
 
-        tabBarStack.identifier = NSUserInterfaceItemIdentifier("editorGroup.tabBar")
-        tabBarStack.orientation = .horizontal
-        tabBarStack.alignment = .centerY
-        tabBarStack.spacing = 2
-        tabBarStack.registerForDraggedTypes([tabPasteboardType])
+        tabBarView.identifier = NSUserInterfaceItemIdentifier("editorGroup.tabBar")
 
         backButton.identifier = NSUserInterfaceItemIdentifier("editorGroup.back")
         backButton.bezelStyle = .rounded
@@ -267,14 +268,15 @@ final class EditorGroupViewController: NSViewController {
         toolbar.orientation = .horizontal
         toolbar.spacing = 4
 
-        headerRow.setViews([tabBarStack, toolbar], in: .leading)
+        headerRow.setViews([tabBarView, toolbar], in: .leading)
         headerRow.identifier = NSUserInterfaceItemIdentifier("editorGroup.header")
         headerRow.orientation = .horizontal
         headerRow.distribution = .fill
         headerRow.spacing = 8
         headerRow.translatesAutoresizingMaskIntoConstraints = false
         headerRow.wantsLayer = true
-        tabBarStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        tabBarView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        tabBarView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         placeholderLabel.identifier = NSUserInterfaceItemIdentifier("editorGroup.placeholder")
         placeholderLabel.textColor = .secondaryLabelColor
@@ -342,7 +344,8 @@ final class EditorGroupViewController: NSViewController {
     /// Opens `relativePath` in this group using an already-loaded snapshot
     /// (used by Explorer/Quick Open, which load the snapshot themselves).
     func openTab(relativePath: String, pinned: Bool, snapshot: SourceSnapshot) {
-        let tabID = state.openTab(relativePath: relativePath, pinned: pinned)
+        let tabID = openStateTab(relativePath: relativePath, pinned: pinned)
+        diffControllers.removeValue(forKey: tabID)
         let controller = documentController(for: tabID, snapshot: snapshot)
         preparePreviewIfNeeded(tabID: tabID, relativePath: relativePath, snapshot: snapshot)
         showContent(contentController(forTabID: tabID))
@@ -352,6 +355,20 @@ final class EditorGroupViewController: NSViewController {
         refreshPreviewToggleButton()
         notifyStateChange()
         onDocumentReady?(relativePath, controller)
+    }
+
+    func openDiffTab(relativePath: String, diff: GitFileDiff) {
+        recordCurrentNavigation()
+        let tabID = openStateTab(relativePath: relativePath, pinned: true)
+        cancelPreviewBuild(for: tabID)
+        let controller = GitDiffViewController()
+        controller.update(diff: diff)
+        diffControllers[tabID] = controller
+        showContent(controller)
+        refreshTabBar()
+        refreshNavigationButtons()
+        refreshPreviewToggleButton()
+        notifyStateChange()
     }
 
     /// Opens `relativePath` (as `openTab(relativePath:pinned:snapshot:)`
@@ -410,6 +427,7 @@ final class EditorGroupViewController: NSViewController {
             )
             newController.wordWrapEnabled = wordWrapEnabled
             documentControllers[tab.id] = newController
+            diffControllers.removeValue(forKey: tab.id)
             preparePreviewIfNeeded(tabID: tab.id, relativePath: relativePath, snapshot: newSnapshot)
 
             // The new controller's view must actually be attached to the
@@ -440,10 +458,7 @@ final class EditorGroupViewController: NSViewController {
     func markTombstoned(relativePath: String, reason: TabTombstoneReason) {
         state.markTombstoned(relativePath: relativePath, reason: reason)
         for tab in state.tabs where tab.relativePath == relativePath {
-            documentControllers.removeValue(forKey: tab.id)
-            previewControllers.removeValue(forKey: tab.id)
-            previewKinds.removeValue(forKey: tab.id)
-            imageOnlyTabIDs.remove(tab.id)
+            discardContent(for: tab.id)
             if state.selectedTabID == tab.id {
                 showContent(nil)
                 showTombstonePlaceholder(relativePath: relativePath)
@@ -492,11 +507,7 @@ final class EditorGroupViewController: NSViewController {
     }
 
     func closeTab(_ tabID: EditorTabID) {
-        documentControllers.removeValue(forKey: tabID)
-        previewControllers.removeValue(forKey: tabID)
-        previewKinds.removeValue(forKey: tabID)
-        previewModeTabIDs.remove(tabID)
-        imageOnlyTabIDs.remove(tabID)
+        discardContent(for: tabID)
         let stillHasTabs = state.closeTab(tabID)
         if stillHasTabs, let selectedID = state.selectedTabID {
             loadAndShow(tabID: selectedID, restoring: nil)
@@ -522,7 +533,10 @@ final class EditorGroupViewController: NSViewController {
     }
 
     var currentDocumentController: CodeDocumentViewController? {
-        state.selectedTabID.flatMap { documentControllers[$0] }
+        guard let selectedTabID = state.selectedTabID, diffControllers[selectedTabID] == nil else {
+            return nil
+        }
+        return documentControllers[selectedTabID]
     }
 
     func toggleFindBar() {
@@ -577,9 +591,10 @@ final class EditorGroupViewController: NSViewController {
         if let existing = state.tabs.first(where: { $0.relativePath == entry.relativePath }) {
             tabID = existing.id
         } else {
-            tabID = state.openTab(relativePath: entry.relativePath, pinned: true)
+            tabID = openStateTab(relativePath: entry.relativePath, pinned: true)
         }
         state.selectedTabID = tabID
+        diffControllers.removeValue(forKey: tabID)
         state.current = entry
         loadAndShow(tabID: tabID, restoring: entry)
     }
@@ -652,6 +667,30 @@ final class EditorGroupViewController: NSViewController {
         state.recordNavigation(entry)
     }
 
+    private func openStateTab(relativePath: String, pinned: Bool) -> EditorTabID {
+        let previousPaths = Dictionary(uniqueKeysWithValues: state.tabs.map { ($0.id, $0.relativePath) })
+        let tabID = state.openTab(relativePath: relativePath, pinned: pinned)
+        if let previousPath = previousPaths[tabID], previousPath != relativePath {
+            discardContent(for: tabID)
+        }
+        return tabID
+    }
+
+    private func discardContent(for tabID: EditorTabID) {
+        cancelPreviewBuild(for: tabID)
+        documentControllers.removeValue(forKey: tabID)
+        previewControllers.removeValue(forKey: tabID)
+        diffControllers.removeValue(forKey: tabID)
+        previewKinds.removeValue(forKey: tabID)
+        previewModeTabIDs.remove(tabID)
+        imageOnlyTabIDs.remove(tabID)
+    }
+
+    private func cancelPreviewBuild(for tabID: EditorTabID) {
+        previewBuildTasks.removeValue(forKey: tabID)?.cancel()
+        previewBuildGenerations[tabID, default: 0] += 1
+    }
+
     private func documentController(for tabID: EditorTabID, snapshot: SourceSnapshot) -> CodeDocumentViewController {
         if let existing = documentControllers[tabID] {
             return existing
@@ -675,6 +714,11 @@ final class EditorGroupViewController: NSViewController {
             previewControllers.removeValue(forKey: tabID)
             showContent(nil)
             showTombstonePlaceholder(relativePath: tab.relativePath)
+            return
+        }
+        if let diffController = diffControllers[tabID] {
+            showContent(diffController)
+            refreshPreviewToggleButton()
             return
         }
         if imageOnlyTabIDs.contains(tabID) {
@@ -760,10 +804,13 @@ final class EditorGroupViewController: NSViewController {
         ) else {
             return
         }
-        guard !Task.isCancelled else {
+        guard !Task.isCancelled,
+              state.tabs.first(where: { $0.id == tabID })?.relativePath == relativePath else {
             return
         }
+        cancelPreviewBuild(for: tabID)
         previewControllers[tabID] = preview
+        diffControllers.removeValue(forKey: tabID)
         previewKinds[tabID] = kind
         imageOnlyTabIDs.insert(tabID)
         previewModeTabIDs.insert(tabID)
@@ -783,11 +830,14 @@ final class EditorGroupViewController: NSViewController {
     /// feature); a no-op for tabs whose content isn't a recognized
     /// preview format.
     private func preparePreviewIfNeeded(tabID: EditorTabID, relativePath: String, snapshot: SourceSnapshot) {
+        cancelPreviewBuild(for: tabID)
         let pathExtension = (relativePath as NSString).pathExtension
         let kind = PreviewContentDetector.detect(pathExtension: pathExtension, contentPrefix: snapshot.utf8Data.prefix(4_096))
         previewKinds[tabID] = kind
         guard kind != .none else {
             previewControllers.removeValue(forKey: tabID)
+            previewModeTabIDs.remove(tabID)
+            imageOnlyTabIDs.remove(tabID)
             return
         }
         previewModeTabIDs.insert(tabID)
@@ -797,7 +847,8 @@ final class EditorGroupViewController: NSViewController {
         let fontSettings = AppearanceSettings.currentFontSettings()
         let trustCheck = isWorkspaceTrusted
         let openLocal = onOpenLocalRelativePath
-        Task { [weak self] in
+        let generation = previewBuildGenerations[tabID, default: 0]
+        let task = Task { [weak self] in
             guard let self else {
                 return
             }
@@ -811,12 +862,19 @@ final class EditorGroupViewController: NSViewController {
             ) else {
                 return
             }
+            guard !Task.isCancelled,
+                  self.previewBuildGenerations[tabID] == generation,
+                  self.state.tabs.first(where: { $0.id == tabID })?.relativePath == relativePath else {
+                return
+            }
+            self.previewBuildTasks.removeValue(forKey: tabID)
             self.previewControllers[tabID] = preview
             if self.state.selectedTabID == tabID {
                 self.showContent(self.contentController(forTabID: tabID))
                 self.refreshPreviewToggleButton()
             }
         }
+        previewBuildTasks[tabID] = task
     }
 
     /// Resolves which view controller should currently occupy the
@@ -826,6 +884,9 @@ final class EditorGroupViewController: NSViewController {
     /// `previewModeTabIDs`; everything else shows its
     /// `CodeDocumentViewController` exactly as before this phase.
     private func contentController(forTabID tabID: EditorTabID) -> NSViewController? {
+        if let diffController = diffControllers[tabID] {
+            return diffController
+        }
         if imageOnlyTabIDs.contains(tabID) {
             return previewControllers[tabID]
         }
@@ -841,7 +902,10 @@ final class EditorGroupViewController: NSViewController {
     /// preview kind, and disabled (but still visible, reading "Preview")
     /// for image-only tabs, where there is no Source side to toggle to.
     private func refreshPreviewToggleButton() {
-        guard let tabID = state.selectedTabID, let kind = previewKinds[tabID], kind != .none else {
+        guard let tabID = state.selectedTabID,
+              diffControllers[tabID] == nil,
+              let kind = previewKinds[tabID],
+              kind != .none else {
             previewSourceToggleButton.isHidden = true
             return
         }
@@ -899,10 +963,14 @@ final class EditorGroupViewController: NSViewController {
     enum DisplayedContentKind: Equatable {
         case source
         case preview
+        case diff
         case none
     }
 
     func displayedContentKind(forTabID tabID: EditorTabID) -> DisplayedContentKind {
+        if diffControllers[tabID] != nil {
+            return .diff
+        }
         if imageOnlyTabIDs.contains(tabID) {
             return previewControllers[tabID] == nil ? .none : .preview
         }
@@ -914,6 +982,10 @@ final class EditorGroupViewController: NSViewController {
 
     func previewController(forTabID tabID: EditorTabID) -> PreviewViewController? {
         previewControllers[tabID]
+    }
+
+    func diffController(forTabID tabID: EditorTabID) -> GitDiffViewController? {
+        diffControllers[tabID]
     }
 
     func previewKind(forTabID tabID: EditorTabID) -> PreviewKind? {
@@ -933,9 +1005,11 @@ final class EditorGroupViewController: NSViewController {
         if let existing = state.tabs.first(where: { $0.relativePath == relativePath }) {
             tabID = existing.id
         } else {
-            tabID = state.openTab(relativePath: relativePath, pinned: pinned)
+            tabID = openStateTab(relativePath: relativePath, pinned: pinned)
         }
+        cancelPreviewBuild(for: tabID)
         previewControllers[tabID] = preview
+        diffControllers.removeValue(forKey: tabID)
         previewKinds[tabID] = kind
         imageOnlyTabIDs.insert(tabID)
         previewModeTabIDs.insert(tabID)
@@ -990,44 +1064,30 @@ final class EditorGroupViewController: NSViewController {
     // MARK: - Tab bar
 
     private func refreshTabBar() {
-        tabBarStack.arrangedSubviews.forEach {
-            tabBarStack.removeArrangedSubview($0)
-            $0.removeFromSuperview()
-        }
-        for tab in state.tabs {
-            let chip = EditorTabChipView(
-                tab: tab,
-                isSelected: tab.id == state.selectedTabID,
-                onSelect: { [weak self] in
-                    guard let self else { return }
-                    self.onActivate?(self.groupID)
-                    self.selectTab(tab.id)
-                },
-                onClose: { [weak self] in
-                    guard let self else { return }
-                    self.onActivate?(self.groupID)
-                    self.closeTab(tab.id)
-                },
-                onPin: { [weak self] in
-                    guard let self else { return }
-                    self.onActivate?(self.groupID)
-                    self.pinTab(tab.id)
-                },
-                onDropBefore: { [weak self] draggedID in
-                    guard let self else { return }
-                    self.onActivate?(self.groupID)
-                    self.handleDrop(draggedID: draggedID, before: tab.id)
-                }
-            )
-            tabBarStack.addArrangedSubview(chip)
-        }
-    }
-
-    private func handleDrop(draggedID: EditorTabID, before targetID: EditorTabID) {
-        guard let targetIndex = state.tabs.firstIndex(where: { $0.id == targetID }) else {
-            return
-        }
-        moveTab(draggedID, toIndex: targetIndex)
+        tabBarView.update(
+            tabs: state.tabs,
+            selectedTabID: state.selectedTabID,
+            onSelect: { [weak self] tabID in
+                guard let self else { return }
+                self.onActivate?(self.groupID)
+                self.selectTab(tabID)
+            },
+            onClose: { [weak self] tabID in
+                guard let self else { return }
+                self.onActivate?(self.groupID)
+                self.closeTab(tabID)
+            },
+            onPin: { [weak self] tabID in
+                guard let self else { return }
+                self.onActivate?(self.groupID)
+                self.pinTab(tabID)
+            },
+            onMove: { [weak self] tabID, index in
+                guard let self else { return }
+                self.onActivate?(self.groupID)
+                self.moveTab(tabID, toIndex: index)
+            }
+        )
     }
 }
 
@@ -1057,128 +1117,558 @@ func editorTabAccessibilityValue(tab: EditorTab, isSelected: Bool) -> String {
     return parts.joined(separator: ", ")
 }
 
-/// A single tab chip: title (italic while unpinned/"preview"), a pin
-/// affordance for preview tabs, and a close button. Also acts as an
-/// `NSDraggingSource` so tabs can be dragged to reorder within the bar.
-private final class EditorTabChipView: NSView, NSDraggingSource {
-    private let tab: EditorTab
-    private let onSelect: () -> Void
-    private let onClose: () -> Void
-    private let onPin: () -> Void
-    private let onDropBefore: (EditorTabID) -> Void
-    private let titleButton: NSButton
-    private var dragOrigin: NSPoint?
+/// A horizontally scrolling, fixed-width AppKit collection view gives tabs
+/// stable hit targets and sizing while retaining native selection and
+/// drag-and-drop behavior.
+@MainActor
+private final class EditorTabBarView: NSView {
+    private static let itemIdentifier = NSUserInterfaceItemIdentifier("editorGroup.tabItem")
+    private static let minimumTabWidth: CGFloat = 88
 
-    init(
-        tab: EditorTab,
-        isSelected: Bool,
-        onSelect: @escaping () -> Void,
-        onClose: @escaping () -> Void,
-        onPin: @escaping () -> Void,
-        onDropBefore: @escaping (EditorTabID) -> Void
-    ) {
-        self.tab = tab
-        self.onSelect = onSelect
-        self.onClose = onClose
-        self.onPin = onPin
-        self.onDropBefore = onDropBefore
+    private let railBackgroundView = NSView()
+    private let collectionView = NSCollectionView()
+    private var tabs: [EditorTab] = []
+    private var selectedTabID: EditorTabID?
+    private var onSelect: (EditorTabID) -> Void = { _ in }
+    private var onClose: (EditorTabID) -> Void = { _ in }
+    private var onPin: (EditorTabID) -> Void = { _ in }
+    private var onMove: (EditorTabID, Int) -> Void = { _, _ in }
+    private var isApplyingSelection = false
+    private var lastLayoutWidth: CGFloat = 0
 
-        let displayName = (tab.relativePath as NSString).lastPathComponent
-        titleButton = NSButton(title: displayName, target: nil, action: nil)
-        super.init(frame: .zero)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
 
-        identifier = NSUserInterfaceItemIdentifier("tab.\(tab.relativePath)")
-        registerForDraggedTypes([tabPasteboardType])
+        railBackgroundView.wantsLayer = true
+        railBackgroundView.layer?.cornerRadius = 16
+        railBackgroundView.layer?.masksToBounds = true
+        railBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        updateBarAppearance()
 
-        titleButton.bezelStyle = .inline
-        titleButton.isBordered = false
-        titleButton.setButtonType(.momentaryPushIn)
-        titleButton.target = self
-        titleButton.action = #selector(handleSelect)
-        titleButton.contentTintColor = isSelected ? .labelColor : .secondaryLabelColor
-        titleButton.identifier = NSUserInterfaceItemIdentifier("tab.title.\(tab.relativePath)")
-        // Explicit label/value pair (SPEC 14): the label is always the
-        // bare filename (never the italicized/decorated visual title),
-        // and the value spells out selection/pinned/preview/tombstoned
-        // state as text rather than relying on the chip's background
-        // tint or the title's italic styling alone.
-        titleButton.setAccessibilityLabel(displayName)
-        titleButton.setAccessibilityValue(editorTabAccessibilityValue(tab: tab, isSelected: isSelected))
-        if !tab.isPinned {
-            let attributed = NSMutableAttributedString(string: displayName)
-            attributed.addAttribute(
-                .font,
-                value: NSFontManager.shared.convert(NSFont.systemFont(ofSize: 12), toHaveTrait: .italicFontMask),
-                range: NSRange(location: 0, length: attributed.length)
-            )
-            titleButton.attributedTitle = attributed
-        }
-        titleButton.translatesAutoresizingMaskIntoConstraints = false
+        let layout = NSCollectionViewFlowLayout()
+        layout.scrollDirection = .horizontal
+        layout.itemSize = NSSize(width: 168, height: 32)
+        layout.minimumInteritemSpacing = 0
+        layout.minimumLineSpacing = 0
+        layout.sectionInset = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
 
-        var views: [NSView] = [titleButton]
-
-        if !tab.isPinned {
-            let pinButton = NSButton(
-                image: NSImage(
-                    systemSymbolName: "pin",
-                    accessibilityDescription: Localized.string("Pin Tab", comment: "Generic accessibility description for the pin-tab image, overridden per-tab below")
-                ) ?? NSImage(),
-                target: self,
-                action: #selector(handlePin)
-            )
-            pinButton.identifier = NSUserInterfaceItemIdentifier("tab.pin.\(tab.relativePath)")
-            pinButton.bezelStyle = .inline
-            pinButton.isBordered = false
-            // Per-tab label ("Pin <filename>") rather than the shared,
-            // generic "Pin Tab" image description, so VoiceOver names the
-            // specific tab this button pins (SPEC 14).
-            pinButton.setAccessibilityLabel(
-                Localized.string("Pin \(displayName)", comment: "Accessibility label for a tab chip's pin button, naming the specific file it pins")
-            )
-            views.append(pinButton)
-        }
-
-        let closeButton = NSButton(
-            image: NSImage(
-                systemSymbolName: "xmark",
-                accessibilityDescription: Localized.string("Close Tab", comment: "Generic accessibility description for the close-tab image, overridden per-tab below")
-            ) ?? NSImage(),
-            target: self,
-            action: #selector(handleClose)
+        collectionView.collectionViewLayout = layout
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        collectionView.isSelectable = true
+        collectionView.allowsMultipleSelection = false
+        collectionView.backgroundColors = [.clear]
+        collectionView.register(
+            EditorTabCollectionItem.self,
+            forItemWithIdentifier: Self.itemIdentifier
         )
-        closeButton.identifier = NSUserInterfaceItemIdentifier("tab.close.\(tab.relativePath)")
-        closeButton.bezelStyle = .inline
-        closeButton.isBordered = false
-        // Per-tab label ("Close <filename>") rather than the shared,
-        // generic "Close Tab" image description (SPEC 14).
-        closeButton.setAccessibilityLabel(
-            Localized.string("Close \(displayName)", comment: "Accessibility label for a tab chip's close button, naming the specific file it closes")
-        )
-        views.append(closeButton)
+        collectionView.registerForDraggedTypes([tabPasteboardType])
 
-        let row = NSStackView(views: views)
-        row.orientation = .horizontal
-        row.spacing = 2
-        row.translatesAutoresizingMaskIntoConstraints = false
+        let scrollView = NSScrollView()
+        scrollView.documentView = collectionView
+        scrollView.drawsBackground = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        wantsLayer = true
-        layer?.cornerRadius = 4
-        layer?.backgroundColor = isSelected
-            ? NSColor.selectedContentBackgroundColor.withAlphaComponent(0.25).cgColor
-            : NSColor.clear.cgColor
-
-        addSubview(row)
+        addSubview(railBackgroundView)
+        addSubview(scrollView)
         NSLayoutConstraint.activate([
-            row.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2)
+            railBackgroundView.topAnchor.constraint(equalTo: topAnchor),
+            railBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            railBackgroundView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            railBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            heightAnchor.constraint(equalToConstant: 32),
+            widthAnchor.constraint(greaterThanOrEqualToConstant: 80)
         ])
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override func layout() {
+        super.layout()
+        guard abs(bounds.width - lastLayoutWidth) > 0.5 else {
+            return
+        }
+        lastLayoutWidth = bounds.width
+        collectionView.collectionViewLayout?.invalidateLayout()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateBarAppearance()
+        collectionView.reloadData()
+    }
+
+    private func updateBarAppearance() {
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let component: CGFloat = isDark ? 0.20 : 237 / 255
+        railBackgroundView.layer?.backgroundColor = NSColor(
+            srgbRed: component,
+            green: component,
+            blue: component,
+            alpha: 1
+        ).cgColor
+    }
+
+    func update(
+        tabs: [EditorTab],
+        selectedTabID: EditorTabID?,
+        onSelect: @escaping (EditorTabID) -> Void,
+        onClose: @escaping (EditorTabID) -> Void,
+        onPin: @escaping (EditorTabID) -> Void,
+        onMove: @escaping (EditorTabID, Int) -> Void
+    ) {
+        self.tabs = tabs
+        self.selectedTabID = selectedTabID
+        self.onSelect = onSelect
+        self.onClose = onClose
+        self.onPin = onPin
+        self.onMove = onMove
+        collectionView.collectionViewLayout?.invalidateLayout()
+        collectionView.reloadData()
+
+        isApplyingSelection = true
+        defer { isApplyingSelection = false }
+        if let selectedTabID,
+           let index = tabs.firstIndex(where: { $0.id == selectedTabID }) {
+            collectionView.selectionIndexPaths = [IndexPath(item: index, section: 0)]
+            collectionView.scrollToItems(
+                at: [IndexPath(item: index, section: 0)],
+                scrollPosition: .nearestHorizontalEdge
+            )
+        } else {
+            collectionView.selectionIndexPaths = []
+        }
+    }
+}
+
+@MainActor
+extension EditorTabBarView: NSCollectionViewDataSource, @preconcurrency NSCollectionViewDelegateFlowLayout {
+    func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
+        tabs.count
+    }
+
+    func collectionView(
+        _ collectionView: NSCollectionView,
+        layout collectionViewLayout: NSCollectionViewLayout,
+        sizeForItemAt indexPath: IndexPath
+    ) -> NSSize {
+        guard !tabs.isEmpty,
+              let scrollView = collectionView.enclosingScrollView else {
+            return NSSize(width: 168, height: 32)
+        }
+        let availableWidth = max(0, scrollView.contentSize.width - 16)
+        let tabWidth = max(Self.minimumTabWidth, availableWidth / CGFloat(tabs.count))
+        return NSSize(width: tabWidth, height: 32)
+    }
+
+    func collectionView(
+        _ collectionView: NSCollectionView,
+        itemForRepresentedObjectAt indexPath: IndexPath
+    ) -> NSCollectionViewItem {
+        guard tabs.indices.contains(indexPath.item),
+              let item = collectionView.makeItem(
+                withIdentifier: Self.itemIdentifier,
+                for: indexPath
+              ) as? EditorTabCollectionItem else {
+            return NSCollectionViewItem()
+        }
+        let tab = tabs[indexPath.item]
+        let nextTabIsSelected = tabs.indices.contains(indexPath.item + 1)
+            && tabs[indexPath.item + 1].id == selectedTabID
+        item.configure(
+            tab: tab,
+            isSelected: tab.id == selectedTabID,
+            showsTrailingSeparator: indexPath.item < tabs.count - 1
+                && tab.id != selectedTabID
+                && !nextTabIsSelected,
+            onSelect: { [weak self] in self?.onSelect(tab.id) },
+            onClose: { [weak self] in self?.onClose(tab.id) },
+            onPin: { [weak self] in self?.onPin(tab.id) }
+        )
+        return item
+    }
+
+    func collectionView(
+        _ collectionView: NSCollectionView,
+        didSelectItemsAt indexPaths: Set<IndexPath>
+    ) {
+        guard !isApplyingSelection else {
+            return
+        }
+        guard let index = indexPaths.first?.item, tabs.indices.contains(index) else {
+            return
+        }
+        onSelect(tabs[index].id)
+    }
+
+    func collectionView(
+        _ collectionView: NSCollectionView,
+        canDragItemsAt indexPaths: Set<IndexPath>,
+        with event: NSEvent
+    ) -> Bool {
+        indexPaths.count == 1
+    }
+
+    func collectionView(
+        _ collectionView: NSCollectionView,
+        writeItemsAt indexPaths: Set<IndexPath>,
+        to pasteboard: NSPasteboard
+    ) -> Bool {
+        guard let index = indexPaths.first?.item, tabs.indices.contains(index) else {
+            return false
+        }
+        pasteboard.clearContents()
+        return pasteboard.setString(tabs[index].id.rawValue, forType: tabPasteboardType)
+    }
+
+    func collectionView(
+        _ collectionView: NSCollectionView,
+        validateDrop draggingInfo: NSDraggingInfo,
+        proposedIndexPath proposedDropIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
+        dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>
+    ) -> NSDragOperation {
+        guard draggingInfo.draggingPasteboard.string(forType: tabPasteboardType) != nil else {
+            return []
+        }
+        proposedDropOperation.pointee = .before
+        return .move
+    }
+
+    func collectionView(
+        _ collectionView: NSCollectionView,
+        acceptDrop draggingInfo: NSDraggingInfo,
+        indexPath: IndexPath,
+        dropOperation: NSCollectionView.DropOperation
+    ) -> Bool {
+        guard let rawValue = draggingInfo.draggingPasteboard.string(forType: tabPasteboardType),
+              let sourceIndex = tabs.firstIndex(where: { $0.id.rawValue == rawValue }) else {
+            return false
+        }
+        var destination = min(indexPath.item, tabs.count)
+        if sourceIndex < destination {
+            destination -= 1
+        }
+        onMove(tabs[sourceIndex].id, max(0, destination))
+        return true
+    }
+}
+
+@MainActor
+private final class EditorTabTitleButton: NSButton {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // NSButton otherwise consumes the mouse sequence, preventing the
+        // collection view from recognizing a drag that begins on the title.
+        nil
+    }
+}
+
+@MainActor
+private final class EditorTabIconView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
+@MainActor
+private final class EditorTabContentView: NSStackView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hitView = super.hitTest(point)
+        return hitView is NSButton ? hitView : nil
+    }
+}
+
+@MainActor
+private final class EditorTabBackgroundView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
+@MainActor
+private final class EditorTabCollectionItem: NSCollectionViewItem {
+    private static var fileIcons: [String: NSImage] = [:]
+
+    private let titleButton = EditorTabTitleButton(title: "", target: nil, action: nil)
+    private let fileIconView = EditorTabIconView()
+    private let contentView = EditorTabContentView()
+    private let selectionBackgroundView = EditorTabBackgroundView()
+    private let pinButton = NSButton(
+        image: NSImage(
+            systemSymbolName: "pin",
+            accessibilityDescription: Localized.string(
+                "Pin Tab",
+                comment: "Generic accessibility description for the pin-tab image, overridden per-tab below"
+            )
+        ) ?? NSImage(),
+        target: nil,
+        action: nil
+    )
+    private let closeButton = NSButton(
+        image: NSImage(
+            systemSymbolName: "xmark",
+            accessibilityDescription: Localized.string(
+                "Close Tab",
+                comment: "Generic accessibility description for the close-tab image, overridden per-tab below"
+            )
+        ) ?? NSImage(),
+        target: nil,
+        action: nil
+    )
+    private let trailingSeparator = NSView()
+    private var tab: EditorTab?
+    private var configuredSelection = false
+    private var showsTrailingSeparator = false
+    private var isHovered = false
+    private var hoverTrackingArea: NSTrackingArea?
+    private var onSelect: () -> Void = {}
+    private var onClose: () -> Void = {}
+    private var onPin: () -> Void = {}
+
+    override func loadView() {
+        let container = NSView()
+        container.wantsLayer = true
+
+        selectionBackgroundView.wantsLayer = true
+        selectionBackgroundView.layer?.cornerRadius = 13
+        selectionBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+
+        titleButton.bezelStyle = .inline
+        titleButton.isBordered = false
+        titleButton.setButtonType(.momentaryPushIn)
+        titleButton.alignment = .center
+        titleButton.lineBreakMode = .byTruncatingMiddle
+        titleButton.target = self
+        titleButton.action = #selector(handleSelect)
+        titleButton.translatesAutoresizingMaskIntoConstraints = false
+        titleButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        fileIconView.imageScaling = .scaleProportionallyUpOrDown
+        fileIconView.translatesAutoresizingMaskIntoConstraints = false
+        fileIconView.setAccessibilityElement(false)
+
+        for button in [pinButton, closeButton] {
+            button.bezelStyle = .inline
+            button.isBordered = false
+            button.imageScaling = .scaleProportionallyDown
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.setContentHuggingPriority(.required, for: .horizontal)
+        }
+        pinButton.image = pinButton.image?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 9, weight: .regular)
+        )
+        closeButton.image = closeButton.image?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 9, weight: .regular)
+        )
+        pinButton.target = self
+        pinButton.action = #selector(handlePin)
+        closeButton.target = self
+        closeButton.action = #selector(handleClose)
+
+        contentView.setViews([fileIconView, titleButton], in: .leading)
+        contentView.orientation = .horizontal
+        contentView.alignment = .centerY
+        contentView.spacing = 3
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+
+        trailingSeparator.wantsLayer = true
+        trailingSeparator.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.122).cgColor
+        trailingSeparator.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(selectionBackgroundView)
+        container.addSubview(contentView)
+        container.addSubview(closeButton)
+        container.addSubview(pinButton)
+        container.addSubview(trailingSeparator)
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self
+        )
+        container.addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+        NSLayoutConstraint.activate([
+            selectionBackgroundView.topAnchor.constraint(equalTo: container.topAnchor, constant: 3),
+            selectionBackgroundView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 3),
+            selectionBackgroundView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -3),
+            selectionBackgroundView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -3),
+            closeButton.widthAnchor.constraint(equalToConstant: 18),
+            closeButton.heightAnchor.constraint(equalToConstant: 18),
+            closeButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 7),
+            closeButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            fileIconView.widthAnchor.constraint(equalToConstant: 18),
+            fileIconView.heightAnchor.constraint(equalToConstant: 18),
+            contentView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            contentView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            contentView.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 28),
+            contentView.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -28),
+            pinButton.widthAnchor.constraint(equalToConstant: 18),
+            pinButton.heightAnchor.constraint(equalToConstant: 18),
+            pinButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -7),
+            pinButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            trailingSeparator.widthAnchor.constraint(equalToConstant: 1),
+            trailingSeparator.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            trailingSeparator.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            trailingSeparator.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8)
+        ])
+        view = container
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        applySelectionAppearance()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        applySelectionAppearance()
+    }
+
+    override var isSelected: Bool {
+        didSet {
+            applySelectionAppearance()
+        }
+    }
+
+    func configure(
+        tab: EditorTab,
+        isSelected: Bool,
+        showsTrailingSeparator: Bool,
+        onSelect: @escaping () -> Void,
+        onClose: @escaping () -> Void,
+        onPin: @escaping () -> Void
+    ) {
+        _ = view
+        self.tab = tab
+        self.configuredSelection = isSelected
+        self.showsTrailingSeparator = showsTrailingSeparator
+        self.onSelect = onSelect
+        self.onClose = onClose
+        self.onPin = onPin
+
+        let displayName = (tab.relativePath as NSString).lastPathComponent
+        let titleFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize + 2)
+        titleButton.title = displayName
+        titleButton.font = tab.isPinned
+            ? titleFont
+            : NSFontManager.shared.convert(titleFont, toHaveTrait: .italicFontMask)
+        titleButton.toolTip = tab.relativePath
+        view.toolTip = tab.relativePath
+        titleButton.identifier = NSUserInterfaceItemIdentifier("tab.title.\(tab.relativePath)")
+        titleButton.setAccessibilityLabel(displayName)
+        titleButton.setAccessibilityValue(
+            editorTabAccessibilityValue(tab: tab, isSelected: isSelected)
+        )
+        fileIconView.image = Self.fileIcon(for: tab.relativePath)
+        fileIconView.identifier = NSUserInterfaceItemIdentifier("tab.icon.\(tab.relativePath)")
+        contentView.identifier = NSUserInterfaceItemIdentifier("tab.content.\(tab.relativePath)")
+        pinButton.isHidden = tab.isPinned || !isHovered
+        pinButton.identifier = NSUserInterfaceItemIdentifier("tab.pin.\(tab.relativePath)")
+        pinButton.setAccessibilityLabel(
+            Localized.string(
+                "Pin \(displayName)",
+                comment: "Accessibility label for a tab chip's pin button, naming the specific file it pins"
+            )
+        )
+        pinButton.toolTip = pinButton.accessibilityLabel()
+        closeButton.identifier = NSUserInterfaceItemIdentifier("tab.close.\(tab.relativePath)")
+        closeButton.setAccessibilityLabel(
+            Localized.string(
+                "Close \(displayName)",
+                comment: "Accessibility label for a tab chip's close button, naming the specific file it closes"
+            )
+        )
+        closeButton.toolTip = closeButton.accessibilityLabel()
+        view.identifier = NSUserInterfaceItemIdentifier("tab.\(tab.relativePath)")
+        applySelectionAppearance()
+    }
+
+    private static func fileIcon(for relativePath: String) -> NSImage {
+        let pathExtension = (relativePath as NSString).pathExtension.lowercased()
+        let cacheKey = pathExtension.isEmpty ? "file" : pathExtension
+        if let cached = fileIcons[cacheKey] {
+            return cached
+        }
+
+        let colors: [NSColor] = [
+            .systemOrange, .systemBlue, .systemPurple,
+            .systemGreen, .systemRed, .systemIndigo
+        ]
+        let colorIndex = cacheKey.unicodeScalars.reduce(0) { result, scalar in
+            result + Int(scalar.value)
+        } % colors.count
+        let glyph = String((pathExtension.first ?? "F").uppercased())
+        let icon = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+            colors[colorIndex].setFill()
+            NSBezierPath(
+                roundedRect: rect.insetBy(dx: 0.25, dy: 0.25),
+                xRadius: 2.5,
+                yRadius: 2.5
+            ).fill()
+
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 7, weight: .bold),
+                .foregroundColor: NSColor.white
+            ]
+            let textSize = glyph.size(withAttributes: attributes)
+            glyph.draw(
+                at: NSPoint(
+                    x: (rect.width - textSize.width) / 2,
+                    y: (rect.height - textSize.height) / 2
+                ),
+                withAttributes: attributes
+            )
+            return true
+        }
+        icon.isTemplate = false
+        fileIcons[cacheKey] = icon
+        return icon
+    }
+
+    private func applySelectionAppearance() {
+        let selected = isSelected || configuredSelection
+        if selected {
+            let isDark = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let component: CGFloat = isDark ? 0.27 : 250 / 255
+            selectionBackgroundView.layer?.backgroundColor = NSColor(
+                srgbRed: component,
+                green: component,
+                blue: component,
+                alpha: 1
+            ).cgColor
+            selectionBackgroundView.layer?.shadowColor = NSColor.shadowColor.cgColor
+            selectionBackgroundView.layer?.shadowOpacity = 0.12
+            selectionBackgroundView.layer?.shadowRadius = 1
+            selectionBackgroundView.layer?.shadowOffset = NSSize(width: 0, height: -0.5)
+        } else {
+            selectionBackgroundView.layer?.backgroundColor = isHovered
+                ? NSColor.labelColor.withAlphaComponent(0.06).cgColor
+                : NSColor.clear.cgColor
+            selectionBackgroundView.layer?.shadowOpacity = 0
+        }
+        trailingSeparator.isHidden = selected || !showsTrailingSeparator
+        titleButton.contentTintColor = selected
+            ? .labelColor
+            : NSColor.labelColor.withAlphaComponent(0.78)
+        fileIconView.isHidden = false
+        closeButton.isHidden = !isHovered
+        pinButton.isHidden = tab?.isPinned != false || !isHovered
+        pinButton.contentTintColor = .secondaryLabelColor
+        closeButton.contentTintColor = .secondaryLabelColor
+        if let tab {
+            titleButton.setAccessibilityValue(
+                editorTabAccessibilityValue(tab: tab, isSelected: selected)
+            )
+        }
     }
 
     @objc
@@ -1194,50 +1684,5 @@ private final class EditorTabChipView: NSView, NSDraggingSource {
     @objc
     private func handlePin(_ sender: Any?) {
         onPin()
-    }
-
-    // MARK: - Drag source (reordering)
-
-    override func mouseDown(with event: NSEvent) {
-        dragOrigin = event.locationInWindow
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let dragOrigin else {
-            return
-        }
-        let distance = hypot(
-            event.locationInWindow.x - dragOrigin.x,
-            event.locationInWindow.y - dragOrigin.y
-        )
-        guard distance > 4 else {
-            return
-        }
-        self.dragOrigin = nil
-
-        let pasteboardItem = NSPasteboardItem()
-        pasteboardItem.setString(tab.id.rawValue, forType: tabPasteboardType)
-        let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
-        draggingItem.setDraggingFrame(bounds, contents: nil)
-        beginDraggingSession(with: [draggingItem], event: event, source: self)
-    }
-
-    func draggingSession(
-        _ session: NSDraggingSession,
-        sourceOperationMaskFor context: NSDraggingContext
-    ) -> NSDragOperation {
-        .move
-    }
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        .move
-    }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let rawValue = sender.draggingPasteboard.string(forType: tabPasteboardType) else {
-            return false
-        }
-        onDropBefore(EditorTabID(rawValue: rawValue))
-        return true
     }
 }

@@ -1,6 +1,35 @@
 import AppKit
 import GitCore
 
+@MainActor
+func configureReadOnlyScrollingTextView(
+    _ textView: NSTextView,
+    in scrollView: NSScrollView,
+    wrapsLines: Bool
+) {
+    let contentSize = NSSize(
+        width: max(scrollView.contentSize.width, 1),
+        height: max(scrollView.contentSize.height, 1)
+    )
+    textView.frame = NSRect(origin: .zero, size: contentSize)
+    textView.minSize = NSSize(width: 0, height: contentSize.height)
+    textView.maxSize = NSSize(
+        width: CGFloat.greatestFiniteMagnitude,
+        height: CGFloat.greatestFiniteMagnitude
+    )
+    textView.isVerticallyResizable = true
+    textView.isHorizontallyResizable = !wrapsLines
+    textView.autoresizingMask = [.width]
+    textView.textContainer?.containerSize = NSSize(
+        width: wrapsLines ? contentSize.width : CGFloat.greatestFiniteMagnitude,
+        height: CGFloat.greatestFiniteMagnitude
+    )
+    textView.textContainer?.widthTracksTextView = wrapsLines
+    textView.textContainerInset = NSSize(width: 10, height: 8)
+    scrollView.documentView = textView
+    scrollView.hasHorizontalScroller = !wrapsLines
+}
+
 /// The Git file diff viewer (SPEC 9.1: "Unified and side-by-side diff
 /// modes"). Renders a single `GitFileDiff` either as one linear list of
 /// context/added/removed lines or as paired left/right rows (via
@@ -75,11 +104,13 @@ final class GitDiffViewController: NSViewController {
         textView.isEditable = false
         textView.isSelectable = true
         textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.backgroundColor = .textBackgroundColor
+        textView.textColor = .labelColor
         let scrollView = NSScrollView()
-        scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        configureReadOnlyScrollingTextView(textView, in: scrollView, wrapsLines: false)
 
         container.addSubview(modeControl)
         container.addSubview(statusLabel)
@@ -199,4 +230,7 @@ final class GitDiffViewController: NSViewController {
         case nil: return " "
         }
     }
+
+    var renderedText: String { textView.string }
+    var renderedTextViewFrame: NSRect { textView.frame }
 }

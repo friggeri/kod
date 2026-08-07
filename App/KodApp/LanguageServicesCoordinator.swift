@@ -25,6 +25,8 @@ final class LanguageServicesCoordinator {
     /// in-UI server-state label has moved on.
     private let diagnosticsLog: BoundedEventLog
     private var service: SwiftWorkspaceLanguageService?
+    private var serviceStartupTask: Task<Void, Never>?
+    private var serviceStartupGeneration = 0
     private(set) var state: LanguageServerState = .missing(reason: "Not started")
     /// Tracks the most recently seen controller per relative path so a
     /// semantic-tokens response that arrives after the user has already
@@ -92,7 +94,10 @@ final class LanguageServicesCoordinator {
 
     /// Workspace-wide symbol search for the Symbols sidebar.
     func workspaceSymbols(query: String) async throws -> [WorkspaceSymbolLocation] {
-        guard let service else {
+        guard isTrusted else {
+            throw SwiftLanguageServiceError.notTrusted
+        }
+        guard let service = await startServiceIfNeeded() else {
             throw SwiftLanguageServiceError.notStarted
         }
         return try await service.workspaceSymbols(query: query)
@@ -198,7 +203,10 @@ final class LanguageServicesCoordinator {
 
     private func startServiceIfNeeded() async -> SwiftWorkspaceLanguageService? {
         if let service {
-            return service
+            if let serviceStartupTask {
+                await serviceStartupTask.value
+            }
+            return isTrusted && self.service === service ? service : nil
         }
         guard isTrusted else {
             return nil
@@ -220,13 +228,25 @@ final class LanguageServicesCoordinator {
             }
         )
         service = newService
-        do {
-            try await newService.start()
-        } catch {
-            // `newService`'s own state-change callback already reported
-            // `.missing`/`.crashed` as appropriate; keep the instance so a
-            // later manual Restart can retry rather than silently
-            // pretending nothing was attempted.
+        serviceStartupGeneration += 1
+        let startupGeneration = serviceStartupGeneration
+        let startupTask = Task {
+            do {
+                try await newService.start()
+            } catch {
+                // `newService`'s own state-change callback already reported
+                // `.missing`/`.crashed` as appropriate; keep the instance so a
+                // later manual Restart can retry rather than silently
+                // pretending nothing was attempted.
+            }
+        }
+        serviceStartupTask = startupTask
+        await startupTask.value
+        if serviceStartupGeneration == startupGeneration {
+            serviceStartupTask = nil
+        }
+        guard isTrusted, service === newService else {
+            return nil
         }
         return newService
     }
@@ -275,6 +295,9 @@ final class LanguageServicesCoordinator {
     func handleTrustRevoked() {
         semanticDecorationTasks.values.forEach { $0.cancel() }
         semanticDecorationTasks.removeAll()
+        serviceStartupGeneration += 1
+        serviceStartupTask?.cancel()
+        serviceStartupTask = nil
         guard let runningService = service else {
             return
         }

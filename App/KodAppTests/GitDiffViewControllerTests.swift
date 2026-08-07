@@ -1,4 +1,6 @@
 import GitCore
+import SourceModel
+import WorkspaceCore
 import XCTest
 @testable import Kod
 
@@ -66,5 +68,63 @@ final class GitDiffViewControllerTests: XCTestCase {
         let change = GitDiffFileChange(kind: .modified, oldPath: nil, newPath: "image.bin")
         controller.update(diff: GitFileDiff(change: change, content: .binary))
         XCTAssertEqual(controller.diff?.content, .binary)
+    }
+
+    func testTextDiffUsesAVisibleScrollingTextDocument() {
+        let controller = GitDiffViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        controller.update(
+            diff: GitFileDiff(
+                change: GitDiffFileChange(kind: .modified, oldPath: nil, newPath: "f.txt"),
+                content: .text(hunks: [makeHunk()])
+            )
+        )
+        window.layoutIfNeeded()
+
+        XCTAssertTrue(controller.renderedText.contains("-old"))
+        XCTAssertTrue(controller.renderedText.contains("+new"))
+        XCTAssertGreaterThan(controller.renderedTextViewFrame.width, 100)
+        XCTAssertGreaterThan(controller.renderedTextViewFrame.height, 0)
+    }
+
+    func testEditorGroupShowsDiffInViewerAndFileOpenRestoresSource() throws {
+        let editor = EditorGroupViewController(
+            groupID: EditorGroupID(),
+            state: EditorGroupState()
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = editor
+
+        let diff = GitFileDiff(
+            change: GitDiffFileChange(kind: .modified, oldPath: nil, newPath: "f.txt"),
+            content: .text(hunks: [makeHunk()])
+        )
+        editor.openDiffTab(relativePath: "f.txt", diff: diff)
+        let tabID = try XCTUnwrap(editor.state.selectedTabID)
+
+        XCTAssertEqual(editor.displayedContentKind(forTabID: tabID), .diff)
+        XCTAssertNotNil(editor.diffController(forTabID: tabID))
+        XCTAssertNil(editor.currentDocumentController)
+
+        editor.openTab(
+            relativePath: "f.txt",
+            pinned: true,
+            snapshot: SourceSnapshot(text: "current contents")
+        )
+
+        XCTAssertEqual(editor.displayedContentKind(forTabID: tabID), .source)
+        XCTAssertNil(editor.diffController(forTabID: tabID))
+        XCTAssertEqual(editor.currentDocumentController?.snapshot.text, "current contents")
     }
 }

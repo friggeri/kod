@@ -86,6 +86,32 @@ final class EditorGroupPreviewIntegrationTests: XCTestCase {
         XCTAssertNil(controller.previewController(forTabID: tabID))
     }
 
+    func testReplacingPreviewTabCannotShowThePreviousFilesAsyncPreview() async throws {
+        let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
+        host(controller)
+
+        controller.openTab(
+            relativePath: "README.md",
+            pinned: false,
+            snapshot: SourceSnapshot(text: "# Old Markdown")
+        )
+        let reusedTabID = try XCTUnwrap(controller.state.selectedTabID)
+
+        controller.openTab(
+            relativePath: "new.txt",
+            pinned: false,
+            snapshot: SourceSnapshot(text: "new contents")
+        )
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(controller.state.tabs.count, 1)
+        XCTAssertEqual(controller.state.selectedTabID, reusedTabID)
+        XCTAssertEqual(controller.state.tabs.first?.relativePath, "new.txt")
+        XCTAssertEqual(controller.currentDocumentController?.snapshot.text, "new contents")
+        XCTAssertNil(controller.previewController(forTabID: reusedTabID))
+        XCTAssertEqual(controller.displayedContentKind(forTabID: reusedTabID), .source)
+    }
+
     func testImageFileOpensAsPreviewOnlyTabViaRawDataFallback() async throws {
         var initialState = EditorGroupState()
         let tabID = initialState.openTab(relativePath: "icon.png", pinned: true)

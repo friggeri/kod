@@ -38,6 +38,20 @@ final class WorkspaceViewController: NSViewController {
     private let trustBanner = NSStackView()
     private let trustBannerLabel = NSTextField(labelWithString: "")
     private let trustActionButton = NSButton(title: "", target: nil, action: nil)
+    private let trustDismissButton = NSButton(
+        image: NSImage(
+            systemSymbolName: "xmark",
+            accessibilityDescription: Localized.string(
+                "Dismiss Workspace Trust Banner",
+                comment: "Accessibility description for the button that dismisses the workspace trust banner"
+            )
+        ) ?? NSImage(),
+        target: nil,
+        action: nil
+    )
+    private var contentTopWithTrustBannerConstraint: NSLayoutConstraint?
+    private var contentTopWithoutTrustBannerConstraint: NSLayoutConstraint?
+    private var isTrustBannerDismissed = false
     private let sidebarModeControl = NSSegmentedControl(
         labels: [
             Localized.string("Explorer", comment: "Sidebar mode segment title for the file Explorer"),
@@ -59,7 +73,6 @@ final class WorkspaceViewController: NSViewController {
     /// non-Git folders, kept fresh from the same FSEvents pipeline that
     /// drives Explorer/index live updates.
     private var gitCoordinator: GitWorkspaceCoordinator!
-    private var gitDiffPanelController: GitDiffPanelController?
     private var gitBlamePanelController: GitBlamePanelController?
     let languageServicesCoordinator: LanguageServicesCoordinator
     let multiLanguageServicesCoordinator: MultiLanguageServicesCoordinator
@@ -152,12 +165,6 @@ final class WorkspaceViewController: NSViewController {
     override func loadView() {
         let container = NSView()
 
-        let rootLabel = NSTextField(labelWithString: identity.root.lastPathComponent)
-        rootLabel.identifier = NSUserInterfaceItemIdentifier("workspace.root")
-        rootLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        rootLabel.lineBreakMode = .byTruncatingMiddle
-        rootLabel.translatesAutoresizingMaskIntoConstraints = false
-
         configureTrustBanner()
         trustBanner.translatesAutoresizingMaskIntoConstraints = false
 
@@ -184,20 +191,25 @@ final class WorkspaceViewController: NSViewController {
         )
         outerSplit.addSplitViewItem(NSSplitViewItem(viewController: splitContainer))
 
-        container.addSubview(rootLabel)
         container.addSubview(trustBanner)
         container.addSubview(outerSplit.view)
         container.addSubview(statusBar)
 
+        let contentTopWithTrustBannerConstraint = outerSplit.view.topAnchor.constraint(
+            equalTo: trustBanner.bottomAnchor,
+            constant: 8
+        )
+        let contentTopWithoutTrustBannerConstraint = outerSplit.view.topAnchor.constraint(
+            equalTo: container.topAnchor
+        )
+        self.contentTopWithTrustBannerConstraint = contentTopWithTrustBannerConstraint
+        self.contentTopWithoutTrustBannerConstraint = contentTopWithoutTrustBannerConstraint
+
         NSLayoutConstraint.activate([
-            rootLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 9),
-            rootLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            rootLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            trustBanner.topAnchor.constraint(equalTo: rootLabel.bottomAnchor, constant: 7),
-            trustBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            trustBanner.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -12),
-            trustBanner.heightAnchor.constraint(equalTo: trustActionButton.heightAnchor),
-            outerSplit.view.topAnchor.constraint(equalTo: trustBanner.bottomAnchor, constant: 8),
+            trustBanner.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            trustBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            trustBanner.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            trustBanner.heightAnchor.constraint(equalTo: trustActionButton.heightAnchor, constant: 12),
             outerSplit.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             outerSplit.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             outerSplit.view.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
@@ -206,6 +218,7 @@ final class WorkspaceViewController: NSViewController {
             statusBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             statusBar.heightAnchor.constraint(equalToConstant: 29)
         ])
+        updateTrustBannerVisibility()
 
         view = container
         refreshActiveGroupHighlighting()
@@ -265,22 +278,38 @@ final class WorkspaceViewController: NSViewController {
         activeGroupController?.togglePreviewSource(sender)
     }
 
-    private func openDiffPanel(for selection: SourceControlSidebarViewController.FileSelection) {
-        guard let context = gitCoordinator.context, let window = view.window else {
+    private func openDiff(for selection: SourceControlSidebarViewController.FileSelection) {
+        guard let context = gitCoordinator.context, let groupController = activeGroupController else {
             return
         }
         Task {
-            guard let diff = try? await context.diff(
-                path: selection.path,
-                target: selection.target,
-                isUntracked: selection.isUntracked,
-                knownOldPath: selection.originalPath
-            ) else {
-                return
+            do {
+                let diff = try await context.diff(
+                    path: selection.path,
+                    target: selection.target,
+                    isUntracked: selection.isUntracked,
+                    knownOldPath: selection.originalPath
+                )
+                groupController.openDiffTab(relativePath: selection.path, diff: diff)
+            } catch {
+                await diagnosticsLog.record(
+                    subsystem: .git,
+                    level: .warning,
+                    message: Localized.string(
+                        "Git diff loading failed",
+                        comment: "Diagnostics log message recorded when loading a Git diff fails"
+                    ),
+                    context: [
+                        DiagnosticContextField(name: "workspaceRoot", category: .fullPath, value: identity.root.path),
+                        DiagnosticContextField(
+                            name: "path",
+                            category: .fullPath,
+                            value: identity.root.appendingPathComponent(selection.path).path
+                        ),
+                        DiagnosticContextField(name: "reason", category: .diagnosticMessage, value: String(describing: error))
+                    ]
+                )
             }
-            let panel = GitDiffPanelController(title: selection.path)
-            gitDiffPanelController = panel
-            panel.show(diff: diff, asSheetFor: window)
         }
     }
 
@@ -306,6 +335,19 @@ final class WorkspaceViewController: NSViewController {
     }
 
     // MARK: - Language services (LSP)
+
+    private func workspaceSymbols(query: String) async throws -> [WorkspaceSymbolLocation] {
+        guard let url = activeGroupController?.currentDocumentController?.snapshot.url else {
+            return []
+        }
+        if url.pathExtension.lowercased() == "swift" {
+            return try await languageServicesCoordinator.workspaceSymbols(query: query)
+        }
+        return try await multiLanguageServicesCoordinator.workspaceSymbols(
+            forURL: url,
+            query: query
+        )
+    }
 
     private func configureLanguageServicesCoordinator() {
         languageServicesCoordinator.onStateChange = { [weak self] in
@@ -995,6 +1037,10 @@ final class WorkspaceViewController: NSViewController {
         trustBanner.orientation = .horizontal
         trustBanner.alignment = .centerY
         trustBanner.spacing = 8
+        trustBanner.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 6)
+        trustBanner.wantsLayer = true
+        trustBanner.layer?.cornerRadius = 6
+        trustBanner.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
 
         let icon = NSImageView(
             image: NSImage(
@@ -1003,11 +1049,28 @@ final class WorkspaceViewController: NSViewController {
             ) ?? NSImage()
         )
 
+        trustBannerLabel.lineBreakMode = .byTruncatingTail
+        trustBannerLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        trustBannerLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         trustActionButton.identifier = NSUserInterfaceItemIdentifier("workspace.trust")
+        trustActionButton.setContentHuggingPriority(.required, for: .horizontal)
+        trustDismissButton.identifier = NSUserInterfaceItemIdentifier("workspace.trustDismiss")
+        trustDismissButton.bezelStyle = .inline
+        trustDismissButton.isBordered = false
+        trustDismissButton.target = self
+        trustDismissButton.action = #selector(dismissTrustBanner(_:))
+        trustDismissButton.setAccessibilityLabel(
+            Localized.string(
+                "Dismiss Workspace Trust Banner",
+                comment: "Accessibility label for the button that dismisses the workspace trust banner"
+            )
+        )
+        trustDismissButton.setContentHuggingPriority(.required, for: .horizontal)
 
         trustBanner.addArrangedSubview(icon)
         trustBanner.addArrangedSubview(trustBannerLabel)
         trustBanner.addArrangedSubview(trustActionButton)
+        trustBanner.addArrangedSubview(trustDismissButton)
         refreshTrustBanner()
     }
 
@@ -1018,7 +1081,6 @@ final class WorkspaceViewController: NSViewController {
     /// and `revokeTrust` so the banner never shows a stale state.
     private func refreshTrustBanner() {
         let trusted = trustStore.isTrusted(identity)
-        trustBanner.isHidden = false
         if trusted {
             trustBannerLabel.stringValue = Localized.string(
                 "This workspace is trusted: language servers and repository tools are enabled.",
@@ -1044,6 +1106,20 @@ final class WorkspaceViewController: NSViewController {
                 Localized.string("Trust this workspace, enabling language servers and repository tools", comment: "Accessibility label for the trust banner's trust-workspace button")
             )
         }
+        updateTrustBannerVisibility()
+    }
+
+    private func updateTrustBannerVisibility() {
+        let isVisible = !isTrustBannerDismissed
+        trustBanner.isHidden = !isVisible
+        contentTopWithTrustBannerConstraint?.isActive = isVisible
+        contentTopWithoutTrustBannerConstraint?.isActive = !isVisible
+    }
+
+    @objc
+    func dismissTrustBanner(_ sender: Any?) {
+        isTrustBannerDismissed = true
+        updateTrustBannerVisibility()
     }
 
 
@@ -1088,7 +1164,7 @@ final class WorkspaceViewController: NSViewController {
                 guard let self else {
                     return []
                 }
-                return try await self.languageServicesCoordinator.workspaceSymbols(query: query)
+                return try await self.workspaceSymbols(query: query)
             },
             onSelectSymbol: { [weak self] symbol in
                 self?.navigateToLSPLocation(url: symbol.url, range: symbol.range)
@@ -1101,7 +1177,7 @@ final class WorkspaceViewController: NSViewController {
 
         let sourceControlController = SourceControlSidebarViewController(
             onSelectFile: { [weak self] selection in
-                self?.openDiffPanel(for: selection)
+                self?.openDiff(for: selection)
             }
         )
         sourceControlSidebarController = sourceControlController
@@ -1274,6 +1350,7 @@ final class WorkspaceViewController: NSViewController {
             searchSidebarController.focusSearchField()
         } else if segment == 3 {
             symbolsViewController.focusSearchField()
+            symbolsViewController.refresh()
         }
     }
 
@@ -1858,7 +1935,6 @@ extension WorkspaceViewController: NSOutlineViewDataSource, NSOutlineViewDelegat
             return .systemPurple
         }
     }
-
 }
 
 final class WorkspaceTreeNode: NSObject {

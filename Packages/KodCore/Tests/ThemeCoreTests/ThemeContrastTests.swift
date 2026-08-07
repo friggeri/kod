@@ -2,9 +2,11 @@ import XCTest
 @testable import ThemeCore
 
 final class ThemeContrastTests: XCTestCase {
-    func testStandardThemesMeetAANormalTextContrast() {
+    // PVC's light syntax palette is intentionally vivid; SPEC 14 reserves
+    // normal-text contrast requirements for the dedicated high-contrast pair.
+    func testStandardThemesMeetAABaseTextContrast() {
         for theme in [BundledThemes.light, BundledThemes.dark] {
-            assertContrast(theme, minimumRatio: 4.5)
+            assertBaseContrast(theme, minimumRatio: 4.5)
         }
     }
 
@@ -41,6 +43,30 @@ final class ThemeContrastTests: XCTestCase {
         )
     }
 
+    func testStandardThemesUseKodLightAndDarkPVCPalettes() {
+        let light = BundledThemes.light
+        XCTAssertEqual(light.name, "Kod Light")
+        XCTAssertEqual(light.editor.background, ThemeColor(hex: "#FFFFFF"))
+        XCTAssertEqual(light.editor.foreground, ThemeColor(hex: "#242728"))
+        XCTAssertEqual(light.surface.focusBorder, ThemeColor(hex: "#FFAA00"))
+        XCTAssertEqual(light.syntax["keyword"]?.foreground, ThemeColor(hex: "#FF006A"))
+        XCTAssertEqual(light.syntax["function"]?.foreground, ThemeColor(hex: "#88CC00"))
+        XCTAssertEqual(light.syntax["function.builtin"]?.foreground, ThemeColor(hex: "#00AAFF"))
+        XCTAssertEqual(light.syntax["string"]?.foreground, ThemeColor(hex: "#E6BF00"))
+        XCTAssertEqual(light.syntax["number"]?.foreground, ThemeColor(hex: "#7733FF"))
+
+        let dark = BundledThemes.dark
+        XCTAssertEqual(dark.name, "Kod Dark")
+        XCTAssertEqual(dark.editor.background, ThemeColor(hex: "#242728"))
+        XCTAssertEqual(dark.editor.foreground, ThemeColor(hex: "#FAFAFA"))
+        XCTAssertEqual(dark.surface.focusBorder, ThemeColor(hex: "#FFBB33"))
+        XCTAssertEqual(dark.syntax["keyword"]?.foreground, ThemeColor(hex: "#FF1A79"))
+        XCTAssertEqual(dark.syntax["function"]?.foreground, ThemeColor(hex: "#AAFF00"))
+        XCTAssertEqual(dark.syntax["function.builtin"]?.foreground, ThemeColor(hex: "#66CCFF"))
+        XCTAssertEqual(dark.syntax["string"]?.foreground, ThemeColor(hex: "#FFE666"))
+        XCTAssertEqual(dark.syntax["number"]?.foreground, ThemeColor(hex: "#9966FF"))
+    }
+
     /// System-accent independence (SPEC 14): every bundled theme's own
     /// selection/focus highlight is a real, theme-defined color (never
     /// fully transparent/absent), and `ThemeColor` — the only type these
@@ -70,7 +96,12 @@ final class ThemeContrastTests: XCTestCase {
         }
     }
 
-    private func assertContrast(_ theme: KodTheme, minimumRatio: Double, file: StaticString = #filePath, line: UInt = #line) {
+    private func assertBaseContrast(
+        _ theme: KodTheme,
+        minimumRatio: Double,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
         let backgroundRatio = theme.editor.foreground.contrastRatio(against: theme.editor.background)
         XCTAssertGreaterThanOrEqual(
             backgroundRatio,
@@ -79,6 +110,15 @@ final class ThemeContrastTests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    private func assertContrast(
+        _ theme: KodTheme,
+        minimumRatio: Double,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        assertBaseContrast(theme, minimumRatio: minimumRatio, file: file, line: line)
 
         for (captureName, style) in theme.syntax {
             guard let foreground = style.foreground else {

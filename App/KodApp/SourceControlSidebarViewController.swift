@@ -18,6 +18,11 @@ final class SourceControlSidebarViewController: NSViewController {
         let isUntracked: Bool
     }
 
+    struct FileItem: Equatable {
+        let entry: GitStatusEntry
+        let sectionKind: Section.Kind
+    }
+
     /// One section of the sidebar, in fixed display order.
     struct Section: Equatable {
         enum Kind: Equatable {
@@ -26,6 +31,17 @@ final class SourceControlSidebarViewController: NSViewController {
             case unstaged
             case untracked
             case ignored
+
+            var diffTarget: GitDiffTarget {
+                switch self {
+                case .conflicted, .unstaged, .untracked:
+                    return .workingTreeVsIndex
+                case .staged:
+                    return .indexVsHead
+                case .ignored:
+                    return .workingTreeVsIndex
+                }
+            }
         }
 
         let kind: Kind
@@ -33,15 +49,23 @@ final class SourceControlSidebarViewController: NSViewController {
         let entries: [GitStatusEntry]
 
         var diffTarget: GitDiffTarget {
-            switch kind {
-            case .conflicted, .unstaged, .untracked:
-                return .workingTreeVsIndex
-            case .staged:
-                return .indexVsHead
-            case .ignored:
-                return .workingTreeVsIndex
-            }
+            kind.diffTarget
         }
+    }
+
+    struct StatusPresentation: Equatable {
+        enum ColorRole: Equatable {
+            case added
+            case modified
+            case deleted
+            case untracked
+            case conflicted
+            case renamed
+            case ignored
+        }
+
+        let letter: String
+        let colorRole: ColorRole
     }
 
     private let onSelectFile: (FileSelection) -> Void
@@ -159,6 +183,7 @@ final class SourceControlSidebarViewController: NSViewController {
         }
         sections = builtSections
         outlineView.reloadData()
+        sections.forEach { outlineView.expandItem($0) }
 
         let changeCount = snapshot.entries.count
         statusLabel.stringValue = changeCount == 0
@@ -172,20 +197,54 @@ final class SourceControlSidebarViewController: NSViewController {
     @objc
     private func handleSelection(_ sender: Any?) {
         let row = outlineView.selectedRow
-        guard row >= 0, let entry = outlineView.item(atRow: row) as? GitStatusEntry else {
+        guard row >= 0, let item = outlineView.item(atRow: row) as? FileItem else {
             return
         }
-        guard let section = sections.first(where: { $0.entries.contains(entry) }) else {
-            return
-        }
+        let entry = item.entry
         onSelectFile(
             FileSelection(
                 path: entry.path,
                 originalPath: entry.originalPath,
-                target: section.diffTarget,
+                target: item.sectionKind.diffTarget,
                 isUntracked: entry.isUntracked
             )
         )
+    }
+
+    static func statusPresentation(
+        for entry: GitStatusEntry,
+        in sectionKind: Section.Kind
+    ) -> StatusPresentation? {
+        switch entry.shape {
+        case .untracked:
+            return StatusPresentation(letter: "U", colorRole: .untracked)
+        case .ignored:
+            return StatusPresentation(letter: "I", colorRole: .ignored)
+        case .unmerged:
+            return StatusPresentation(letter: "U", colorRole: .conflicted)
+        case .ordinary(let indexStatus, let worktreeStatus),
+             .renameOrCopy(let indexStatus, let worktreeStatus, _, _):
+            let code = sectionKind == .staged ? indexStatus : worktreeStatus
+            guard code != .unmodified else {
+                return nil
+            }
+            let colorRole: StatusPresentation.ColorRole
+            switch code {
+            case .added:
+                colorRole = .added
+            case .modified, .typeChanged:
+                colorRole = .modified
+            case .deleted:
+                colorRole = .deleted
+            case .renamed, .copied:
+                colorRole = .renamed
+            case .updatedButUnmerged:
+                colorRole = .conflicted
+            case .unmodified:
+                return nil
+            }
+            return StatusPresentation(letter: String(code.rawValue), colorRole: colorRole)
+        }
     }
 }
 
@@ -211,7 +270,7 @@ extension SourceControlSidebarViewController: NSOutlineViewDataSource, NSOutline
         guard let section = item as? Section, section.entries.indices.contains(index) else {
             return NSObject()
         }
-        return section.entries[index]
+        return FileItem(entry: section.entries[index], sectionKind: section.kind)
     }
 
     func outlineView(
@@ -220,32 +279,30 @@ extension SourceControlSidebarViewController: NSOutlineViewDataSource, NSOutline
         item: Any
     ) -> NSView? {
         let identifier = NSUserInterfaceItemIdentifier("sourceControl.cell")
-        let cell: NSTableCellView
-        if let reused = outlineView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView {
+        let cell: SourceControlCellView
+        if let reused = outlineView.makeView(withIdentifier: identifier, owner: self) as? SourceControlCellView {
             cell = reused
         } else {
-            cell = NSTableCellView()
+            cell = SourceControlCellView(frame: .zero)
             cell.identifier = identifier
-            let textField = NSTextField(labelWithString: "")
-            textField.lineBreakMode = .byTruncatingMiddle
-            textField.font = .systemFont(ofSize: 12)
-            textField.translatesAutoresizingMaskIntoConstraints = false
-            cell.textField = textField
-            cell.addSubview(textField)
-            NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-            ])
         }
 
         if let section = item as? Section {
             cell.textField?.stringValue = "\(section.title) (\(section.entries.count))"
             cell.textField?.font = .boldSystemFont(ofSize: 12)
-        } else if let entry = item as? GitStatusEntry {
+            cell.statusBadge.isHidden = true
+        } else if let item = item as? FileItem {
+            let entry = item.entry
             let renameSuffix = entry.originalPath.map { " ← \($0)" } ?? ""
             cell.textField?.stringValue = "\(entry.path)\(renameSuffix)"
             cell.textField?.font = .systemFont(ofSize: 12)
+            if let presentation = Self.statusPresentation(for: entry, in: item.sectionKind) {
+                cell.statusBadge.stringValue = presentation.letter
+                cell.statusBadge.textColor = presentation.color
+                cell.statusBadge.isHidden = false
+            } else {
+                cell.statusBadge.isHidden = true
+            }
             // A dedicated accessibility label spelling the change kind
             // out as a full word ("Added"/"Modified"/"Deleted"/
             // "Renamed"/"Copied"/"Conflicted"/...) rather than relying on
@@ -255,5 +312,57 @@ extension SourceControlSidebarViewController: NSOutlineViewDataSource, NSOutline
             )
         }
         return cell
+    }
+}
+
+private final class SourceControlCellView: NSTableCellView {
+    let statusBadge = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        let pathLabel = NSTextField(labelWithString: "")
+        pathLabel.lineBreakMode = .byTruncatingMiddle
+        pathLabel.font = .systemFont(ofSize: 12)
+        pathLabel.translatesAutoresizingMaskIntoConstraints = false
+        textField = pathLabel
+
+        statusBadge.identifier = NSUserInterfaceItemIdentifier("sourceControl.statusBadge")
+        statusBadge.alignment = .right
+        statusBadge.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
+        statusBadge.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(pathLabel)
+        addSubview(statusBadge)
+        NSLayoutConstraint.activate([
+            pathLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            pathLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusBadge.leadingAnchor, constant: -6),
+            pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            statusBadge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            statusBadge.centerYAnchor.constraint(equalTo: centerYAnchor),
+            statusBadge.widthAnchor.constraint(equalToConstant: 16)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
+private extension SourceControlSidebarViewController.StatusPresentation {
+    var color: NSColor {
+        switch colorRole {
+        case .added, .untracked:
+            return .systemGreen
+        case .modified:
+            return .systemOrange
+        case .deleted, .conflicted:
+            return .systemRed
+        case .renamed:
+            return .systemBlue
+        case .ignored:
+            return .secondaryLabelColor
+        }
     }
 }

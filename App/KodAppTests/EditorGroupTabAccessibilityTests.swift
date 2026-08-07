@@ -103,6 +103,10 @@ final class EditorGroupTabAccessibilityTests: XCTestCase {
         XCTAssertEqual(closeA.accessibilityLabel(), "Close a.txt")
         XCTAssertEqual(closeOther.accessibilityLabel(), "Close other.txt")
         XCTAssertNotEqual(closeA.accessibilityLabel(), closeOther.accessibilityLabel())
+        XCTAssertTrue(closeA.isHidden)
+        XCTAssertTrue(closeOther.isHidden)
+        XCTAssertFalse(try XCTUnwrap(findView(identifier: "tab.icon.src/a.txt", in: controller.view)).isHidden)
+        XCTAssertFalse(try XCTUnwrap(findView(identifier: "tab.icon.src/other.txt", in: controller.view)).isHidden)
     }
 
     func testTombstonedTabValueIncludesUnavailable() throws {
@@ -115,6 +119,133 @@ final class EditorGroupTabAccessibilityTests: XCTestCase {
         let titleButton = try XCTUnwrap(findView(identifier: "tab.title.src/a.txt", in: controller.view) as? NSButton)
         let value = try XCTUnwrap(titleButton.accessibilityValue() as? String)
         XCTAssertTrue(value.contains("Unavailable"))
+    }
+
+    func testEveryTabTitleSelectsItsOwnFile() throws {
+        let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
+        host(controller)
+        controller.openTab(relativePath: "src/first.txt", pinned: true, snapshot: SourceSnapshot(text: "first"))
+        controller.openTab(relativePath: "src/second.txt", pinned: true, snapshot: SourceSnapshot(text: "second"))
+        controller.openTab(relativePath: "src/third.txt", pinned: true, snapshot: SourceSnapshot(text: "third"))
+        controller.view.layoutSubtreeIfNeeded()
+
+        for (path, expectedText) in [
+            ("src/first.txt", "first"),
+            ("src/second.txt", "second"),
+            ("src/third.txt", "third")
+        ] {
+            let button = try XCTUnwrap(
+                findView(identifier: "tab.title.\(path)", in: controller.view) as? NSButton
+            )
+            button.sendAction(button.action, to: button.target)
+
+            let selectedPath = controller.state.tabs.first {
+                $0.id == controller.state.selectedTabID
+            }?.relativePath
+            XCTAssertEqual(selectedPath, path)
+            XCTAssertEqual(controller.currentDocumentController?.snapshot.text, expectedText)
+        }
+    }
+
+    func testTabItemsHaveStableWidthsRegardlessOfFileName() throws {
+        let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
+        host(controller)
+        controller.openTab(relativePath: "a.swift", pinned: true, snapshot: SourceSnapshot(text: "a"))
+        controller.openTab(
+            relativePath: "a-very-long-file-name-that-needs-truncation.swift",
+            pinned: true,
+            snapshot: SourceSnapshot(text: "b")
+        )
+        controller.openTab(relativePath: "mid.swift", pinned: true, snapshot: SourceSnapshot(text: "c"))
+        controller.view.window?.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        let widths = try [
+            "tab.a.swift",
+            "tab.a-very-long-file-name-that-needs-truncation.swift",
+            "tab.mid.swift"
+        ].map {
+            try XCTUnwrap(findView(identifier: $0, in: controller.view)).frame.width
+        }
+        XCTAssertGreaterThan(widths[0], 100)
+        XCTAssertEqual(widths[0], widths[1], accuracy: 0.5)
+        XCTAssertEqual(widths[1], widths[2], accuracy: 0.5)
+    }
+
+    func testTabContentsAreCenteredAndTitlesPassMouseHitsThroughForDragging() throws {
+        let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
+        host(controller)
+        controller.openTab(relativePath: "pinned.swift", pinned: true, snapshot: SourceSnapshot(text: "a"))
+        controller.openTab(relativePath: "preview.swift", pinned: false, snapshot: SourceSnapshot(text: "b"))
+        controller.view.window?.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        for path in ["pinned.swift", "preview.swift"] {
+            let tabView = try XCTUnwrap(findView(identifier: "tab.\(path)", in: controller.view))
+            let titleButton = try XCTUnwrap(
+                findView(identifier: "tab.title.\(path)", in: controller.view) as? NSButton
+            )
+            let tabContent = try XCTUnwrap(findView(identifier: "tab.content.\(path)", in: controller.view))
+            let contentCenter = tabContent.convert(
+                NSPoint(x: tabContent.bounds.midX, y: tabContent.bounds.midY),
+                to: tabView
+            )
+            let tabSuperview = try XCTUnwrap(tabView.superview)
+            let titleCenterInTabSuperview = titleButton.convert(
+                NSPoint(x: titleButton.bounds.midX, y: titleButton.bounds.midY),
+                to: tabSuperview
+            )
+            let titleCenterInTitleSuperview = titleButton.convert(
+                NSPoint(x: titleButton.bounds.midX, y: titleButton.bounds.midY),
+                to: try XCTUnwrap(titleButton.superview)
+            )
+
+            XCTAssertEqual(contentCenter.x, tabView.bounds.midX, accuracy: 0.5)
+            XCTAssertNil(titleButton.hitTest(titleCenterInTitleSuperview))
+            XCTAssertTrue(tabView.hitTest(titleCenterInTabSuperview) === tabView)
+        }
+    }
+
+    func testTabsFillTheAvailableBarWidth() throws {
+        let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
+        host(controller)
+        for path in ["first.swift", "second.swift", "third.swift"] {
+            controller.openTab(relativePath: path, pinned: true, snapshot: SourceSnapshot(text: path))
+        }
+        controller.view.window?.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        let tabBar = try XCTUnwrap(findView(identifier: "editorGroup.tabBar", in: controller.view))
+        let totalTabWidth = try ["first.swift", "second.swift", "third.swift"].reduce(CGFloat.zero) {
+            $0 + (try XCTUnwrap(findView(identifier: "tab.\($1)", in: controller.view))).frame.width
+        }
+
+        XCTAssertEqual(totalTabWidth + 16, tabBar.bounds.width, accuracy: 2)
+    }
+
+    func testCloseButtonUsesFixedLeadingOverlayWithoutMovingContent() throws {
+        let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
+        host(controller)
+        controller.openTab(relativePath: "centered.swift", pinned: true, snapshot: SourceSnapshot(text: "a"))
+        controller.view.window?.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        let tabView = try XCTUnwrap(findView(identifier: "tab.centered.swift", in: controller.view))
+        let contentView = try XCTUnwrap(findView(identifier: "tab.content.centered.swift", in: controller.view))
+        let closeButton = try XCTUnwrap(
+            findView(identifier: "tab.close.centered.swift", in: controller.view) as? NSButton
+        )
+        let originalContentFrame = contentView.frame
+        let closeFrame = closeButton.convert(closeButton.bounds, to: tabView)
+
+        XCTAssertEqual(closeFrame.minX, 7, accuracy: 0.5)
+        XCTAssertEqual(closeFrame.midY, tabView.bounds.midY, accuracy: 0.5)
+        XCTAssertTrue(closeButton.isHidden)
+
+        closeButton.isHidden = false
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(contentView.frame, originalContentFrame)
     }
 
     func testPaneActivationMonitorReturnsControlClicksUnchanged() throws {

@@ -1,18 +1,15 @@
 import Foundation
 
 /// The four themes Kod ships per SPEC 7.2: one light, one dark, one
-/// high-contrast light, and one high-contrast dark theme. Every syntax,
-/// editor, and surface color pairing here is covered by
-/// `ThemeContrastTests`, which asserts WCAG AA (>= 4.5:1) for the standard
-/// themes and AAA-adjacent (>= 7:1) for the high-contrast themes.
+/// high-contrast light, and one high-contrast dark theme. Kod Light and Kod
+/// Dark adapt the PVC 1.0.8 palettes; the dedicated high-contrast themes use
+/// Kod's enhanced-contrast palettes.
 public enum BundledThemes {
-    /// Every bundled-theme color below is a fixed hex literal audited by
-    /// `ThemeContrastTests`; a failure to parse one is a programming
-    /// error in this file, not a runtime condition. Centralizing the
-    /// (infallible-for-every-literal-below) unwrap here means no call
-    /// site needs a literal force-unwrap token, and a broken literal
-    /// still fails loudly — with the offending value — rather than
-    /// silently falling back to some default color.
+    /// Every bundled-theme color below is a fixed hex literal; a failure to
+    /// parse one is a programming error in this file, not a runtime condition.
+    /// Centralizing the (infallible-for-every-literal-below) unwrap here means
+    /// no call site needs a literal force-unwrap token, and a broken literal
+    /// still fails loudly rather than silently falling back to a default.
     private static func hex(_ value: String) -> ThemeColor {
         guard let color = ThemeColor(hex: value) else {
             preconditionFailure("Bundled theme color literal failed to parse: \(value)")
@@ -49,71 +46,76 @@ public enum BundledThemes {
         name: "Kod Light",
         appearance: .light,
         surface: SurfaceColors(
-            windowBackground: hex("#F5F5F5"),
-            sidebarBackground: hex("#EDEDED"),
-            sidebarForeground: hex("#383A42"),
+            windowBackground: hex("#F2F2F2"),
+            sidebarBackground: hex("#FFFFFF"),
+            sidebarForeground: hex("#242728"),
             tabActiveBackground: hex("#FFFFFF"),
-            tabInactiveBackground: hex("#E4E4E4"),
-            tabForeground: hex("#383A42"),
+            tabInactiveBackground: hex("#F2F2F2"),
+            tabForeground: hex("#242728"),
             breadcrumbBackground: hex("#FFFFFF"),
-            breadcrumbForeground: hex("#696C77"),
-            statusBarBackground: hex("#0184BC"),
-            statusBarForeground: hex("#FFFFFF"),
-            listActiveBackground: hex("#D6E6F7"),
-            listHoverBackground: hex("#E8E8E8"),
-            listForeground: hex("#383A42"),
-            border: hex("#D3D3D3"),
-            focusBorder: hex("#0184BC"),
-            selectionBackground: hex("#BFDDF9")
+            breadcrumbForeground: hex("#575A5B"),
+            statusBarBackground: hex("#FFFFFF"),
+            statusBarForeground: hex("#242728"),
+            listActiveBackground: hex("#FFAA001A"),
+            listHoverBackground: hex("#F2F2F2"),
+            listForeground: hex("#242728"),
+            border: hex("#E6E6E6"),
+            focusBorder: hex("#FFAA00"),
+            selectionBackground: hex("#D9D9D9")
         ),
         editor: EditorColors(
             background: hex("#FFFFFF"),
-            foreground: hex("#1F2328"),
+            foreground: hex("#242728"),
             lineHighlightBackground: hex("#F2F2F2"),
-            gutterForeground: hex("#9DA0A7"),
-            indentGuideForeground: hex("#E4E4E4"),
-            indentGuideActiveForeground: hex("#C6C6C6"),
-            selectionBackground: hex("#BFDDF9"),
-            matchingBracketBackground: hex("#D9E8FB"),
-            stickyScopeBackground: hex("#F5F5F5"),
-            foldedRegionForeground: hex("#9DA0A7")
+            gutterForeground: hex("#BDC0C1"),
+            indentGuideForeground: hex("#F2F2F2"),
+            indentGuideActiveForeground: hex("#FFAA00"),
+            selectionBackground: hex("#D9D9D9"),
+            matchingBracketBackground: hex("#FFFFFF"),
+            stickyScopeBackground: hex("#F2F2F2"),
+            foldedRegionForeground: hex("#798286")
         ),
         syntax: [
-            "keyword": TokenStyle(foreground: hex("#A626A4"), isBold: true),
-            "function": TokenStyle(foreground: hex("#326EF1")),
-            "function.builtin": TokenStyle(foreground: hex("#986801")),
-            "type": TokenStyle(foreground: hex("#9E6C01")),
-            "type.builtin": TokenStyle(foreground: hex("#9E6C01")),
-            "variable": TokenStyle(foreground: hex("#383A42")),
-            "variable.builtin": TokenStyle(foreground: hex("#DF3424")),
-            "variable.parameter": TokenStyle(foreground: hex("#986801"), isItalic: true),
-            "constant": TokenStyle(foreground: hex("#986801")),
-            "constant.builtin": TokenStyle(foreground: hex("#017DB3")),
-            "string": TokenStyle(foreground: hex("#428441")),
-            "number": TokenStyle(foreground: hex("#986801")),
-            "comment": TokenStyle(foreground: hex("#74767E"), isItalic: true),
-            "operator": TokenStyle(foreground: hex("#383A42")),
-            "punctuation": TokenStyle(foreground: hex("#383A42")),
-            "attribute": TokenStyle(foreground: hex("#986801")),
-            "tag": TokenStyle(foreground: hex("#DF3424"), isBold: true),
-            "property": TokenStyle(foreground: hex("#DF3424")),
-            "label": TokenStyle(foreground: hex("#A626A4")),
-            "boolean": TokenStyle(foreground: hex("#017DB3")),
-            "constructor": TokenStyle(foreground: hex("#9E6C01")),
-            "escape": TokenStyle(foreground: hex("#017DB3")),
-            "embedded": TokenStyle(foreground: hex("#383A42"))
+            "keyword": TokenStyle(foreground: hex("#FF006A")),
+            "keyword.function": TokenStyle(foreground: hex("#00AAFF")),
+            "function": TokenStyle(foreground: hex("#88CC00")),
+            "function.builtin": TokenStyle(foreground: hex("#00AAFF")),
+            "type": TokenStyle(foreground: hex("#88CC00")),
+            "type.builtin": TokenStyle(foreground: hex("#00AAFF")),
+            "variable": TokenStyle(foreground: hex("#242728")),
+            "variable.builtin": TokenStyle(foreground: hex("#E67300")),
+            "variable.parameter": TokenStyle(foreground: hex("#E67300")),
+            "constant": TokenStyle(foreground: hex("#7733FF")),
+            "constant.builtin": TokenStyle(foreground: hex("#7733FF")),
+            "constant.macro": TokenStyle(foreground: hex("#88CC00")),
+            "string": TokenStyle(foreground: hex("#E6BF00")),
+            "string.escape": TokenStyle(foreground: hex("#7733FF")),
+            "number": TokenStyle(foreground: hex("#7733FF")),
+            "comment": TokenStyle(foreground: hex("#798286")),
+            "operator": TokenStyle(foreground: hex("#FF006A")),
+            "punctuation": TokenStyle(foreground: hex("#242728")),
+            "attribute": TokenStyle(foreground: hex("#88CC00")),
+            "tag": TokenStyle(foreground: hex("#FF006A")),
+            "tag.error": TokenStyle(foreground: hex("#E60000")),
+            "property": TokenStyle(foreground: hex("#242728")),
+            "label": TokenStyle(foreground: hex("#242728")),
+            "boolean": TokenStyle(foreground: hex("#7733FF")),
+            "character.special": TokenStyle(foreground: hex("#7733FF")),
+            "constructor": TokenStyle(foreground: hex("#88CC00")),
+            "escape": TokenStyle(foreground: hex("#7733FF")),
+            "embedded": TokenStyle(foreground: hex("#242728"))
         ],
         diagnostics: DiagnosticColors(
-            error: hex("#E5484D"),
-            warning: hex("#9E6C01"),
-            information: hex("#0184BC"),
-            hint: hex("#696C77")
+            error: hex("#E60000"),
+            warning: hex("#E67300"),
+            information: hex("#FF006A"),
+            hint: hex("#798286")
         ),
         git: GitDecorationColors(
-            added: hex("#428441"),
-            modified: hex("#9E6C01"),
-            deleted: hex("#DF3424"),
-            conflict: hex("#A626A4")
+            added: hex("#779933"),
+            modified: hex("#4095BF"),
+            deleted: hex("#AC3939"),
+            conflict: hex("#FF006A")
         )
     )
 
@@ -122,71 +124,76 @@ public enum BundledThemes {
         name: "Kod Dark",
         appearance: .dark,
         surface: SurfaceColors(
-            windowBackground: hex("#252526"),
-            sidebarBackground: hex("#252526"),
-            sidebarForeground: hex("#CCCCCC"),
-            tabActiveBackground: hex("#1E1E1E"),
-            tabInactiveBackground: hex("#2D2D2D"),
-            tabForeground: hex("#CCCCCC"),
-            breadcrumbBackground: hex("#1E1E1E"),
-            breadcrumbForeground: hex("#A0A0A0"),
-            statusBarBackground: hex("#007ACC"),
-            statusBarForeground: hex("#FFFFFF"),
-            listActiveBackground: hex("#04395E"),
-            listHoverBackground: hex("#2A2D2E"),
-            listForeground: hex("#CCCCCC"),
-            border: hex("#3C3C3C"),
-            focusBorder: hex("#007ACC"),
-            selectionBackground: hex("#264F78")
+            windowBackground: hex("#313435"),
+            sidebarBackground: hex("#242728"),
+            sidebarForeground: hex("#FAFAFA"),
+            tabActiveBackground: hex("#242728"),
+            tabInactiveBackground: hex("#313435"),
+            tabForeground: hex("#FAFAFA"),
+            breadcrumbBackground: hex("#242728"),
+            breadcrumbForeground: hex("#C7C7C7"),
+            statusBarBackground: hex("#242728"),
+            statusBarForeground: hex("#FAFAFA"),
+            listActiveBackground: hex("#FFBB331A"),
+            listHoverBackground: hex("#313435"),
+            listForeground: hex("#FAFAFA"),
+            border: hex("#3D4041"),
+            focusBorder: hex("#FFBB33"),
+            selectionBackground: hex("#4A4D4E")
         ),
         editor: EditorColors(
-            background: hex("#1E1E1E"),
-            foreground: hex("#D4D4D4"),
-            lineHighlightBackground: hex("#2A2A2A"),
-            gutterForeground: hex("#858585"),
-            indentGuideForeground: hex("#404040"),
-            indentGuideActiveForeground: hex("#707070"),
-            selectionBackground: hex("#264F78"),
-            matchingBracketBackground: hex("#3A3D41"),
-            stickyScopeBackground: hex("#252526"),
-            foldedRegionForeground: hex("#858585")
+            background: hex("#242728"),
+            foreground: hex("#FAFAFA"),
+            lineHighlightBackground: hex("#313435"),
+            gutterForeground: hex("#616161"),
+            indentGuideForeground: hex("#313435"),
+            indentGuideActiveForeground: hex("#FFBB33"),
+            selectionBackground: hex("#4A4D4E"),
+            matchingBracketBackground: hex("#181A1B"),
+            stickyScopeBackground: hex("#313435"),
+            foldedRegionForeground: hex("#798286")
         ),
         syntax: [
-            "keyword": TokenStyle(foreground: hex("#C586C0"), isBold: true),
-            "function": TokenStyle(foreground: hex("#DCDCAA")),
-            "function.builtin": TokenStyle(foreground: hex("#DCDCAA")),
-            "type": TokenStyle(foreground: hex("#4EC9B0")),
-            "type.builtin": TokenStyle(foreground: hex("#4EC9B0")),
-            "variable": TokenStyle(foreground: hex("#D4D4D4")),
-            "variable.builtin": TokenStyle(foreground: hex("#569CD6")),
-            "variable.parameter": TokenStyle(foreground: hex("#9CDCFE"), isItalic: true),
-            "constant": TokenStyle(foreground: hex("#4FC1FF")),
-            "constant.builtin": TokenStyle(foreground: hex("#569CD6")),
-            "string": TokenStyle(foreground: hex("#CE9178")),
-            "number": TokenStyle(foreground: hex("#B5CEA8")),
-            "comment": TokenStyle(foreground: hex("#6A9955"), isItalic: true),
-            "operator": TokenStyle(foreground: hex("#D4D4D4")),
-            "punctuation": TokenStyle(foreground: hex("#D4D4D4")),
-            "attribute": TokenStyle(foreground: hex("#9CDCFE")),
-            "tag": TokenStyle(foreground: hex("#569CD6"), isBold: true),
-            "property": TokenStyle(foreground: hex("#9CDCFE")),
-            "label": TokenStyle(foreground: hex("#C8C8C8")),
-            "boolean": TokenStyle(foreground: hex("#569CD6")),
-            "constructor": TokenStyle(foreground: hex("#4EC9B0")),
-            "escape": TokenStyle(foreground: hex("#D7BA7D")),
-            "embedded": TokenStyle(foreground: hex("#D4D4D4"))
+            "keyword": TokenStyle(foreground: hex("#FF1A79")),
+            "keyword.function": TokenStyle(foreground: hex("#66CCFF")),
+            "function": TokenStyle(foreground: hex("#AAFF00")),
+            "function.builtin": TokenStyle(foreground: hex("#66CCFF")),
+            "type": TokenStyle(foreground: hex("#AAFF00")),
+            "type.builtin": TokenStyle(foreground: hex("#66CCFF")),
+            "variable": TokenStyle(foreground: hex("#FAFAFA")),
+            "variable.builtin": TokenStyle(foreground: hex("#FF8000")),
+            "variable.parameter": TokenStyle(foreground: hex("#FF8000")),
+            "constant": TokenStyle(foreground: hex("#9966FF")),
+            "constant.builtin": TokenStyle(foreground: hex("#9966FF")),
+            "constant.macro": TokenStyle(foreground: hex("#AAFF00")),
+            "string": TokenStyle(foreground: hex("#FFE666")),
+            "string.escape": TokenStyle(foreground: hex("#9966FF")),
+            "number": TokenStyle(foreground: hex("#9966FF")),
+            "comment": TokenStyle(foreground: hex("#798286")),
+            "operator": TokenStyle(foreground: hex("#FF1A79")),
+            "punctuation": TokenStyle(foreground: hex("#FAFAFA")),
+            "attribute": TokenStyle(foreground: hex("#AAFF00")),
+            "tag": TokenStyle(foreground: hex("#FF1A79")),
+            "tag.error": TokenStyle(foreground: hex("#FF6666")),
+            "property": TokenStyle(foreground: hex("#FAFAFA")),
+            "label": TokenStyle(foreground: hex("#FAFAFA")),
+            "boolean": TokenStyle(foreground: hex("#9966FF")),
+            "character.special": TokenStyle(foreground: hex("#9966FF")),
+            "constructor": TokenStyle(foreground: hex("#AAFF00")),
+            "escape": TokenStyle(foreground: hex("#9966FF")),
+            "embedded": TokenStyle(foreground: hex("#FAFAFA"))
         ],
         diagnostics: DiagnosticColors(
-            error: hex("#F14C4C"),
-            warning: hex("#CCA700"),
-            information: hex("#3794FF"),
-            hint: hex("#A0A0A0")
+            error: hex("#FF6666"),
+            warning: hex("#FF8000"),
+            information: hex("#FF1A79"),
+            hint: hex("#798286")
         ),
         git: GitDecorationColors(
-            added: hex("#587C0C"),
-            modified: hex("#0C7D9D"),
-            deleted: hex("#94151B"),
-            conflict: hex("#C586C0")
+            added: hex("#95BF40"),
+            modified: hex("#8CBFD9"),
+            deleted: hex("#D98C8C"),
+            conflict: hex("#FF1A79")
         )
     )
 

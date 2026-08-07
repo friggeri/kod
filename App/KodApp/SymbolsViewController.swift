@@ -94,6 +94,10 @@ final class SymbolsViewController: NSViewController {
         view.window?.makeFirstResponder(searchField)
     }
 
+    func refresh() {
+        runSearch()
+    }
+
     @objc
     private func runSearch() {
         queryVersion += 1
@@ -101,13 +105,6 @@ final class SymbolsViewController: NSViewController {
         let query = searchField.stringValue
 
         searchTask?.cancel()
-        guard !query.isEmpty else {
-            results = []
-            outlineView.reloadData()
-            statusLabel.stringValue = ""
-            return
-        }
-
         statusLabel.stringValue = Localized.string("Searching…", comment: "Status label shown while a symbol search is in progress")
         searchTask = Task { [weak self] in
             guard let self else {
@@ -132,8 +129,8 @@ final class SymbolsViewController: NSViewController {
                 self.results = []
                 self.outlineView.reloadData()
                 self.statusLabel.stringValue = Localized.string(
-                    "Symbols unavailable: \(String(describing: error)).",
-                    comment: "Status label shown when a symbol search fails"
+                    "Symbols are unavailable until the language server is ready.",
+                    comment: "Status label shown when a symbol search cannot run because its language server is unavailable"
                 )
             }
         }

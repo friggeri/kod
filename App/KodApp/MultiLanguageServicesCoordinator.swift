@@ -25,6 +25,8 @@ final class MultiLanguageServicesCoordinator {
     /// the in-UI server-state label.
     private let diagnosticsLog: BoundedEventLog
     private var services: [ObjectIdentifier: LanguageWorkspaceService] = [:]
+    private var startupTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+    private var startupGenerations: [ObjectIdentifier: Int] = [:]
     private var statesByAdapter: [ObjectIdentifier: LanguageServerState] = [:]
     private var controllersByRelativePath: [String: WeakMultiLanguageDocumentController] = [:]
     private var semanticDecorationTasks: [String: Task<Void, Never>] = [:]
@@ -165,6 +167,22 @@ final class MultiLanguageServicesCoordinator {
         return services[ObjectIdentifier(adapter)]
     }
 
+    func workspaceSymbols(
+        forURL url: URL,
+        query: String
+    ) async throws -> [WorkspaceSymbolLocation] {
+        guard let adapter = Self.adapter(for: url) else {
+            return []
+        }
+        guard isTrusted else {
+            throw LanguageWorkspaceServiceError.notTrusted
+        }
+        guard let service = await startServiceIfNeeded(adapter: adapter) else {
+            throw LanguageWorkspaceServiceError.notStarted
+        }
+        return try await service.workspaceSymbols(query: query)
+    }
+
     func hover(snapshot: SourceSnapshot, utf8Offset: Int) async throws -> Hover? {
         guard let adapter = Self.adapter(for: snapshot.url),
               let service = services[ObjectIdentifier(adapter)] else {
@@ -188,7 +206,10 @@ final class MultiLanguageServicesCoordinator {
     private func startServiceIfNeeded(adapter: any LanguageAdapter.Type) async -> LanguageWorkspaceService? {
         let key = ObjectIdentifier(adapter)
         if let existing = services[key] {
-            return existing
+            if let startupTask = startupTasks[key] {
+                await startupTask.value
+            }
+            return isTrusted && services[key] === existing ? existing : nil
         }
         guard isTrusted else {
             return nil
@@ -212,11 +233,23 @@ final class MultiLanguageServicesCoordinator {
             }
         )
         services[key] = newService
-        do {
-            try await newService.start()
-        } catch {
-            // The service's own state-change callback already reported
-            // `.missing`/`.crashed` as appropriate.
+        startupGenerations[key, default: 0] += 1
+        let startupGeneration = startupGenerations[key, default: 0]
+        let startupTask = Task {
+            do {
+                try await newService.start()
+            } catch {
+                // The service's own state-change callback already reported
+                // `.missing`/`.crashed` as appropriate.
+            }
+        }
+        startupTasks[key] = startupTask
+        await startupTask.value
+        if startupGenerations[key] == startupGeneration {
+            startupTasks.removeValue(forKey: key)
+        }
+        guard isTrusted, services[key] === newService else {
+            return nil
         }
         return newService
     }
@@ -384,6 +417,11 @@ final class MultiLanguageServicesCoordinator {
     func handleTrustRevoked() {
         semanticDecorationTasks.values.forEach { $0.cancel() }
         semanticDecorationTasks.removeAll()
+        for key in startupTasks.keys {
+            startupGenerations[key, default: 0] += 1
+        }
+        startupTasks.values.forEach { $0.cancel() }
+        startupTasks.removeAll()
         guard !services.isEmpty else {
             return
         }

@@ -6,7 +6,6 @@ final class KodAppUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-
     func testWelcomeWindowLaunchesWithVisibleCommands() {
         let app = XCUIApplication()
         app.launch()
@@ -75,11 +74,14 @@ final class KodAppUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.outlines["workspace.explorer"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["workspace.root"].exists)
+        XCTAssertEqual(app.windows.firstMatch.title, workspace.lastPathComponent)
 
         let trustButton = app.buttons["workspace.trust"]
         XCTAssertTrue(trustButton.exists)
         trustButton.click()
+        let dismissTrustButton = app.buttons["workspace.trustDismiss"]
+        XCTAssertTrue(dismissTrustButton.exists)
+        dismissTrustButton.click()
         XCTAssertFalse(trustButton.exists)
 
         app.typeKey("p", modifierFlags: .command)

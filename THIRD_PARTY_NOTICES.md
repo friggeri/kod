@@ -1,11 +1,19 @@
 # Third-party notices
 
-Kod vendors the following third-party source code. Each dependency is
-pinned to an exact upstream commit, vendored in full (not fetched at build
-or run time), and compiled directly into the app — there is no runtime
-grammar-extension or plug-in mechanism. `Scripts/vendor-tree-sitter/fetch.py`
-and `Scripts/vendor-tree-sitter/manifest.json` record the exact commits and
-can be re-run to refresh a pin.
+Kod includes or adapts the following third-party work. Third-party work shipped
+in Kod is pinned to exact upstream commits, included locally, and never fetched
+at build or run time. Test-only tooling that is not shipped is called out
+separately.
+
+## PVC color themes
+
+- **Project:** [friggeri/pvc-theme](https://github.com/friggeri/pvc-theme)
+- **Pinned commit:** `43592b1ff36944cff69f8de973f96dcb5a901d91` (version `1.0.8`)
+- **Adapted at:** `Packages/KodCore/Sources/ThemeCore/BundledThemes.swift`
+- **Changes:** PVC (Light) and PVC (Dark) are adapted to Kod's native theme
+  schema and exposed as Kod Light and Kod Dark.
+- **License:** MIT (Copyright 2022 Adrien Friggeri) — full text at
+  `Vendor/Licenses/pvc-theme-LICENSE.txt`.
 
 ## Tree-sitter runtime
 
@@ -20,6 +28,9 @@ can be re-run to refresh a pin.
   `Packages/KodCore/Sources/CTreeSitter/unicode/LICENSE`.
 - WebAssembly-based grammar loading (`TREE_SITTER_FEATURE_WASM`) is compiled
   out; Kod does not link or ship `wasmtime`.
+- `Scripts/vendor-tree-sitter/fetch.py` and
+  `Scripts/vendor-tree-sitter/manifest.json` record the exact commits and can
+  be re-run to refresh a pin.
 
 ## Tree-sitter grammars
 

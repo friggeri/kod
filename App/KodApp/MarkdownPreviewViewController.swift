@@ -68,14 +68,14 @@ final class MarkdownPreviewViewController: NSViewController {
 
         textView.isEditable = false
         textView.isSelectable = true
+        textView.identifier = NSUserInterfaceItemIdentifier("markdownPreview.textView")
         textView.drawsBackground = true
         textView.backgroundColor = theme.editor.background.nsColor
         textView.delegate = self
-        textView.translatesAutoresizingMaskIntoConstraints = false
 
-        scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        configureReadOnlyScrollingTextView(textView, in: scrollView, wrapsLines: true)
 
         remoteImagesButton.target = self
         remoteImagesButton.action = #selector(handleLoadRemoteImages)
@@ -318,6 +318,8 @@ extension MarkdownPreviewViewController {
 
     var remoteImagesButtonAccessibilityLabel: String? { remoteImagesButton.accessibilityLabel() }
     var diagnosticsAccessibilityLabel: String? { diagnosticsLabel.accessibilityLabel() }
+    var renderedText: String { textView.string }
+    var renderedTextViewFrame: NSRect { textView.frame }
 }
 
 extension MarkdownPreviewViewController: NSTextViewDelegate {

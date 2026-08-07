@@ -421,6 +421,18 @@
         }
       }
     },
+    "Dismiss Workspace Trust Banner": {
+      "comment": "Accessibility label and description for the button that dismisses the workspace trust banner",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss Workspace Trust Banner"
+          }
+        }
+      }
+    },
     "Discovering files...": {
       "comment": "Status label shown in the workspace Explorer while the initial file scan is in progress",
       "extractionState": "manual",
@@ -597,6 +609,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Forward"
+          }
+        }
+      }
+    },
+    "Git diff loading failed": {
+      "comment": "Diagnostics log message recorded when loading a Git diff fails",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git diff loading failed"
           }
         }
       }
@@ -1929,6 +1953,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Symbols"
+          }
+        }
+      }
+    },
+    "Symbols are unavailable until the language server is ready.": {
+      "comment": "Status label shown when a symbol search cannot run because its language server is unavailable",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbols are unavailable until the language server is ready."
           }
         }
       }
