@@ -1,0 +1,131 @@
+# Manual VoiceOver and accessibility verification checklist (Phase 11)
+
+This checklist covers the parts of Kod's accessibility, keyboard, and
+appearance support that **cannot be verified by an automated agent** in
+this environment. `Scripts/verify-phase 11` deliberately never launches
+`KodAppUITests`, `XCUIApplication`, AppleScript, or any other tooling that
+drives the mouse/keyboard/Accessibility APIs as an automation client —
+see that script's comments for why this is a permanent constraint, not a
+temporary gap.
+
+Everything below must be performed **by a human**, on a real Mac, with a
+real VoiceOver session, before each release. Nothing in this document has
+been executed by any automated process; do not treat prior headless test
+runs (`CodeViewportAccessibilityTests`, `DiagnosticsCoreTests`, KodAppTests'
+accessibility/keyboard-registry/zoom-appearance suites) as a substitute for
+this checklist — they prove the underlying AppKit accessibility API
+*contracts* (roles, labels, values, ranges, rotor item models) are
+implemented correctly in isolation, not that a real screen-reader user can
+actually complete Kod's primary workflows end to end.
+
+## Setup
+
+1. A clean build of the `Kod` scheme (`Release` configuration recommended,
+   since it is what ships).
+2. System Settings → Accessibility → VoiceOver turned on (⌘F5), or
+   Accessibility Inspector's own "Enable VoiceOver" for a more forgiving
+   debugging session.
+3. A non-trivial test workspace containing: at least one file with a
+   syntax error (for a diagnostic), at least one foldable region, at
+   least one uncommitted Git change (added/modified/deleted), and a
+   Markdown, image, and JSON file (for preview checks).
+
+## 1. CodeViewport accessibility
+
+- [ ] Navigate into the code viewport with VoiceOver and confirm it
+      announces as a read-only text area (role + "read-only source code"
+      role description), not as an editable text field.
+- [ ] Use VoiceOver's rotor (VO-U) and confirm **Symbols**, **Diagnostics**,
+      **References**, **Folds**, and **Git Changes** rotors are present
+      whenever the corresponding data exists in the open file, and are
+      *absent* (not empty/blank entries) when it does not.
+- [ ] Move through the Diagnostics rotor and confirm each item announces
+      severity + message, and activating an item moves the VoiceOver
+      cursor/selection to the corresponding line.
+- [ ] Move through the Symbols rotor and confirm each entry announces a
+      real symbol kind (e.g. "function", "class") and name.
+- [ ] Move through the Git Changes rotor and confirm each entry announces
+      the change kind (added/modified/deleted) — never color-only.
+- [ ] Select a range of text with VoiceOver's text navigation and confirm
+      "read selected text"/interact-with-text gestures return exactly the
+      selected source text, including across a line containing emoji or
+      other multi-UTF-16-unit characters.
+- [ ] Toggle a fold closed/open and confirm VoiceOver announces the
+      collapsed/expanded state change on the Folds rotor entry.
+- [ ] Confirm VoiceOver announces line numbers as you move by line
+      (VO-Down/Up or line navigation), matching the visible gutter.
+
+## 2. App shell accessibility
+
+- [ ] Explorer: navigate the file tree with VoiceOver and confirm each row
+      announces file/folder name and Git status (if any) as text, not
+      just a colored badge.
+- [ ] Tabs: confirm each open tab announces its file name and pinned/
+      preview/dirty state, and that each tab's close button announces
+      "Close <filename>" distinctly (not just "Close").
+- [ ] Split groups: with two or more split groups open, confirm VoiceOver
+      can distinguish which group is active.
+- [ ] Problems panel: confirm each row announces severity as a word
+      ("Error"/"Warning"/etc.), not color alone, plus file/line/message.
+- [ ] Symbols panel: confirm each row announces symbol kind + name.
+- [ ] Search panel: run a search, confirm results announce file/line/match
+      text, and confirm a cancelled or truncated search state is announced
+      (not just shown visually).
+- [ ] Source Control panel: confirm each entry's change kind is announced
+      as text.
+- [ ] Trust banner: open an untrusted workspace, confirm the banner and
+      its "Trust"/"Revoke Trust" controls are reachable and clearly
+      labeled by VoiceOver.
+- [ ] Settings window: tab through every control (Theme, Font, Diagnostics/
+      Privacy tabs) with VoiceOver and confirm every control has a
+      meaningful label, not a bare identifier or "button".
+- [ ] Diff/blame viewers: confirm added/removed/modified line markers are
+      announced as text, and blame annotations announce author/date/
+      commit summary.
+- [ ] Previews: open a Markdown, image, and JSON/plist file; confirm the
+      Source/Preview toggle, zoom controls, transparency toggle, and
+      remote-image opt-in are all announced with their current state.
+
+## 3. Keyboard-only workflow
+
+Unplug the mouse/trackpad (or simply do not touch it) and, using only the
+keyboard:
+
+- [ ] Open a workspace, use Quick Open to jump to a file, use Find in File
+      and Go to Line, open the Problems/Symbols/Search sidebars, open a
+      diff/blame view, and toggle a preview — confirm every step is
+      reachable via a discoverable menu command or a documented shortcut,
+      with visible focus at every stop (never a focus state that only a
+      sighted color-highlight communicates).
+- [ ] Confirm every command exercised above also exists as a real, enabled
+      native menu item (Menu Bar), not just a raw keyboard shortcut.
+
+## 4. Zoom, motion, and contrast
+
+- [ ] In Settings → Font, increase the font size to its maximum (300%-plus
+      of the default) and confirm the code viewport, its line-number
+      gutter, and the Settings UI itself do not clip or truncate content.
+- [ ] In System Settings → Accessibility, enable "Reduce Motion" and
+      confirm Kod's own transitions (panel show/hide, etc.) become
+      immediate/non-animated.
+- [ ] Enable "Increase Contrast" and confirm Kod's bundled high-contrast
+      themes are offered/preferred and meet a visibly higher contrast bar.
+- [ ] Enable "Differentiate Without Color" and confirm diff markers and
+      diagnostic severities remain distinguishable (via the text labels
+      already covered above, and any additional shape/icon cues).
+- [ ] Change the system accent color and confirm Kod's selection/highlight
+      colors follow it rather than a hardcoded blue.
+
+## 5. Localization infrastructure sanity check
+
+- [ ] With a Debug build, use Xcode's "Pseudolocalization" scheme option
+      (Edit Scheme → Run → Options → Application Language →
+      "Double-Length Pseudolanguage") and confirm no control in the app
+      shell visibly clips or truncates its label.
+
+---
+
+Record the date, macOS version, and Kod build/commit tested against each
+time this checklist is run, and file any finding as a normal issue —
+this document intentionally has no digital sign-off mechanism, since its
+entire purpose is to require an actual human accessibility pass.

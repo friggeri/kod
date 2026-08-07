@@ -1,0 +1,961 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B00000000000000000000001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000010 /* AppDelegate.swift */; };
+		B00000000000000000000002 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000011 /* WelcomeView.swift */; };
+		B00000000000000000000003 /* KodCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000002 /* KodCore */; };
+		B00000000000000000000004 /* KodAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000012 /* KodAppTests.swift */; };
+		B00000000000000000000005 /* KodCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000003 /* KodCore */; };
+		B00000000000000000000006 /* KodAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000013 /* KodAppUITests.swift */; };
+		B00000000000000000000007 /* SourceModel in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000004 /* SourceModel */; };
+		B00000000000000000000008 /* CodeViewport in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000005 /* CodeViewport */; };
+		B00000000000000000000009 /* WorkspaceViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000014 /* WorkspaceViewController.swift */; };
+		B00000000000000000000010 /* QuickOpenPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000015 /* QuickOpenPanelController.swift */; };
+		B00000000000000000000011 /* WorkspaceCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000006 /* WorkspaceCore */; };
+		B00000000000000000000012 /* EditorGroupViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000016 /* EditorGroupViewController.swift */; };
+		B00000000000000000000013 /* SplitContainerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000017 /* SplitContainerViewController.swift */; };
+		B00000000000000000000014 /* CommandPaletteController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000018 /* CommandPaletteController.swift */; };
+		B00000000000000000000015 /* GoToLinePanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000019 /* GoToLinePanelController.swift */; };
+		B00000000000000000000016 /* StandaloneDocumentViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000001A /* StandaloneDocumentViewController.swift */; };
+		B00000000000000000000017 /* AppearanceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000001B /* AppearanceSettings.swift */; };
+		B00000000000000000000018 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000001C /* SettingsView.swift */; };
+		B00000000000000000000019 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000001D /* SettingsWindowController.swift */; };
+		B00000000000000000000020 /* ThemeCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000007 /* ThemeCore */; };
+		B00000000000000000000021 /* FontCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000008 /* FontCore */; };
+		B00000000000000000000022 /* SearchCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000009 /* SearchCore */; };
+		B00000000000000000000023 /* SearchCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000000A /* SearchCore */; };
+		B00000000000000000000027 /* SourceModel in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000000B /* SourceModel */; };
+		B00000000000000000000028 /* WorkspaceCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000000C /* WorkspaceCore */; };
+		B00000000000000000000029 /* CodeViewport in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000000D /* CodeViewport */; };
+		B0000000000000000000002A /* ThemeCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000000E /* ThemeCore */; };
+		B0000000000000000000002B /* FontCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000000F /* FontCore */; };
+		B00000000000000000000024 /* SearchSidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000001E /* SearchSidebarViewController.swift */; };
+		B00000000000000000000025 /* EditorGroupViewControllerReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000001F /* EditorGroupViewControllerReloadTests.swift */; };
+		B00000000000000000000026 /* WorkspaceViewControllerLiveUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000020 /* WorkspaceViewControllerLiveUpdateTests.swift */; };
+		B0000000000000000000002C /* LanguageServicesCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000021 /* LanguageServicesCoordinator.swift */; };
+		B0000000000000000000002D /* ProblemsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000022 /* ProblemsViewController.swift */; };
+		B0000000000000000000002E /* SymbolsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000023 /* SymbolsViewController.swift */; };
+		B0000000000000000000002F /* LanguageClient in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000010 /* LanguageClient */; };
+		B00000000000000000000030 /* LanguageClient in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000011 /* LanguageClient */; };
+		B00000000000000000000031 /* ProblemsViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000024 /* ProblemsViewControllerTests.swift */; };
+		B00000000000000000000032 /* SymbolsViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000025 /* SymbolsViewControllerTests.swift */; };
+		B00000000000000000000033 /* SyntaxCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000012 /* SyntaxCore */; };
+		B00000000000000000000034 /* SyntaxCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000013 /* SyntaxCore */; };
+		B00000000000000000000035 /* MultiLanguageServicesCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000026 /* MultiLanguageServicesCoordinator.swift */; };
+		B00000000000000000000036 /* PeekViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000027 /* PeekViewController.swift */; };
+		B00000000000000000000037 /* HierarchyViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000028 /* HierarchyViewController.swift */; };
+		B00000000000000000000038 /* PeekViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000029 /* PeekViewControllerTests.swift */; };
+		B00000000000000000000039 /* HierarchyViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000002A /* HierarchyViewControllerTests.swift */; };
+		B0000000000000000000003A /* MultiLanguageServicesCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000002B /* MultiLanguageServicesCoordinatorTests.swift */; };
+		B0000000000000000000003B /* LanguageAdapters in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000014 /* LanguageAdapters */; };
+		B0000000000000000000003C /* LanguageAdapters in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000015 /* LanguageAdapters */; };
+		B0000000000000000000003D /* ManagedLanguageServers in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000016 /* ManagedLanguageServers */; };
+		B0000000000000000000003E /* ManagedLanguageServers in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000017 /* ManagedLanguageServers */; };
+		B0000000000000000000003F /* ManagedInstallStatusModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000002C /* ManagedInstallStatusModel.swift */; };
+		B00000000000000000000040 /* ManagedInstallCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000002D /* ManagedInstallCoordinator.swift */; };
+		B00000000000000000000041 /* ManagedInstallCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000002E /* ManagedInstallCoordinatorTests.swift */; };
+		B00000000000000000000042 /* GitWorkspaceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000030 /* GitWorkspaceCoordinator.swift */; };
+		B00000000000000000000043 /* SourceControlSidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000031 /* SourceControlSidebarViewController.swift */; };
+		B00000000000000000000044 /* GitDiffViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000032 /* GitDiffViewController.swift */; };
+		B00000000000000000000045 /* GitBlameViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000033 /* GitBlameViewController.swift */; };
+		B00000000000000000000046 /* GitDiffPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000034 /* GitDiffPanelController.swift */; };
+		B00000000000000000000047 /* GitBlamePanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000035 /* GitBlamePanelController.swift */; };
+		B00000000000000000000048 /* GitWorkspaceCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000036 /* GitWorkspaceCoordinatorTests.swift */; };
+		B00000000000000000000049 /* SourceControlSidebarViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000037 /* SourceControlSidebarViewControllerTests.swift */; };
+		B0000000000000000000004A /* GitDiffViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000038 /* GitDiffViewControllerTests.swift */; };
+		B0000000000000000000004B /* GitBlameViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000039 /* GitBlameViewControllerTests.swift */; };
+		B0000000000000000000004C /* GitCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000018 /* GitCore */; };
+		B0000000000000000000004D /* GitCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000019 /* GitCore */; };
+		B0000000000000000000004E /* PreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000003A /* PreviewViewController.swift */; };
+		B0000000000000000000004F /* MarkdownPreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000003B /* MarkdownPreviewViewController.swift */; };
+		B00000000000000000000050 /* StructuredDataPreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000003C /* StructuredDataPreviewViewController.swift */; };
+		B00000000000000000000051 /* ImagePreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000003D /* ImagePreviewViewController.swift */; };
+		B00000000000000000000052 /* PreviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000001A /* PreviewCore */; };
+		B00000000000000000000053 /* PreviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000001B /* PreviewCore */; };
+		B00000000000000000000059 /* DiagnosticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000001C /* DiagnosticsCore */; };
+		B0000000000000000000005A /* DiagnosticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000001D /* DiagnosticsCore */; };
+		B0000000000000000000005B /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000043 /* DiagnosticsView.swift */; };
+		B0000000000000000000005C /* DiagnosticsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000044 /* DiagnosticsViewModel.swift */; };
+		B0000000000000000000005D /* WorkspaceViewControllerTrustControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000045 /* WorkspaceViewControllerTrustControlTests.swift */; };
+		B0000000000000000000005E /* DiagnosticsViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000046 /* DiagnosticsViewModelTests.swift */; };
+		B00000000000000000000054 /* PreviewViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000003E /* PreviewViewControllerTests.swift */; };
+		B00000000000000000000055 /* MarkdownPreviewViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000003F /* MarkdownPreviewViewControllerTests.swift */; };
+		B00000000000000000000056 /* StructuredDataPreviewViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000040 /* StructuredDataPreviewViewControllerTests.swift */; };
+		B00000000000000000000057 /* ImagePreviewViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000041 /* ImagePreviewViewControllerTests.swift */; };
+		B00000000000000000000058 /* EditorGroupPreviewIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000042 /* EditorGroupPreviewIntegrationTests.swift */; };
+		B0000000000000000000005F /* KeyboardCommandRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000047 /* KeyboardCommandRegistry.swift */; };
+		B00000000000000000000060 /* Localized.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000048 /* Localized.swift */; };
+		B00000000000000000000061 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000049 /* Localizable.xcstrings */; };
+		B00000000000000000000062 /* KeyboardCommandRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000004A /* KeyboardCommandRegistryTests.swift */; };
+		B00000000000000000000063 /* AppearanceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000004B /* AppearanceSettingsTests.swift */; };
+		B00000000000000000000064 /* GitBlamePanelControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000004C /* GitBlamePanelControllerTests.swift */; };
+		B00000000000000000000065 /* EditorGroupTabAccessibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000004D /* EditorGroupTabAccessibilityTests.swift */; };
+		B00000000000000000000066 /* PseudolocalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000004E /* PseudolocalizationTests.swift */; };
+		B00000000000000000000067 /* UserFacingStringAuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000004F /* UserFacingStringAuditTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		F00000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E00000000000000000000001;
+			remoteInfo = Kod;
+		};
+		F00000000000000000000003 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E00000000000000000000001;
+			remoteInfo = Kod;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		C00000000000000000000001 /* Kod.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kod.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C00000000000000000000002 /* KodAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KodAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C00000000000000000000003 /* KodAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KodAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C00000000000000000000010 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		C00000000000000000000011 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		C00000000000000000000012 /* KodAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KodAppTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000013 /* KodAppUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KodAppUITests.swift; sourceTree = "<group>"; };
+		C00000000000000000000014 /* WorkspaceViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceViewController.swift; sourceTree = "<group>"; };
+		C00000000000000000000015 /* QuickOpenPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickOpenPanelController.swift; sourceTree = "<group>"; };
+		C00000000000000000000016 /* EditorGroupViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorGroupViewController.swift; sourceTree = "<group>"; };
+		C00000000000000000000017 /* SplitContainerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitContainerViewController.swift; sourceTree = "<group>"; };
+		C00000000000000000000018 /* CommandPaletteController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteController.swift; sourceTree = "<group>"; };
+		C00000000000000000000019 /* GoToLinePanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoToLinePanelController.swift; sourceTree = "<group>"; };
+		C0000000000000000000001A /* StandaloneDocumentViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandaloneDocumentViewController.swift; sourceTree = "<group>"; };
+		C0000000000000000000001B /* AppearanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettings.swift; sourceTree = "<group>"; };
+		C0000000000000000000001C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		C0000000000000000000001D /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		C0000000000000000000001E /* SearchSidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchSidebarViewController.swift; sourceTree = "<group>"; };
+		C0000000000000000000001F /* EditorGroupViewControllerReloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorGroupViewControllerReloadTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000020 /* WorkspaceViewControllerLiveUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceViewControllerLiveUpdateTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000021 /* LanguageServicesCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageServicesCoordinator.swift; sourceTree = "<group>"; };
+		C00000000000000000000022 /* ProblemsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProblemsViewController.swift; sourceTree = "<group>"; };
+		C00000000000000000000023 /* SymbolsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymbolsViewController.swift; sourceTree = "<group>"; };
+		C00000000000000000000024 /* ProblemsViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProblemsViewControllerTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000025 /* SymbolsViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymbolsViewControllerTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000026 /* MultiLanguageServicesCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiLanguageServicesCoordinator.swift; sourceTree = "<group>"; };
+		C00000000000000000000027 /* PeekViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeekViewController.swift; sourceTree = "<group>"; };
+		C00000000000000000000028 /* HierarchyViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HierarchyViewController.swift; sourceTree = "<group>"; };
+		C00000000000000000000029 /* PeekViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeekViewControllerTests.swift; sourceTree = "<group>"; };
+		C0000000000000000000002A /* HierarchyViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HierarchyViewControllerTests.swift; sourceTree = "<group>"; };
+		C0000000000000000000002B /* MultiLanguageServicesCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiLanguageServicesCoordinatorTests.swift; sourceTree = "<group>"; };
+		C0000000000000000000002C /* ManagedInstallStatusModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedInstallStatusModel.swift; sourceTree = "<group>"; };
+		C0000000000000000000002D /* ManagedInstallCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedInstallCoordinator.swift; sourceTree = "<group>"; };
+		C0000000000000000000002E /* ManagedInstallCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedInstallCoordinatorTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000030 /* GitWorkspaceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitWorkspaceCoordinator.swift; sourceTree = "<group>"; };
+		C00000000000000000000031 /* SourceControlSidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlSidebarViewController.swift; sourceTree = "<group>"; };
+		C00000000000000000000032 /* GitDiffViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffViewController.swift; sourceTree = "<group>"; };
+		C00000000000000000000033 /* GitBlameViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitBlameViewController.swift; sourceTree = "<group>"; };
+		C00000000000000000000034 /* GitDiffPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffPanelController.swift; sourceTree = "<group>"; };
+		C00000000000000000000035 /* GitBlamePanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitBlamePanelController.swift; sourceTree = "<group>"; };
+		C00000000000000000000036 /* GitWorkspaceCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitWorkspaceCoordinatorTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000037 /* SourceControlSidebarViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlSidebarViewControllerTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000038 /* GitDiffViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffViewControllerTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000039 /* GitBlameViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitBlameViewControllerTests.swift; sourceTree = "<group>"; };
+		C0000000000000000000003A /* PreviewViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewViewController.swift; sourceTree = "<group>"; };
+		C0000000000000000000003B /* MarkdownPreviewViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPreviewViewController.swift; sourceTree = "<group>"; };
+		C0000000000000000000003C /* StructuredDataPreviewViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuredDataPreviewViewController.swift; sourceTree = "<group>"; };
+		C0000000000000000000003D /* ImagePreviewViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePreviewViewController.swift; sourceTree = "<group>"; };
+		C0000000000000000000003E /* PreviewViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewViewControllerTests.swift; sourceTree = "<group>"; };
+		C0000000000000000000003F /* MarkdownPreviewViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPreviewViewControllerTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000040 /* StructuredDataPreviewViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuredDataPreviewViewControllerTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000041 /* ImagePreviewViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePreviewViewControllerTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000042 /* EditorGroupPreviewIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorGroupPreviewIntegrationTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000043 /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
+		C00000000000000000000044 /* DiagnosticsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsViewModel.swift; sourceTree = "<group>"; };
+		C00000000000000000000045 /* WorkspaceViewControllerTrustControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceViewControllerTrustControlTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000046 /* DiagnosticsViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsViewModelTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000047 /* KeyboardCommandRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardCommandRegistry.swift; sourceTree = "<group>"; };
+		C00000000000000000000048 /* Localized.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localized.swift; sourceTree = "<group>"; };
+		C00000000000000000000049 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		C0000000000000000000004A /* KeyboardCommandRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardCommandRegistryTests.swift; sourceTree = "<group>"; };
+		C0000000000000000000004B /* AppearanceSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsTests.swift; sourceTree = "<group>"; };
+		C0000000000000000000004C /* GitBlamePanelControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitBlamePanelControllerTests.swift; sourceTree = "<group>"; };
+		C0000000000000000000004D /* EditorGroupTabAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorGroupTabAccessibilityTests.swift; sourceTree = "<group>"; };
+		C0000000000000000000004E /* PseudolocalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PseudolocalizationTests.swift; sourceTree = "<group>"; };
+		C0000000000000000000004F /* UserFacingStringAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserFacingStringAuditTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		D00000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000003 /* KodCore in Frameworks */,
+				B00000000000000000000007 /* SourceModel in Frameworks */,
+				B00000000000000000000008 /* CodeViewport in Frameworks */,
+				B00000000000000000000011 /* WorkspaceCore in Frameworks */,
+				B00000000000000000000020 /* ThemeCore in Frameworks */,
+				B00000000000000000000021 /* FontCore in Frameworks */,
+				B00000000000000000000022 /* SearchCore in Frameworks */,
+				B0000000000000000000002F /* LanguageClient in Frameworks */,
+				B00000000000000000000033 /* SyntaxCore in Frameworks */,
+				B0000000000000000000003B /* LanguageAdapters in Frameworks */,
+				B0000000000000000000003D /* ManagedLanguageServers in Frameworks */,
+				B0000000000000000000004C /* GitCore in Frameworks */,
+				B00000000000000000000052 /* PreviewCore in Frameworks */,
+				B00000000000000000000059 /* DiagnosticsCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000005 /* KodCore in Frameworks */,
+				B00000000000000000000023 /* SearchCore in Frameworks */,
+				B00000000000000000000027 /* SourceModel in Frameworks */,
+				B00000000000000000000028 /* WorkspaceCore in Frameworks */,
+				B00000000000000000000029 /* CodeViewport in Frameworks */,
+				B0000000000000000000002A /* ThemeCore in Frameworks */,
+				B0000000000000000000002B /* FontCore in Frameworks */,
+				B00000000000000000000030 /* LanguageClient in Frameworks */,
+				B00000000000000000000034 /* SyntaxCore in Frameworks */,
+				B0000000000000000000003C /* LanguageAdapters in Frameworks */,
+				B0000000000000000000003E /* ManagedLanguageServers in Frameworks */,
+				B0000000000000000000004D /* GitCore in Frameworks */,
+				B00000000000000000000053 /* PreviewCore in Frameworks */,
+				B0000000000000000000005A /* DiagnosticsCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A00000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000004 /* App */,
+				A00000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A00000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C00000000000000000000001 /* Kod.app */,
+				C00000000000000000000002 /* KodAppTests.xctest */,
+				C00000000000000000000003 /* KodAppUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000004 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000007 /* KodApp */,
+				A00000000000000000000008 /* KodAppTests */,
+				A00000000000000000000009 /* KodAppUITests */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000007 /* KodApp */ = {
+			isa = PBXGroup;
+			children = (
+				C00000000000000000000010 /* AppDelegate.swift */,
+				C00000000000000000000011 /* WelcomeView.swift */,
+				C00000000000000000000014 /* WorkspaceViewController.swift */,
+				C00000000000000000000015 /* QuickOpenPanelController.swift */,
+				C00000000000000000000016 /* EditorGroupViewController.swift */,
+				C00000000000000000000017 /* SplitContainerViewController.swift */,
+				C00000000000000000000018 /* CommandPaletteController.swift */,
+				C00000000000000000000019 /* GoToLinePanelController.swift */,
+				C0000000000000000000001A /* StandaloneDocumentViewController.swift */,
+				C0000000000000000000001B /* AppearanceSettings.swift */,
+				C0000000000000000000001C /* SettingsView.swift */,
+				C0000000000000000000001D /* SettingsWindowController.swift */,
+				C0000000000000000000001E /* SearchSidebarViewController.swift */,
+				C00000000000000000000021 /* LanguageServicesCoordinator.swift */,
+				C00000000000000000000022 /* ProblemsViewController.swift */,
+				C00000000000000000000023 /* SymbolsViewController.swift */,
+				C00000000000000000000026 /* MultiLanguageServicesCoordinator.swift */,
+				C00000000000000000000027 /* PeekViewController.swift */,
+				C00000000000000000000028 /* HierarchyViewController.swift */,
+				C0000000000000000000002C /* ManagedInstallStatusModel.swift */,
+				C0000000000000000000002D /* ManagedInstallCoordinator.swift */,
+				C00000000000000000000030 /* GitWorkspaceCoordinator.swift */,
+				C00000000000000000000031 /* SourceControlSidebarViewController.swift */,
+				C00000000000000000000032 /* GitDiffViewController.swift */,
+				C00000000000000000000033 /* GitBlameViewController.swift */,
+				C00000000000000000000034 /* GitDiffPanelController.swift */,
+				C00000000000000000000035 /* GitBlamePanelController.swift */,
+				C0000000000000000000003A /* PreviewViewController.swift */,
+				C0000000000000000000003B /* MarkdownPreviewViewController.swift */,
+				C0000000000000000000003C /* StructuredDataPreviewViewController.swift */,
+				C0000000000000000000003D /* ImagePreviewViewController.swift */,
+				C00000000000000000000043 /* DiagnosticsView.swift */,
+				C00000000000000000000044 /* DiagnosticsViewModel.swift */,
+				C00000000000000000000047 /* KeyboardCommandRegistry.swift */,
+				C00000000000000000000048 /* Localized.swift */,
+				C00000000000000000000049 /* Localizable.xcstrings */,
+			);
+			path = KodApp;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000008 /* KodAppTests */ = {
+			isa = PBXGroup;
+			children = (
+				C00000000000000000000012 /* KodAppTests.swift */,
+				C0000000000000000000001F /* EditorGroupViewControllerReloadTests.swift */,
+				C00000000000000000000020 /* WorkspaceViewControllerLiveUpdateTests.swift */,
+				C00000000000000000000024 /* ProblemsViewControllerTests.swift */,
+				C00000000000000000000025 /* SymbolsViewControllerTests.swift */,
+				C00000000000000000000029 /* PeekViewControllerTests.swift */,
+				C0000000000000000000002A /* HierarchyViewControllerTests.swift */,
+				C0000000000000000000002B /* MultiLanguageServicesCoordinatorTests.swift */,
+				C0000000000000000000002E /* ManagedInstallCoordinatorTests.swift */,
+				C00000000000000000000036 /* GitWorkspaceCoordinatorTests.swift */,
+				C00000000000000000000037 /* SourceControlSidebarViewControllerTests.swift */,
+				C00000000000000000000038 /* GitDiffViewControllerTests.swift */,
+				C00000000000000000000039 /* GitBlameViewControllerTests.swift */,
+				C0000000000000000000003E /* PreviewViewControllerTests.swift */,
+				C0000000000000000000003F /* MarkdownPreviewViewControllerTests.swift */,
+				C00000000000000000000040 /* StructuredDataPreviewViewControllerTests.swift */,
+				C00000000000000000000041 /* ImagePreviewViewControllerTests.swift */,
+				C00000000000000000000042 /* EditorGroupPreviewIntegrationTests.swift */,
+				C00000000000000000000045 /* WorkspaceViewControllerTrustControlTests.swift */,
+				C00000000000000000000046 /* DiagnosticsViewModelTests.swift */,
+				C0000000000000000000004A /* KeyboardCommandRegistryTests.swift */,
+				C0000000000000000000004B /* AppearanceSettingsTests.swift */,
+				C0000000000000000000004C /* GitBlamePanelControllerTests.swift */,
+				C0000000000000000000004D /* EditorGroupTabAccessibilityTests.swift */,
+				C0000000000000000000004E /* PseudolocalizationTests.swift */,
+				C0000000000000000000004F /* UserFacingStringAuditTests.swift */,
+			);
+			path = KodAppTests;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000009 /* KodAppUITests */ = {
+			isa = PBXGroup;
+			children = (
+				C00000000000000000000013 /* KodAppUITests.swift */,
+			);
+			path = KodAppUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E00000000000000000000001 /* Kod */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = H00000000000000000000002 /* Build configuration list for PBXNativeTarget "Kod" */;
+			buildPhases = (
+				D00000000000000000000001 /* Sources */,
+				D00000000000000000000002 /* Frameworks */,
+				D00000000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Kod;
+			packageProductDependencies = (
+				I00000000000000000000002 /* KodCore */,
+				I00000000000000000000004 /* SourceModel */,
+				I00000000000000000000005 /* CodeViewport */,
+				I00000000000000000000006 /* WorkspaceCore */,
+				I00000000000000000000007 /* ThemeCore */,
+				I00000000000000000000008 /* FontCore */,
+				I00000000000000000000009 /* SearchCore */,
+				I00000000000000000000010 /* LanguageClient */,
+				I00000000000000000000012 /* SyntaxCore */,
+				I00000000000000000000014 /* LanguageAdapters */,
+				I00000000000000000000016 /* ManagedLanguageServers */,
+				I00000000000000000000018 /* GitCore */,
+				I0000000000000000000001A /* PreviewCore */,
+				I0000000000000000000001C /* DiagnosticsCore */,
+			);
+			productName = Kod;
+			productReference = C00000000000000000000001 /* Kod.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E00000000000000000000002 /* KodAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = H00000000000000000000003 /* Build configuration list for PBXNativeTarget "KodAppTests" */;
+			buildPhases = (
+				D00000000000000000000004 /* Sources */,
+				D00000000000000000000005 /* Frameworks */,
+				D00000000000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F00000000000000000000004 /* PBXTargetDependency */,
+			);
+			name = KodAppTests;
+			packageProductDependencies = (
+				I00000000000000000000003 /* KodCore */,
+				I0000000000000000000000A /* SearchCore */,
+				I0000000000000000000000B /* SourceModel */,
+				I0000000000000000000000C /* WorkspaceCore */,
+				I0000000000000000000000D /* CodeViewport */,
+				I0000000000000000000000E /* ThemeCore */,
+				I0000000000000000000000F /* FontCore */,
+				I00000000000000000000011 /* LanguageClient */,
+				I00000000000000000000013 /* SyntaxCore */,
+				I00000000000000000000015 /* LanguageAdapters */,
+				I00000000000000000000017 /* ManagedLanguageServers */,
+				I00000000000000000000019 /* GitCore */,
+				I0000000000000000000001B /* PreviewCore */,
+				I0000000000000000000001D /* DiagnosticsCore */,
+			);
+			productName = KodAppTests;
+			productReference = C00000000000000000000002 /* KodAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		E00000000000000000000003 /* KodAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = H00000000000000000000004 /* Build configuration list for PBXNativeTarget "KodAppUITests" */;
+			buildPhases = (
+				D00000000000000000000007 /* Sources */,
+				D00000000000000000000008 /* Frameworks */,
+				D00000000000000000000009 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F00000000000000000000002 /* PBXTargetDependency */,
+			);
+			name = KodAppUITests;
+			productName = KodAppUITests;
+			productReference = C00000000000000000000003 /* KodAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2650;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					E00000000000000000000001 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					E00000000000000000000002 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = E00000000000000000000001;
+					};
+					E00000000000000000000003 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = E00000000000000000000001;
+					};
+				};
+			};
+			buildConfigurationList = H00000000000000000000001 /* Build configuration list for PBXProject "Kod" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A00000000000000000000002;
+			packageReferences = (
+				I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */,
+			);
+			productRefGroup = A00000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E00000000000000000000001 /* Kod */,
+				E00000000000000000000002 /* KodAppTests */,
+				E00000000000000000000003 /* KodAppUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D00000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000061 /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D00000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000001 /* AppDelegate.swift in Sources */,
+				B00000000000000000000002 /* WelcomeView.swift in Sources */,
+				B00000000000000000000009 /* WorkspaceViewController.swift in Sources */,
+				B00000000000000000000010 /* QuickOpenPanelController.swift in Sources */,
+				B00000000000000000000012 /* EditorGroupViewController.swift in Sources */,
+				B00000000000000000000013 /* SplitContainerViewController.swift in Sources */,
+				B00000000000000000000014 /* CommandPaletteController.swift in Sources */,
+				B00000000000000000000015 /* GoToLinePanelController.swift in Sources */,
+				B00000000000000000000016 /* StandaloneDocumentViewController.swift in Sources */,
+				B00000000000000000000017 /* AppearanceSettings.swift in Sources */,
+				B00000000000000000000018 /* SettingsView.swift in Sources */,
+				B00000000000000000000019 /* SettingsWindowController.swift in Sources */,
+				B00000000000000000000024 /* SearchSidebarViewController.swift in Sources */,
+				B0000000000000000000002C /* LanguageServicesCoordinator.swift in Sources */,
+				B0000000000000000000002D /* ProblemsViewController.swift in Sources */,
+				B0000000000000000000002E /* SymbolsViewController.swift in Sources */,
+				B00000000000000000000035 /* MultiLanguageServicesCoordinator.swift in Sources */,
+				B00000000000000000000036 /* PeekViewController.swift in Sources */,
+				B00000000000000000000037 /* HierarchyViewController.swift in Sources */,
+				B0000000000000000000003F /* ManagedInstallStatusModel.swift in Sources */,
+				B00000000000000000000040 /* ManagedInstallCoordinator.swift in Sources */,
+				B00000000000000000000042 /* GitWorkspaceCoordinator.swift in Sources */,
+				B00000000000000000000043 /* SourceControlSidebarViewController.swift in Sources */,
+				B00000000000000000000044 /* GitDiffViewController.swift in Sources */,
+				B00000000000000000000045 /* GitBlameViewController.swift in Sources */,
+				B00000000000000000000046 /* GitDiffPanelController.swift in Sources */,
+				B00000000000000000000047 /* GitBlamePanelController.swift in Sources */,
+				B0000000000000000000004E /* PreviewViewController.swift in Sources */,
+				B0000000000000000000004F /* MarkdownPreviewViewController.swift in Sources */,
+				B00000000000000000000050 /* StructuredDataPreviewViewController.swift in Sources */,
+				B00000000000000000000051 /* ImagePreviewViewController.swift in Sources */,
+				B0000000000000000000005B /* DiagnosticsView.swift in Sources */,
+				B0000000000000000000005C /* DiagnosticsViewModel.swift in Sources */,
+				B0000000000000000000005F /* KeyboardCommandRegistry.swift in Sources */,
+				B00000000000000000000060 /* Localized.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000004 /* KodAppTests.swift in Sources */,
+				B00000000000000000000025 /* EditorGroupViewControllerReloadTests.swift in Sources */,
+				B00000000000000000000026 /* WorkspaceViewControllerLiveUpdateTests.swift in Sources */,
+				B00000000000000000000031 /* ProblemsViewControllerTests.swift in Sources */,
+				B00000000000000000000032 /* SymbolsViewControllerTests.swift in Sources */,
+				B00000000000000000000038 /* PeekViewControllerTests.swift in Sources */,
+				B00000000000000000000039 /* HierarchyViewControllerTests.swift in Sources */,
+				B0000000000000000000003A /* MultiLanguageServicesCoordinatorTests.swift in Sources */,
+				B00000000000000000000041 /* ManagedInstallCoordinatorTests.swift in Sources */,
+				B00000000000000000000048 /* GitWorkspaceCoordinatorTests.swift in Sources */,
+				B00000000000000000000049 /* SourceControlSidebarViewControllerTests.swift in Sources */,
+				B0000000000000000000004A /* GitDiffViewControllerTests.swift in Sources */,
+				B0000000000000000000004B /* GitBlameViewControllerTests.swift in Sources */,
+				B00000000000000000000054 /* PreviewViewControllerTests.swift in Sources */,
+				B00000000000000000000055 /* MarkdownPreviewViewControllerTests.swift in Sources */,
+				B00000000000000000000056 /* StructuredDataPreviewViewControllerTests.swift in Sources */,
+				B00000000000000000000057 /* ImagePreviewViewControllerTests.swift in Sources */,
+				B00000000000000000000058 /* EditorGroupPreviewIntegrationTests.swift in Sources */,
+				B0000000000000000000005D /* WorkspaceViewControllerTrustControlTests.swift in Sources */,
+				B0000000000000000000005E /* DiagnosticsViewModelTests.swift in Sources */,
+				B00000000000000000000062 /* KeyboardCommandRegistryTests.swift in Sources */,
+				B00000000000000000000063 /* AppearanceSettingsTests.swift in Sources */,
+				B00000000000000000000064 /* GitBlamePanelControllerTests.swift in Sources */,
+				B00000000000000000000065 /* EditorGroupTabAccessibilityTests.swift in Sources */,
+				B00000000000000000000066 /* PseudolocalizationTests.swift in Sources */,
+				B00000000000000000000067 /* UserFacingStringAuditTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000006 /* KodAppUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		F00000000000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E00000000000000000000001 /* Kod */;
+			targetProxy = F00000000000000000000001 /* PBXContainerItemProxy */;
+		};
+		F00000000000000000000004 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E00000000000000000000001 /* Kod */;
+			targetProxy = F00000000000000000000003 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		G00000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		G00000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		G00000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Kod;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHighResolutionCapable = YES;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kodapp.Kod;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		G00000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Kod;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHighResolutionCapable = YES;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kodapp.Kod;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		G00000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kodapp.KodAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kod.app/Contents/MacOS/Kod";
+			};
+			name = Debug;
+		};
+		G00000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kodapp.KodAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kod.app/Contents/MacOS/Kod";
+			};
+			name = Release;
+		};
+		G00000000000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kodapp.KodAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = Kod;
+			};
+			name = Debug;
+		};
+		G00000000000000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kodapp.KodAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = Kod;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		H00000000000000000000001 /* Build configuration list for PBXProject "Kod" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				G00000000000000000000001 /* Debug */,
+				G00000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		H00000000000000000000002 /* Build configuration list for PBXNativeTarget "Kod" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				G00000000000000000000003 /* Debug */,
+				G00000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		H00000000000000000000003 /* Build configuration list for PBXNativeTarget "KodAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				G00000000000000000000005 /* Debug */,
+				G00000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		H00000000000000000000004 /* Build configuration list for PBXNativeTarget "KodAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				G00000000000000000000007 /* Debug */,
+				G00000000000000000000008 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/KodCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		I00000000000000000000002 /* KodCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = KodCore;
+		};
+		I00000000000000000000003 /* KodCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = KodCore;
+		};
+		I00000000000000000000004 /* SourceModel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = SourceModel;
+		};
+		I00000000000000000000005 /* CodeViewport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = CodeViewport;
+		};
+		I00000000000000000000006 /* WorkspaceCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = WorkspaceCore;
+		};
+		I00000000000000000000007 /* ThemeCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = ThemeCore;
+		};
+		I00000000000000000000008 /* FontCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = FontCore;
+		};
+		I00000000000000000000009 /* SearchCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = SearchCore;
+		};
+		I0000000000000000000000A /* SearchCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = SearchCore;
+		};
+		I0000000000000000000000B /* SourceModel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = SourceModel;
+		};
+		I0000000000000000000000C /* WorkspaceCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = WorkspaceCore;
+		};
+		I0000000000000000000000D /* CodeViewport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = CodeViewport;
+		};
+		I0000000000000000000000E /* ThemeCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = ThemeCore;
+		};
+		I0000000000000000000000F /* FontCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = FontCore;
+		};
+		I00000000000000000000010 /* LanguageClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = LanguageClient;
+		};
+		I00000000000000000000011 /* LanguageClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = LanguageClient;
+		};
+		I00000000000000000000012 /* SyntaxCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = SyntaxCore;
+		};
+		I00000000000000000000013 /* SyntaxCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = SyntaxCore;
+		};
+		I00000000000000000000014 /* LanguageAdapters */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = LanguageAdapters;
+		};
+		I00000000000000000000015 /* LanguageAdapters */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = LanguageAdapters;
+		};
+		I00000000000000000000016 /* ManagedLanguageServers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = ManagedLanguageServers;
+		};
+		I00000000000000000000017 /* ManagedLanguageServers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = ManagedLanguageServers;
+		};
+		I00000000000000000000018 /* GitCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = GitCore;
+		};
+		I00000000000000000000019 /* GitCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = GitCore;
+		};
+		I0000000000000000000001A /* PreviewCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = PreviewCore;
+		};
+		I0000000000000000000001B /* PreviewCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = PreviewCore;
+		};
+		I0000000000000000000001C /* DiagnosticsCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = DiagnosticsCore;
+		};
+		I0000000000000000000001D /* DiagnosticsCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
+			productName = DiagnosticsCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A00000000000000000000001 /* Project object */;
+}

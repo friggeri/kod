@@ -1,0 +1,252 @@
+#!/bin/sh
+
+set -eu
+
+repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+phase=${1:-}
+architecture=$(uname -m)
+
+case "$phase" in
+    0|1|2|3|4|5|6|7|8|9|10|11|12)
+        ;;
+    *)
+        printf '%s\n' "Phase 12 is the latest implemented verification gate." >&2
+        printf '%s\n' "Usage: Scripts/verify-phase 0|1|2|3|4|5|6|7|8|9|10|11|12" >&2
+        exit 64
+        ;;
+esac
+
+case "$architecture" in
+    arm64)
+        engine_triple=aarch64-apple-darwin
+        ;;
+    x86_64)
+        engine_triple=x86_64-apple-darwin
+        ;;
+    *)
+        printf '%s\n' "Unsupported architecture for the bundled search engine: $architecture" >&2
+        exit 1
+        ;;
+esac
+bundled_engine="$repository_root/Packages/KodCore/Sources/SearchCore/Resources/ripgrep/$engine_triple/rg"
+if [ ! -x "$bundled_engine" ]; then
+    printf '%s\n' "Missing or non-executable bundled search engine for $engine_triple: $bundled_engine" >&2
+    printf '%s\n' "Run Scripts/vendor-ripgrep/vendor.sh to (re)vendor it." >&2
+    exit 1
+fi
+printf '%s\n' "==> Bundled search engine present for $engine_triple: $("$bundled_engine" --version | head -1)"
+
+# Phase 6's LanguageClient package needs a real `sourcekit-lsp` for its
+# non-skippable integration tests (SPEC 6.5: discovery through `xcrun
+# --find sourcekit-lsp`, never a shell/PATH lookup). Fail fast with a
+# clear message rather than letting those tests fail confusingly later.
+if [ "$phase" = "6" ] || [ "$phase" = "7" ] || [ "$phase" = "8" ] || [ "$phase" = "9" ] || [ "$phase" = "10" ] || [ "$phase" = "11" ] || [ "$phase" = "12" ]; then
+    if ! sourcekit_lsp=$(/usr/bin/xcrun --find sourcekit-lsp 2>/dev/null) || [ ! -x "$sourcekit_lsp" ]; then
+        printf '%s\n' "sourcekit-lsp not found via 'xcrun --find sourcekit-lsp'." >&2
+        printf '%s\n' "Phase 6's real SourceKit-LSP integration tests require a full Xcode toolchain." >&2
+        exit 1
+    fi
+    printf '%s\n' "==> Real SourceKit-LSP present at: $sourcekit_lsp"
+fi
+
+# Phase 7's LanguageAdaptersTests run real, headless integration tests
+# against pinned TypeScript/JavaScript, HTML, CSS, Python, and Rust
+# language servers (SPEC 6.5/6.1) — never a shell string, never a
+# repository-provided command. Fail fast with the exact setup command
+# rather than letting those tests report a confusing missing-executable
+# skip later. Rust's `rust-analyzer` is checked via the same `rustup
+# which` real discovery `RustLanguageAdapter` itself uses.
+if [ "$phase" = "7" ] || [ "$phase" = "8" ] || [ "$phase" = "9" ] || [ "$phase" = "10" ] || [ "$phase" = "11" ] || [ "$phase" = "12" ]; then
+    test_servers_dir="$repository_root/Packages/KodCore/.build/test-language-servers"
+    missing=0
+    for relative_path in \
+        "node_modules/.bin/typescript-language-server" \
+        "node_modules/.bin/vscode-html-language-server" \
+        "node_modules/.bin/vscode-css-language-server" \
+        "pyright-venv/bin/pyright-langserver"
+    do
+        if [ ! -x "$test_servers_dir/$relative_path" ]; then
+            printf '%s\n' "Missing pinned test language server: $test_servers_dir/$relative_path" >&2
+            missing=1
+        fi
+    done
+    if ! command -v rustup >/dev/null 2>&1 || ! rustup which rust-analyzer >/dev/null 2>&1; then
+        printf '%s\n' "Missing pinned test language server: rust-analyzer (via 'rustup which rust-analyzer')" >&2
+        missing=1
+    fi
+    if [ "$missing" -ne 0 ]; then
+        printf '%s\n' "Run Scripts/vendor-test-language-servers/setup.sh to install the pinned Phase 7 test language servers." >&2
+        exit 1
+    fi
+    printf '%s\n' "==> Pinned Phase 7 test language servers present (typescript-language-server, vscode-html/css-language-server, pyright, rust-analyzer)"
+fi
+
+# Phase 8's ManagedLanguageServersTests (hostile-archive/catalog,
+# install/upgrade/rollback/remove/interrupted-recovery lifecycle, and
+# discovery-integration coverage) are fully offline and need no external
+# setup beyond what `swift build`/`swift test` already provisions: the
+# repository's own `FakeLanguageServer` executable (built as a normal
+# SwiftPM product) stands in for a real managed server, a fixed
+# non-secret fixture Ed25519 key signs the offline test catalog, and a
+# minimal loopback-only HTTP server exercises real download mechanics.
+# There is deliberately nothing to vendor or provision here — see
+# Scripts/managed-install-signing/README.md for the real-release-key
+# process, which this script never runs (no production signing key
+# exists in this environment; ManagedCatalogTool is release/test tooling
+# only, and CatalogTrustRoot.production ships empty until that process
+# happens offline).
+if [ "$phase" = "8" ]; then
+    printf '%s\n' "==> Phase 8 managed-install tests run fully offline (fixture catalog/artifacts, no external setup required)"
+fi
+
+# Phase 9's GitCoreTests (status/diff/blame parsing, process-invocation
+# spy assertions, and the full worktree-plus-.git SHA-256 immutability
+# suite) need a real, absolute Git executable — resolved the same way
+# `GitExecutableLocator` resolves it in production (a fixed candidate
+# list: Homebrew's Apple-silicon and Intel prefixes, then Apple's own
+# Xcode Command Line Tools shim at `/usr/bin/git`), never a `PATH`
+# lookup. Every macOS machine with the Xcode toolchain Phase 6 already
+# requires ships `/usr/bin/git`, so there is nothing extra to vendor or
+# provision here; this only fails fast with a clear message if none of
+# the fixed candidates exist at all.
+if [ "$phase" = "9" ] || [ "$phase" = "10" ] || [ "$phase" = "11" ] || [ "$phase" = "12" ]; then
+    if [ ! -x /opt/homebrew/bin/git ] && [ ! -x /usr/local/bin/git ] && [ ! -x /usr/bin/git ]; then
+        printf '%s\n' "No Git executable found at any of GitExecutableLocator's fixed candidate paths (/opt/homebrew/bin/git, /usr/local/bin/git, /usr/bin/git)." >&2
+        printf '%s\n' "Phase 9's GitCoreTests require a real, absolute Git executable to invoke read-only." >&2
+        exit 1
+    fi
+    printf '%s\n' "==> Real Git executable present for GitCoreTests (fixture repositories, golden parsing, process-spy, and immutability tests)"
+fi
+
+# Phase 10's PreviewCoreTests (Markdown/JSON/plist/image golden and
+# hostile-input coverage, no-network-by-default process/network-spy
+# tests, and full workspace immutability checks) are fully offline and
+# self-contained: PreviewCore has no third-party dependencies (it uses
+# only Foundation, ImageIO, CoreGraphics, UniformTypeIdentifiers, and
+# this repository's own SourceModel/SyntaxCore/ThemeCore), no fixture
+# vendoring, and no external services to provision.
+if [ "$phase" = "10" ]; then
+    printf '%s\n' "==> Phase 10 preview tests run fully offline (no third-party PreviewCore dependencies, no external setup required)"
+fi
+
+# Phase 11's accessibility/privacy/reliability hardening (DiagnosticsCoreTests'
+# redaction/quarantine/support-bundle/crash-report-opt-in coverage;
+# CodeViewportAccessibilityTests' role/label/value/range/rotor contracts;
+# FontCoreTests'/ThemeCoreTests'/WorkspaceCoreTests' corrupt-metadata
+# quarantine-and-rebuild tests; KodAppTests' keyboard-command-registry,
+# zoom/appearance, pseudolocalization, and user-facing-string-audit
+# suites) is likewise fully offline and self-contained: `DiagnosticsCore`
+# has no dependencies beyond Foundation, no crash-report transport ever
+# does real network I/O (the only shipped transport is a permanent
+# no-op, gated behind an opt-in setting that defaults off), and the
+# String Catalog/localization work needs no external services. There is
+# nothing to vendor or provision for Phase 11 beyond what earlier phases
+# already require.
+if [ "$phase" = "11" ]; then
+    printf '%s\n' "==> Phase 11 accessibility/privacy/reliability tests run fully offline (no third-party DiagnosticsCore dependencies, no external setup required, crash reporting has no real transport)"
+fi
+
+# Phase 12's release-qualification infrastructure (acceptance-evidence
+# mapping every SPEC 16.2 criterion to real evidence; a consolidated,
+# 30-iteration performance suite for every SPEC 12.2 budget; new seeded
+# fuzz/property suites for renderer/range math, Unicode/encoding
+# positions, LSP framing, themes/catalogs/archives, Git parsers,
+# preview parsers, persistence migrations, and support-bundle
+# redaction; a static release-blocker audit; the new `UpdaterCore`
+# signed-update-feed package; and the `Scripts/release` packaging/
+# signing/notarization/DMG/SBOM/provenance/Homebrew-Cask pipeline) is
+# also fully offline and self-contained for everything this script
+# runs by default — nothing to vendor or provision beyond what earlier
+# phases already require. The `Scripts/release` codesign/notarization
+# and update-feed-signing scripts require production credentials that
+# do not and must not exist in this environment (see
+# `Scripts/release/README.md`); this script never runs them and never
+# needs to, since they are independently invocable and self-report
+# their own credential-gated status rather than silently passing.
+if [ "$phase" = "12" ]; then
+    printf '%s\n' "==> Phase 12 release-qualification tooling runs fully offline (no third-party dependencies added; Scripts/release's signing/notarization steps are independently invocable, credential-gated, and never run by this script)"
+fi
+
+printf '%s\n' "==> Testing KodCore"
+swift test \
+    --package-path "$repository_root/Packages/KodCore" \
+    -Xswiftc -warnings-as-errors
+
+# UI automation (KodAppUITests, XCUIApplication, AppleScript, or anything
+# that drives the user's mouse/keyboard) must never run here. This is a
+# permanent constraint of this script, not something later phases may
+# relax: verification stays headless-only, using Swift package tests,
+# KodAppTests, and an xcodebuild build/test invocation restricted to
+# KodAppTests. Phase 9's Git integration (status/diff/blame, Source
+# Control sidebar, Explorer badges, gutter decorations, diff/blame
+# viewers, commit popovers) is validated exclusively through
+# GitCoreTests (package-level, including the real-Git process-spy and
+# worktree/.git immutability suites) and KodAppTests' headless
+# controller/model tests below — never through KodAppUITests, which
+# remains permanently excluded from this script. Phase 10's built-in
+# previews (Markdown/image/JSON/plist tabs, the Source/Preview toggle,
+# and every safe link/image control) are likewise validated exclusively
+# through PreviewCoreTests (package-level golden/hostile/no-network/
+# immutability/latency coverage) and KodAppTests' headless
+# `PreviewViewController`/`EditorGroupViewController` integration tests
+# below — never through KodAppUITests. Phase 11's full accessibility
+# contract (roles/labels/values/actions/UTF-16 range math/rotor models
+# for `CodeViewport`, plus every panel's accessibility labels across the
+# app shell), its keyboard-command registry, its zoom/appearance/
+# high-contrast model tests, and its pseudolocalization/user-facing-
+# string-audit tests are validated exclusively through
+# `CodeViewportAccessibilityTests`/`DiagnosticsCoreTests` (package-level)
+# and KodAppTests' headless view-controller/view-model tests below — a
+# real VoiceOver session is deliberately never launched by this script;
+# see `docs/manual-voiceover-checklist.md` for the manual release check
+# that covers what only a human running VoiceOver can verify.
+printf '%s\n' "==> Testing Kod app logic (headless; UI automation is never launched)"
+xcodebuild \
+    -project "$repository_root/Kod.xcodeproj" \
+    -scheme Kod \
+    -configuration Debug \
+    -destination "platform=macOS,arch=$architecture" \
+    -derivedDataPath "$repository_root/DerivedData/Phase$phase" \
+    -only-testing:KodAppTests \
+    clean \
+    test
+
+printf '%s\n' "==> Building release configuration"
+xcodebuild \
+    -project "$repository_root/Kod.xcodeproj" \
+    -scheme Kod \
+    -configuration Release \
+    -destination "platform=macOS,arch=$architecture" \
+    -derivedDataPath "$repository_root/DerivedData/Phase${phase}Release" \
+    clean \
+    build
+
+if { [ "$phase" = "2" ] || [ "$phase" = "3" ] || [ "$phase" = "4" ] || [ "$phase" = "5" ] || [ "$phase" = "6" ] || [ "$phase" = "7" ] || [ "$phase" = "8" ] || [ "$phase" = "9" ] || [ "$phase" = "10" ] || [ "$phase" = "11" ] || [ "$phase" = "12" ]; } \
+    && [ "${KOD_RUN_SCALE_TESTS:-0}" = "1" ]; then
+    printf '%s\n' "==> Running 100,000-file workspace scale gate"
+    KOD_RUN_SCALE_TESTS=1 swift test \
+        --package-path "$repository_root/Packages/KodCore" \
+        --filter WorkspaceCoreTests.testDiscoversOneHundredThousandFilesWithinBudget
+fi
+
+if [ "$phase" = "12" ]; then
+    printf '%s\n' "==> Running isolated Release memory budget"
+    "$repository_root/Scripts/run-memory-benchmark"
+
+    printf '%s\n' "==> Running Phase 12 static release-blocker audit"
+    "$repository_root/Scripts/audit-release-blockers/run.sh"
+
+    if [ "${KOD_RUN_PERFORMANCE_SUITE:-0}" = "1" ]; then
+        printf '%s\n' "==> Running Phase 12 consolidated 30-iteration performance suite (KOD_RUN_PERFORMANCE_SUITE=1)"
+        swift test \
+            --package-path "$repository_root/Packages/KodCore" \
+            --filter PerformanceSuiteTests
+    else
+        printf '%s\n' "==> Skipping the consolidated performance suite (set KOD_RUN_PERFORMANCE_SUITE=1, optionally with KOD_RUN_SCALE_TESTS=1, to run it)"
+    fi
+
+    printf '%s\n' "==> Running Phase 12 acceptance-evidence generation (headless KodAppTests included; KOD_RUN_SCALE_TESTS controls the 100k gate)"
+    "$repository_root/Scripts/acceptance-evidence/run.sh" --run-xcodebuild
+fi
+
+printf '%s\n' "Phase $phase verification passed."

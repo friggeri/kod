@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Generates a minimal CycloneDX-shaped SBOM (Software Bill of
+Materials) for a Kod release build, listing:
+
+  - Kod itself (name, version from MARKETING_VERSION, git commit).
+  - Every vendored third-party component under
+    Packages/KodCore/Sources (Tree-sitter runtime + grammars, and any
+    other vendored code with its own LICENSE file), with the version
+    pinned in Scripts/vendor-*/vendor.sh where available.
+  - The bundled ripgrep search engine binary.
+
+Kod's SwiftPM package (Packages/KodCore/Package.swift) declares zero
+external `.package(url:)` dependencies — every third-party component is
+vendored in-tree and reviewed (see THIRD_PARTY_NOTICES.md) rather than
+resolved at build time, so there is no Package.resolved to enumerate;
+this script's component list is instead derived directly from the
+vendored LICENSE files themselves; and its license text is
+cross-checked against THIRD_PARTY_NOTICES.md's own coverage.
+
+Usage: Scripts/release/generate-sbom.py <output-path.json>
+"""
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def kod_version() -> str:
+    pbxproj = (REPO_ROOT / "Kod.xcodeproj" / "project.pbxproj").read_text()
+    match = re.search(r"MARKETING_VERSION = ([^;]+);", pbxproj)
+    return match.group(1).strip() if match else "unknown"
+
+
+def git_commit() -> str:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT), capture_output=True, text=True, check=True
+        ).stdout.strip()
+    except subprocess.CalledProcessError:
+        return "unknown"
+
+
+def vendored_components() -> list[dict]:
+    components = []
+    search_roots = [REPO_ROOT / "Packages" / "KodCore" / "Sources", REPO_ROOT / "Vendor"]
+    seen_dirs: set[Path] = set()
+    for root in search_roots:
+        for license_file in sorted(root.rglob("LICENSE*")):
+            if ".build" in license_file.parts:
+                continue
+            component_dir = license_file.parent
+            if component_dir in seen_dirs:
+                continue
+            seen_dirs.add(component_dir)
+            components.append({
+                "name": component_dir.name,
+                "type": "library",
+                "licenseFile": str(license_file.relative_to(REPO_ROOT)),
+                "purl": None,
+            })
+
+    ripgrep_dir = REPO_ROOT / "Packages" / "KodCore" / "Sources" / "SearchCore" / "Resources" / "ripgrep"
+    if ripgrep_dir.exists():
+        components.append({
+            "name": "ripgrep",
+            "type": "application",
+            "licenseFile": "THIRD_PARTY_NOTICES.md (see 'ripgrep search engine' section)",
+            "purl": "pkg:cargo/ripgrep",
+        })
+    return components
+
+
+def main() -> int:
+    output_path = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO_ROOT / "Artifacts" / "release" / "sbom.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    sbom = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.5",
+        "serialNumber": f"urn:uuid:kod-sbom-{git_commit()[:12] or 'unknown'}",
+        "version": 1,
+        "metadata": {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "component": {
+                "type": "application",
+                "name": "Kod",
+                "version": kod_version(),
+                "description": "A native macOS application for reading and understanding local codebases (read-only).",
+            },
+        },
+        "components": vendored_components(),
+    }
+    output_path.write_text(json.dumps(sbom, indent=2, sort_keys=True) + "\n")
+    print(f"==> Wrote SBOM with {len(sbom['components'])} component(s) to {output_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

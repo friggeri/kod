@@ -1,0 +1,17 @@
+keyword 0..<9
+type 10..<15
+type.builtin 25..<31
+type.builtin 40..<46
+type 57..<63
+keyword 64..<74
+type 75..<80
+keyword 99..<105
+variable.parameter 106..<107
+type.builtin 109..<115
+keyword 117..<123
+variable.parameter 124..<125
+type.builtin 127..<133
+type.builtin 153..<159
+type 177..<181
+type 246..<251
+type 286..<292

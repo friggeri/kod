@@ -1,0 +1,806 @@
+[
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "initialize",
+      "params": {
+        "processId": 56561,
+        "clientInfo": {
+          "name": "Kod",
+          "version": "0.1.0"
+        },
+        "rootUri": "file://<FIXTURE_ROOT>",
+        "capabilities": {
+          "workspace": {
+            "symbol": {
+              "dynamicRegistration": false
+            },
+            "applyEdit": false
+          },
+          "textDocument": {
+            "hover": {
+              "dynamicRegistration": false,
+              "contentFormat": [
+                "plaintext",
+                "markdown"
+              ]
+            },
+            "definition": {
+              "dynamicRegistration": false,
+              "linkSupport": true
+            },
+            "references": {
+              "dynamicRegistration": false
+            },
+            "documentSymbol": {
+              "dynamicRegistration": false,
+              "hierarchicalDocumentSymbolSupport": true
+            },
+            "publishDiagnostics": {
+              "relatedInformation": true
+            },
+            "diagnostic": {
+              "dynamicRegistration": false
+            },
+            "semanticTokens": {
+              "dynamicRegistration": false,
+              "requests": {
+                "full": true
+              },
+              "tokenTypes": [],
+              "tokenModifiers": [],
+              "formats": [
+                "relative"
+              ]
+            }
+          },
+          "window": {
+            "workDoneProgress": true
+          },
+          "general": {
+            "positionEncodings": [
+              "utf-8",
+              "utf-16"
+            ]
+          }
+        },
+        "workspaceFolders": [
+          {
+            "uri": "file://<FIXTURE_ROOT>",
+            "name": "SourceKitLSPFixture"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "direction": "recv",
+    "message": {
+      "result": {
+        "capabilities": {
+          "completionProvider": {
+            "resolveProvider": true,
+            "triggerCharacters": [
+              ".",
+              "("
+            ]
+          },
+          "typeHierarchyProvider": true,
+          "definitionProvider": true,
+          "codeActionProvider": true,
+          "documentSymbolProvider": true,
+          "executeCommandProvider": {
+            "commands": [
+              "semantic.refactor.command",
+              "expand.macro.command"
+            ]
+          },
+          "foldingRangeProvider": true,
+          "documentFormattingProvider": {
+            "workDoneProgress": false
+          },
+          "signatureHelpProvider": {
+            "triggerCharacters": [
+              "(",
+              "["
+            ],
+            "retriggerCharacters": [
+              ",",
+              ":"
+            ]
+          },
+          "semanticTokensProvider": {
+            "legend": {
+              "tokenModifiers": [
+                "declaration",
+                "definition",
+                "readonly",
+                "static",
+                "deprecated",
+                "abstract",
+                "async",
+                "modification",
+                "documentation",
+                "defaultLibrary",
+                "deduced",
+                "virtual",
+                "dependentName",
+                "usedAsMutableReference",
+                "usedAsMutablePointer",
+                "constructorOrDestructor",
+                "userDefined",
+                "functionScope",
+                "classScope",
+                "fileScope",
+                "globalScope"
+              ],
+              "tokenTypes": [
+                "namespace",
+                "type",
+                "class",
+                "enum",
+                "interface",
+                "struct",
+                "typeParameter",
+                "parameter",
+                "variable",
+                "property",
+                "enumMember",
+                "event",
+                "function",
+                "method",
+                "macro",
+                "keyword",
+                "modifier",
+                "comment",
+                "string",
+                "number",
+                "regexp",
+                "operator",
+                "decorator",
+                "bracket",
+                "label",
+                "concept",
+                "unknown",
+                "identifier"
+              ]
+            },
+            "range": true,
+            "full": true
+          },
+          "codeLensProvider": {},
+          "workspaceSymbolProvider": true,
+          "referencesProvider": true,
+          "implementationProvider": true,
+          "documentRangeFormattingProvider": {
+            "workDoneProgress": false
+          },
+          "inlayHintProvider": {
+            "resolveProvider": false
+          },
+          "declarationProvider": true,
+          "hoverProvider": true,
+          "workspace": {
+            "workspaceFolders": {
+              "supported": true,
+              "changeNotifications": true
+            }
+          },
+          "experimental": {
+            "textDocument/doccDocumentation": {
+              "version": 1
+            },
+            "workspace/getReferenceDocument": {
+              "version": 1
+            },
+            "workspace/tests": {
+              "version": 2
+            },
+            "workspace/triggerReindex": {
+              "version": 1
+            },
+            "textDocument/tests": {
+              "version": 2
+            },
+            "window/didChangeActiveDocument": {
+              "version": 1
+            }
+          },
+          "colorProvider": true,
+          "callHierarchyProvider": true,
+          "documentHighlightProvider": true,
+          "textDocumentSync": {
+            "openClose": true,
+            "willSaveWaitUntil": false,
+            "willSave": true,
+            "change": 2,
+            "save": {
+              "includeText": false
+            }
+          },
+          "renameProvider": {
+            "prepareProvider": true
+          }
+        }
+      },
+      "jsonrpc": "2.0",
+      "id": 1
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didOpen",
+      "params": {
+        "textDocument": {
+          "uri": "file://<FIXTURE_ROOT>/Sources/SourceKitLSPFixture/Greeter.swift",
+          "languageId": "swift",
+          "version": 1,
+          "text": "/// A tiny, deterministic fixture type for SourceKit-LSP integration tests:\n/// hover, definition, references, document symbols, diagnostics, and\n/// semantic tokens are all exercised against this single small file.\npublic struct Greeter {\n    public let name: String\n\n    public init(name: String) {\n        self.name = name\n    }\n\n    /// Returns a friendly greeting for `name`.\n    public func greet() -> String {\n        \"Hello, \\(name)!\"\n    }\n}\n\npublic func makeDefaultGreeter() -> Greeter {\n    Greeter(name: \"Kod\")\n}\n"
+        }
+      }
+    }
+  },
+  {
+    "direction": "recv",
+    "message": {
+      "method": "textDocument/publishDiagnostics",
+      "jsonrpc": "2.0",
+      "params": {
+        "uri": "file://<FIXTURE_ROOT>/Sources/SourceKitLSPFixture/Greeter.swift",
+        "diagnostics": []
+      }
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "textDocument/hover",
+      "params": {
+        "textDocument": {
+          "uri": "file://<FIXTURE_ROOT>/Sources/SourceKitLSPFixture/Greeter.swift"
+        },
+        "position": {
+          "line": 11,
+          "character": 18
+        }
+      }
+    }
+  },
+  {
+    "direction": "recv",
+    "message": {
+      "id": 2,
+      "jsonrpc": "2.0",
+      "result": {
+        "contents": {
+          "kind": "markdown",
+          "value": "```swift\npublic func greet() -> String\n```\n\nReturns a friendly greeting for `name`."
+        },
+        "range": {
+          "end": {
+            "line": 11,
+            "character": 21
+          },
+          "start": {
+            "line": 11,
+            "character": 16
+          }
+        }
+      }
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "textDocument/definition",
+      "params": {
+        "textDocument": {
+          "uri": "file://<FIXTURE_ROOT>/Sources/SourceKitLSPFixture/Greeter.swift"
+        },
+        "position": {
+          "line": 11,
+          "character": 18
+        }
+      }
+    }
+  },
+  {
+    "direction": "recv",
+    "message": {
+      "id": 3,
+      "jsonrpc": "2.0",
+      "result": [
+        {
+          "range": {
+            "start": {
+              "character": 16,
+              "line": 11
+            },
+            "end": {
+              "character": 16,
+              "line": 11
+            }
+          },
+          "uri": "file://<FIXTURE_ROOT>/Sources/SourceKitLSPFixture/Greeter.swift"
+        }
+      ]
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "textDocument/documentSymbol",
+      "params": {
+        "textDocument": {
+          "uri": "file://<FIXTURE_ROOT>/Sources/SourceKitLSPFixture/Greeter.swift"
+        }
+      }
+    }
+  },
+  {
+    "direction": "recv",
+    "message": {
+      "id": 4,
+      "jsonrpc": "2.0",
+      "result": [
+        {
+          "name": "Greeter",
+          "kind": 23,
+          "range": {
+            "start": {
+              "character": 0,
+              "line": 3
+            },
+            "end": {
+              "character": 1,
+              "line": 14
+            }
+          },
+          "selectionRange": {
+            "end": {
+              "line": 3,
+              "character": 21
+            },
+            "start": {
+              "character": 14,
+              "line": 3
+            }
+          },
+          "children": [
+            {
+              "name": "name",
+              "selectionRange": {
+                "start": {
+                  "line": 4,
+                  "character": 15
+                },
+                "end": {
+                  "line": 4,
+                  "character": 19
+                }
+              },
+              "kind": 7,
+              "range": {
+                "end": {
+                  "line": 4,
+                  "character": 27
+                },
+                "start": {
+                  "line": 4,
+                  "character": 4
+                }
+              },
+              "children": []
+            },
+            {
+              "selectionRange": {
+                "start": {
+                  "line": 6,
+                  "character": 11
+                },
+                "end": {
+                  "line": 6,
+                  "character": 29
+                }
+              },
+              "name": "init(name:)",
+              "kind": 9,
+              "children": [],
+              "range": {
+                "end": {
+                  "line": 8,
+                  "character": 5
+                },
+                "start": {
+                  "line": 6,
+                  "character": 4
+                }
+              }
+            },
+            {
+              "kind": 6,
+              "name": "greet()",
+              "selectionRange": {
+                "end": {
+                  "line": 11,
+                  "character": 23
+                },
+                "start": {
+                  "line": 11,
+                  "character": 16
+                }
+              },
+              "range": {
+                "start": {
+                  "character": 4,
+                  "line": 11
+                },
+                "end": {
+                  "character": 5,
+                  "line": 13
+                }
+              },
+              "children": []
+            }
+          ]
+        },
+        {
+          "kind": 12,
+          "range": {
+            "end": {
+              "line": 18,
+              "character": 1
+            },
+            "start": {
+              "line": 16,
+              "character": 0
+            }
+          },
+          "selectionRange": {
+            "start": {
+              "line": 16,
+              "character": 12
+            },
+            "end": {
+              "line": 16,
+              "character": 32
+            }
+          },
+          "children": [],
+          "name": "makeDefaultGreeter()"
+        }
+      ]
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "textDocument/diagnostic",
+      "params": {
+        "textDocument": {
+          "uri": "file://<FIXTURE_ROOT>/Sources/SourceKitLSPFixture/Greeter.swift"
+        }
+      }
+    }
+  },
+  {
+    "direction": "recv",
+    "message": {
+      "id": 5,
+      "jsonrpc": "2.0",
+      "result": {
+        "kind": "full",
+        "items": []
+      }
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "textDocument/semanticTokens/full",
+      "params": {
+        "textDocument": {
+          "uri": "file://<FIXTURE_ROOT>/Sources/SourceKitLSPFixture/Greeter.swift"
+        }
+      }
+    }
+  },
+  {
+    "direction": "recv",
+    "message": {
+      "id": 6,
+      "jsonrpc": "2.0",
+      "result": {
+        "data": [
+          0,
+          0,
+          75,
+          17,
+          256,
+          1,
+          0,
+          69,
+          17,
+          256,
+          1,
+          0,
+          69,
+          17,
+          256,
+          1,
+          0,
+          6,
+          15,
+          0,
+          0,
+          7,
+          6,
+          15,
+          0,
+          0,
+          7,
+          7,
+          27,
+          0,
+          1,
+          4,
+          6,
+          15,
+          0,
+          0,
+          7,
+          3,
+          15,
+          0,
+          0,
+          4,
+          4,
+          27,
+          0,
+          0,
+          6,
+          6,
+          5,
+          512,
+          2,
+          4,
+          6,
+          15,
+          0,
+          0,
+          7,
+          4,
+          15,
+          0,
+          0,
+          5,
+          4,
+          12,
+          0,
+          0,
+          6,
+          6,
+          5,
+          512,
+          1,
+          8,
+          4,
+          15,
+          0,
+          0,
+          5,
+          4,
+          9,
+          0,
+          0,
+          7,
+          4,
+          8,
+          0,
+          3,
+          4,
+          43,
+          17,
+          256,
+          1,
+          4,
+          6,
+          15,
+          0,
+          0,
+          7,
+          4,
+          15,
+          0,
+          0,
+          5,
+          5,
+          27,
+          0,
+          0,
+          11,
+          6,
+          5,
+          512,
+          1,
+          8,
+          8,
+          18,
+          0,
+          0,
+          10,
+          4,
+          9,
+          0,
+          0,
+          5,
+          2,
+          18,
+          0,
+          4,
+          0,
+          6,
+          15,
+          0,
+          0,
+          7,
+          4,
+          15,
+          0,
+          0,
+          5,
+          18,
+          27,
+          0,
+          0,
+          24,
+          7,
+          5,
+          0,
+          1,
+          4,
+          7,
+          5,
+          0,
+          0,
+          8,
+          4,
+          12,
+          0,
+          0,
+          6,
+          5,
+          18,
+          0
+        ]
+      }
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "textDocument/references",
+      "params": {
+        "textDocument": {
+          "uri": "file://<FIXTURE_ROOT>/Sources/SourceKitLSPFixture/Greeter.swift"
+        },
+        "position": {
+          "line": 11,
+          "character": 18
+        },
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    }
+  },
+  {
+    "direction": "recv",
+    "message": {
+      "id": 7,
+      "jsonrpc": "2.0",
+      "result": [
+        {
+          "range": {
+            "end": {
+              "line": 11,
+              "character": 16
+            },
+            "start": {
+              "line": 11,
+              "character": 16
+            }
+          },
+          "uri": "file://<FIXTURE_ROOT>/Sources/SourceKitLSPFixture/Greeter.swift"
+        }
+      ]
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "workspace/symbol",
+      "params": {
+        "query": "Greeter"
+      }
+    }
+  },
+  {
+    "direction": "recv",
+    "message": {
+      "id": 8,
+      "jsonrpc": "2.0",
+      "result": [
+        {
+          "kind": 23,
+          "name": "Greeter",
+          "location": {
+            "range": {
+              "start": {
+                "character": 14,
+                "line": 3
+              },
+              "end": {
+                "character": 14,
+                "line": 3
+              }
+            },
+            "uri": "file://<FIXTURE_ROOT>/Sources/SourceKitLSPFixture/Greeter.swift"
+          }
+        },
+        {
+          "kind": 12,
+          "location": {
+            "range": {
+              "end": {
+                "character": 12,
+                "line": 16
+              },
+              "start": {
+                "character": 12,
+                "line": 16
+              }
+            },
+            "uri": "file://<FIXTURE_ROOT>/Sources/SourceKitLSPFixture/Greeter.swift"
+          },
+          "name": "makeDefaultGreeter()"
+        }
+      ]
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "method": "shutdown",
+      "params": null
+    }
+  },
+  {
+    "direction": "recv",
+    "message": {
+      "jsonrpc": "2.0",
+      "result": null,
+      "id": 9
+    }
+  }
+]

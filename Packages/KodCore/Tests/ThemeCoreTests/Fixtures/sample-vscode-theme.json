@@ -1,0 +1,49 @@
+{
+  "$schema": "vscode://schemas/color-theme",
+  "name": "Sample Imported Theme",
+  "type": "dark",
+  "colors": {
+    "editor.background": "#101418",
+    "editor.foreground": "#E6E6E6",
+    "editorLineNumber.foreground": "#5C6773",
+    "sideBar.background": "#0B0E11",
+    "editor.someTotallyMadeUpKey": "#123456",
+    "statusBar.background": "#123456",
+    "statusBar.foreground": "#FFFFFF"
+  },
+  "tokenColors": [
+    {
+      "name": "Comment",
+      "scope": "comment",
+      "settings": {
+        "foreground": "#5C7E10",
+        "fontStyle": "italic"
+      }
+    },
+    {
+      "name": "Keyword control",
+      "scope": ["keyword.control", "keyword.control.conditional"],
+      "settings": {
+        "foreground": "#FF6AC1",
+        "fontStyle": "bold",
+        "someUnsupportedTokenSetting": true
+      }
+    },
+    {
+      "name": "String",
+      "scope": "string",
+      "settings": {
+        "foreground": "#C3E88D"
+      }
+    }
+  ],
+  "semanticTokenColors": {
+    "variable.readonly": "#82AAFF",
+    "class": {
+      "foreground": "#FFCB6B",
+      "bold": true,
+      "someUnsupportedSemanticSetting": 42
+    }
+  },
+  "someTopLevelKeyKodDoesNotUnderstand": true
+}

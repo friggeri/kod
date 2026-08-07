@@ -1,0 +1,13 @@
+#!/bin/sh
+
+set -eu
+
+repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+output="$repository_root/Artifacts/performance/memory-benchmark.json"
+
+exec swift run \
+    --package-path "$repository_root/Packages/KodCore" \
+    --configuration release \
+    KodMemoryBenchmark \
+    --output "$output"
+

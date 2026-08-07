@@ -1,0 +1,34 @@
+{
+  "pinned": {
+    "typescript-language-server": {
+      "npmPackage": "typescript-language-server",
+      "version": "4.3.4",
+      "peerPackages": {
+        "typescript": "5.9.3"
+      },
+      "binary": "typescript-language-server",
+      "arguments": ["--stdio"]
+    },
+    "vscode-langservers-extracted": {
+      "npmPackage": "vscode-langservers-extracted",
+      "version": "4.10.0",
+      "binaries": {
+        "html": "vscode-html-language-server",
+        "css": "vscode-css-language-server"
+      },
+      "arguments": ["--stdio"]
+    },
+    "pyright": {
+      "pipPackage": "pyright",
+      "version": "1.1.407",
+      "binary": "pyright-langserver",
+      "arguments": ["--stdio"]
+    },
+    "rust-analyzer": {
+      "source": "rustup component",
+      "rustupComponent": "rust-analyzer",
+      "binary": "rust-analyzer",
+      "arguments": []
+    }
+  }
+}

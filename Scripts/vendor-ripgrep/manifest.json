@@ -1,0 +1,20 @@
+{
+  "ripgrep": {
+    "repo": "BurntSushi/ripgrep",
+    "tag": "14.1.1",
+    "commit": "4649aa9700619f94cf9c66876e9549d83420e16c",
+    "sourceTarballURL": "https://github.com/BurntSushi/ripgrep/archive/4649aa9700619f94cf9c66876e9549d83420e16c.tar.gz",
+    "sourceTarballSHA256": "0e815611527b663310e024ea73e0672c8f6a4fa277207037affad1d8905f515c",
+    "license": "MIT OR Unlicense",
+    "cargoFeatures": [],
+    "note": "Built with default (non-PCRE2) Cargo features so the binary has no dependency on a system libpcre2, keeping the build reproducible from the vendored source tree alone.",
+    "targets": {
+      "aarch64-apple-darwin": {
+        "vendoredAt": "Packages/KodCore/Sources/SearchCore/Resources/ripgrep/aarch64-apple-darwin/rg"
+      },
+      "x86_64-apple-darwin": {
+        "vendoredAt": "Packages/KodCore/Sources/SearchCore/Resources/ripgrep/x86_64-apple-darwin/rg"
+      }
+    }
+  }
+}

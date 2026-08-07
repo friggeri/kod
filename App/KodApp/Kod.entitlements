@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+    Kod's hardened-runtime entitlements for Developer ID distribution
+    (SPEC 17 M4: "Signed/notarized distribution"). Kod is not sandboxed
+    (it is a Developer-ID-distributed app, not a Mac App Store one), so
+    no com.apple.security.app-sandbox entitlement is present, and this
+    file is deliberately as close to empty as a real release needs:
+
+    - Kod never loads a JIT-compiled or self-modifying code region, so
+      no com.apple.security.cs.allow-jit / allow-unsigned-executable-
+      memory entitlement is requested.
+    - Kod never loads a third-party plug-in/dylib into its own process
+      (SPEC 1.2: "no extension runtime or arbitrary in-process plug-in
+      API"), so no com.apple.security.cs.disable-library-validation
+      entitlement is requested.
+    - Every subprocess Kod launches (git, a language server, ripgrep) is
+      a separate process, not code loaded into Kod's own address space,
+      so hardened runtime's library-validation/code-signing protections
+      for Kod's *own* process are unaffected by what those subprocesses
+      are or aren't signed with, and no entitlement is needed for that
+      either.
+    - Kod's network use is limited to explicit app-update and opt-in
+      crash-report submission and remote Markdown image loading (SPEC
+      13.3); com.apple.security.network.client is present so those
+      (non-sandboxed, but still worth being explicit and minimal about)
+      network paths keep working under any future sandboxing decision
+      without silently degrading.
+    -->
+    <key>com.apple.security.cs.disable-executable-page-protection</key>
+    <false/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>

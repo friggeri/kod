@@ -1,0 +1,12 @@
+:root {
+    --accent-color: #336699;
+}
+
+body {
+    font-family: "Helvetica Neue", sans-serif;
+    color: var(--accent-color);
+}
+
+.title {
+    font-weight: bold;
+}
