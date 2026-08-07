@@ -3,6 +3,12 @@ import os
 
 private let connectionLog = Logger(subsystem: "com.kodapp.LanguageClient", category: "connection")
 
+public enum LanguageClientRequestPriority: Equatable, Sendable {
+    case interactive
+    case normal
+    case background
+}
+
 /// A server-pushed notification Kod surfaces to callers. Every case here
 /// is read-only information; there is no case that could cause Kod to
 /// mutate anything.
@@ -70,16 +76,16 @@ public actor LanguageServerConnection {
 
     private struct PendingRequest {
         let method: String
+        let priority: LanguageClientRequestPriority
         let continuation: CheckedContinuation<JSONValue?, Error>
         var timeoutTask: Task<Void, Never>?
-        var isCancelled = false
     }
 
     private let configuration: Configuration
     private let notificationHandler: @Sendable (ServerNotification) -> Void
     private let stateHandler: @Sendable (LanguageServerState) -> Void
 
-    public private(set) var state: LanguageServerState = .starting {
+    public private(set) var state: LanguageServerState = .stopped {
         didSet {
             guard state != oldValue else {
                 return
@@ -137,7 +143,45 @@ public actor LanguageServerConnection {
     /// handshake. Only read-only capabilities are advertised (SPEC 6.1).
     public func start() async throws {
         state = .starting
-        try await launchAndInitialize()
+        do {
+            try await launchAndInitialize()
+        } catch {
+            let preservesMissingState: Bool
+            if case .missing = state {
+                preservesMissingState = true
+            } else {
+                preservesMissingState = false
+            }
+            await cleanUpFailedStart()
+            if !preservesMissingState {
+                state = .crashed(reason: "Language server initialization failed: \(Self.failureReason(error))")
+            }
+            throw error
+        }
+    }
+
+    private func cleanUpFailedStart() async {
+        isShuttingDown = true
+        readLoopTask?.cancel()
+        readLoopTask = nil
+        for (_, pending) in pendingRequests {
+            pending.timeoutTask?.cancel()
+            pending.continuation.resume(throwing: LanguageClientError.notConnected)
+        }
+        pendingRequests.removeAll()
+        serverCapabilities = nil
+        dynamicallyRegisteredMethods.removeAll()
+        let failedTransport = transport
+        transport = nil
+        await failedTransport?.forceKill()
+        isShuttingDown = false
+    }
+
+    private static func failureReason(_ error: Error) -> String {
+        if case LanguageClientError.serverError(let responseError) = error {
+            return responseError.message
+        }
+        return String(describing: error)
     }
 
     private func launchAndInitialize() async throws {
@@ -275,9 +319,14 @@ public actor LanguageServerConnection {
 
     public func sendRequest<Params: Encodable, Result: Decodable>(
         _ method: LanguageClientOutboundMethod,
-        params: Params
+        params: Params,
+        priority: LanguageClientRequestPriority = .normal
     ) async throws -> Result {
-        let value: JSONValue? = try await sendRawRequest(method, params: params)
+        let value: JSONValue? = try await sendRawRequest(
+            method,
+            params: params,
+            priority: priority
+        )
         guard let value else {
             throw LanguageClientError.invalidResponse(method: method.rawValue, reason: "empty result")
         }
@@ -291,11 +340,20 @@ public actor LanguageServerConnection {
     private func sendRawRequest<Params: Encodable>(
         _ method: LanguageClientOutboundMethod,
         params: Params,
-        timeout: TimeInterval? = nil
+        timeout: TimeInterval? = nil,
+        priority: LanguageClientRequestPriority = .normal
     ) async throws -> JSONValue? {
         guard let transport else {
             throw LanguageClientError.notConnected
         }
+        if priority == .background,
+           pendingRequests.values.contains(where: { $0.priority == .interactive }) {
+            throw CancellationError()
+        }
+        if priority == .interactive {
+            await preemptBackgroundRequests()
+        }
+        try Task.checkCancellation()
         let id = idGenerator.nextID()
         let paramsValue = try JSONValue.encoding(params)
         let message = JSONRPCMessage(kind: .request(id: id, method: method.rawValue, params: paramsValue))
@@ -317,6 +375,7 @@ public actor LanguageServerConnection {
                 }
                 pendingRequests[id] = PendingRequest(
                     method: method.rawValue,
+                    priority: priority,
                     continuation: continuation,
                     timeoutTask: timeoutTask
                 )
@@ -329,7 +388,7 @@ public actor LanguageServerConnection {
                 }
             }
         } onCancel: {
-            Task { await self.cancelPendingRequest(id: id, method: method.rawValue) }
+            Task { await self.cancelPendingRequest(id: id) }
         }
     }
 
@@ -339,6 +398,7 @@ public actor LanguageServerConnection {
         }
         pending.timeoutTask?.cancel()
         pending.continuation.resume(throwing: error)
+        finishBusyStateIfIdle()
     }
 
     public func sendNotification<Params: Encodable>(
@@ -368,15 +428,46 @@ public actor LanguageServerConnection {
         pending.timeoutTask?.cancel()
         try? await sendNotificationUnchecked(.cancelRequest, params: CancelParams(id: id))
         pending.continuation.resume(throwing: LanguageClientError.timedOut(method: method))
+        finishBusyStateIfIdle()
     }
 
-    private func cancelPendingRequest(id: JSONRPCID, method: String) async {
-        guard var pending = pendingRequests[id], !pending.isCancelled else {
+    private func cancelPendingRequest(id: JSONRPCID) async {
+        guard let pending = pendingRequests.removeValue(forKey: id) else {
             return
         }
-        pending.isCancelled = true
-        pendingRequests[id] = pending
+        pending.timeoutTask?.cancel()
+        pending.continuation.resume(throwing: CancellationError())
+        finishBusyStateIfIdle()
         try? await sendNotificationUnchecked(.cancelRequest, params: CancelParams(id: id))
+    }
+
+    private func preemptBackgroundRequests() async {
+        let ids = pendingRequests.compactMap { id, request in
+            request.priority == .background ? id : nil
+        }
+        guard !ids.isEmpty else {
+            return
+        }
+        for id in ids {
+            guard let pending = pendingRequests.removeValue(forKey: id) else {
+                continue
+            }
+            pending.timeoutTask?.cancel()
+            pending.continuation.resume(throwing: CancellationError())
+        }
+        finishBusyStateIfIdle()
+        for id in ids {
+            try? await sendNotificationUnchecked(
+                .cancelRequest,
+                params: CancelParams(id: id)
+            )
+        }
+    }
+
+    private func finishBusyStateIfIdle() {
+        if pendingRequests.isEmpty, state == .busy {
+            state = .ready
+        }
     }
 
     // MARK: - Inbound dispatch
@@ -412,9 +503,7 @@ public actor LanguageServerConnection {
         } else {
             pending.continuation.resume(returning: result)
         }
-        if pendingRequests.isEmpty, state == .busy {
-            state = .ready
-        }
+        finishBusyStateIfIdle()
     }
 
     private func handleNotification(method: String, params: JSONValue?) {
@@ -595,6 +684,10 @@ public actor LanguageServerConnection {
         guard !isShuttingDown, state != .stopped else {
             return
         }
+        // This callback runs inside the read-loop task. Clear its stored
+        // handle before relaunching so launchAndInitialize() does not cancel
+        // the task that is performing the automatic restart.
+        readLoopTask = nil
         let exitCode = await transport?.waitForTermination() ?? -1
         let reason = "Server exited unexpectedly (code \(exitCode))."
         for (_, pending) in pendingRequests {
@@ -615,6 +708,7 @@ public actor LanguageServerConnection {
             state = .starting
             try await launchAndInitialize()
         } catch {
+            await cleanUpFailedStart()
             state = .crashed(reason: "\(reason) Automatic restart failed: \(error)")
         }
     }

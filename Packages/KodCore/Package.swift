@@ -87,6 +87,15 @@ let package = Package(
             cSettings: grammarCSettings
         ),
         .target(
+            name: "CTreeSitterTSX",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterTSX",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c", "scanner.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
             name: "CTreeSitterJavaScript",
             dependencies: ["CTreeSitter"],
             path: "Sources/CTreeSitterJavaScript",
@@ -140,6 +149,7 @@ let package = Package(
                 "CTreeSitter",
                 "CTreeSitterSwift",
                 "CTreeSitterTypeScript",
+                "CTreeSitterTSX",
                 "CTreeSitterJavaScript",
                 "CTreeSitterHTML",
                 "CTreeSitterCSS",

@@ -1,3 +1,4 @@
+import AppKit
 import DiagnosticsCore
 import WorkspaceCore
 import XCTest
@@ -14,6 +15,18 @@ import XCTest
 /// `WorkspaceViewControllerLiveUpdateTests`.
 @MainActor
 final class WorkspaceViewControllerTrustControlTests: XCTestCase {
+    private func findView(identifier: String, in view: NSView) -> NSView? {
+        if view.identifier?.rawValue == identifier {
+            return view
+        }
+        for subview in view.subviews {
+            if let match = findView(identifier: identifier, in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
     private func makeFixture() throws -> (controller: WorkspaceViewController, trustStore: WorkspaceTrustStore, log: BoundedEventLog) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("WorkspaceViewControllerTrustControlTests-\(UUID().uuidString)", isDirectory: true)
@@ -49,6 +62,28 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         controller.revokeTrust(nil)
 
         XCTAssertFalse(trustStore.isTrusted(controller.identity), "revokeTrust(_:) must call trustStore.revoke and be immediately reflected")
+    }
+
+    func testTrustBannerStaysCompactAndLeavesHeightForWorkspaceContent() throws {
+        let (controller, _, _) = try makeFixture()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        window.setContentSize(NSSize(width: 720, height: 480))
+        window.layoutIfNeeded()
+
+        let banner = try XCTUnwrap(
+            findView(identifier: "workspace.trustBanner", in: controller.view) as? NSStackView
+        )
+        let button = try XCTUnwrap(
+            findView(identifier: "workspace.trust", in: controller.view) as? NSButton
+        )
+        XCTAssertEqual(banner.frame.height, button.frame.height, accuracy: 0.5)
+        XCTAssertGreaterThan(controller.splitContainer.view.frame.height, 350)
     }
 
     func testRevokeTrustStopsLanguageServiceCoordinatorsWithoutCrashing() throws {

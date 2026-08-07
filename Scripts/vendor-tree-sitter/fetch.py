@@ -93,6 +93,7 @@ def fetch_runtime():
 GRAMMARS = {
     "CTreeSitterSwift": {"key": "swift", "src_prefix": "src", "fn": "tree_sitter_swift", "scanner": "scanner.c"},
     "CTreeSitterTypeScript": {"key": "typescript", "src_prefix": "typescript/src", "fn": "tree_sitter_typescript", "scanner": "scanner.c"},
+    "CTreeSitterTSX": {"key": "typescript", "src_prefix": "tsx/src", "fn": "tree_sitter_tsx", "scanner": "scanner.c"},
     "CTreeSitterJavaScript": {"key": "javascript", "src_prefix": "src", "fn": "tree_sitter_javascript", "scanner": "scanner.c"},
     "CTreeSitterHTML": {"key": "html", "src_prefix": "src", "fn": "tree_sitter_html", "scanner": "scanner.c"},
     "CTreeSitterCSS": {"key": "css", "src_prefix": "src", "fn": "tree_sitter_css", "scanner": "scanner.c"},
@@ -119,7 +120,15 @@ def fetch_grammar(target_name, cfg):
     fetch(repo, commit, f"{prefix}/parser.c", os.path.join(target, "parser.c"))
     fetch(repo, commit, f"{prefix}/tree_sitter/parser.h", os.path.join(target, "tree_sitter", "parser.h"))
     try:
-        fetch(repo, commit, f"{prefix}/{cfg['scanner']}", os.path.join(target, cfg["scanner"]))
+        scanner_path = os.path.join(target, cfg["scanner"])
+        fetch(repo, commit, f"{prefix}/{cfg['scanner']}", scanner_path)
+        if cfg["key"] == "typescript":
+            with open(scanner_path, "rb") as f:
+                scanner = f.read()
+            scanner = scanner.replace(b'#include "../../common/scanner.h"', b'#include "common/scanner.h"')
+            with open(scanner_path, "wb") as f:
+                f.write(scanner)
+            fetch(repo, commit, "common/scanner.h", os.path.join(target, "common", "scanner.h"))
     except Exception as e:
         print(f"  (no external scanner for {target_name}: {e})")
     fetch(repo, commit, "LICENSE", os.path.join(target, "LICENSE-upstream.txt"))
@@ -141,6 +150,13 @@ def fetch_queries(lang_key, dest_dir):
 
 
 def main():
+    if len(sys.argv) > 1:
+        for target_name in sys.argv[1:]:
+            if target_name not in GRAMMARS:
+                raise RuntimeError(f"unknown grammar target: {target_name}")
+            fetch_grammar(target_name, GRAMMARS[target_name])
+        return
+
     fetch_runtime()
     for target_name, cfg in GRAMMARS.items():
         fetch_grammar(target_name, cfg)

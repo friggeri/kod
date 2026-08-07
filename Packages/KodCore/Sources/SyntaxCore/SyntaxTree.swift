@@ -190,7 +190,14 @@ public struct SyntaxTree: Sendable {
         var scopes: [ScopeHeader] = []
         var lastStartLine: Int?
         while !ts_node_is_null(node) {
-            defer { node = ts_node_parent(node) }
+            let parent = ts_node_parent(node)
+            defer { node = parent }
+            // The root represents the whole document, not a meaningful
+            // lexical scope. Pinning it would incorrectly turn line zero
+            // (often an import) into a sticky header throughout the file.
+            guard !ts_node_is_null(parent) else {
+                continue
+            }
             guard ts_node_is_named(node) else {
                 continue
             }

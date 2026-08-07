@@ -328,4 +328,49 @@ final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
         let finalChecksum = try Data(contentsOf: fileURL)
         XCTAssertEqual(originalChecksum, finalChecksum, "Kod must never modify a workspace file via LSP operations")
     }
+
+    @MainActor
+    func testSwiftWrapperPreservesInteractiveRequestPriority() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let stateFile = root.appendingPathComponent("priority-state")
+        FileManager.default.createFile(atPath: stateFile.path, contents: Data())
+        let service = SwiftWorkspaceLanguageService(
+            identity: identity,
+            trustStore: store,
+            dependencies: try makeDependencies(
+                scenario: "priority",
+                environment: ["FAKE_LSP_STATE_FILE": stateFile.path]
+            )
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+        let snapshot = SourceSnapshot(
+            text: "let value = 1\n",
+            url: root.appendingPathComponent("Fake.swift"),
+            version: 1
+        )
+        try await service.didOpen(snapshot)
+
+        let semanticTask = Task<[SemanticToken], Error> {
+            try await service.semanticTokens(snapshot: snapshot)
+        }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline,
+              !((try? String(contentsOf: stateFile, encoding: .utf8)) ?? "")
+                .contains("request:textDocument/semanticTokens/full") {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let hover = try await service.hover(snapshot: snapshot, utf8Offset: 0)
+        XCTAssertEqual(hover?.contents.value, "Fake hover")
+        do {
+            _ = try await semanticTask.value
+            XCTFail("Expected hover to preempt the background semantic-token request")
+        } catch is CancellationError {
+            // expected
+        }
+
+        let resumedTokens = try await service.semanticTokens(snapshot: snapshot)
+        XCTAssertFalse(resumedTokens.isEmpty)
+    }
 }

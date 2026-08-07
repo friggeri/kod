@@ -133,6 +133,33 @@ final class LanguageServerDiscoveryEngineTests: XCTestCase {
         XCTAssertEqual(result.url.path, "/bin/echo")
     }
 
+    func testDefaultPackageManagerLocationsIncludePnpmBinDirectory() {
+        let expected = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/pnpm/bin")
+        XCTAssertTrue(LanguageServerDiscoveryEngine.defaultPackageManagerDirectories().contains(expected))
+    }
+
+    func testLoginShellPathCaptureUsesAnInteractiveLoginShell() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let shell = root.appendingPathComponent("fake-shell")
+        try """
+        #!/bin/sh
+        [ "$1" = "-l" ] && [ "$2" = "-i" ] && [ "$3" = "-c" ] || exit 2
+        /bin/sh -c "$4"
+        """.write(to: shell, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: shell.path
+        )
+
+        XCTAssertNotNil(LoginShellPathCapture.capture(shellURL: shell))
+    }
+
     func testManagedInstallIsTheFinalTierAfterEveryOtherFails() throws {
         let (identity, _) = try makeIdentity()
         let overrideStore = makeOverrideStore()

@@ -83,6 +83,19 @@ final class WorkspaceCoreTests: XCTestCase {
             entries.first(where: { $0.relativePath == "source-link" })?.kind,
             .symbolicLink
         )
+
+        var revealedEntries: [WorkspaceFileEntry] = []
+        let revealOptions = WorkspaceDiscoveryOptions(includeHidden: true, includeIgnored: true)
+        for try await batch in WorkspaceScanner().scan(root: root, options: revealOptions) {
+            revealedEntries.append(contentsOf: batch.entries)
+        }
+        let revealedPaths = Set(revealedEntries.map(\.relativePath))
+        XCTAssertTrue(revealedPaths.contains(".gitignore"))
+        XCTAssertTrue(revealedPaths.contains(".hidden.swift"))
+        XCTAssertTrue(revealedPaths.contains("ignored"))
+        XCTAssertTrue(revealedPaths.contains("ignored/file.swift"))
+        XCTAssertTrue(revealedPaths.contains("cache.tmp"))
+        XCTAssertTrue(revealedEntries.first(where: { $0.relativePath == "ignored" })?.isIgnored == true)
     }
 
     func testClassifyPathMatchesFullScanForNestedIgnoreRules() async throws {

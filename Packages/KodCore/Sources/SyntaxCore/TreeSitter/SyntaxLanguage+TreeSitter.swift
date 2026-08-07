@@ -6,6 +6,7 @@ import CTreeSitterPython
 import CTreeSitterRust
 import CTreeSitterSwift
 import CTreeSitterTypeScript
+import CTreeSitterTSX
 
 extension SyntaxLanguage {
     /// The pinned, compiled-in `TSLanguage` for this language. Each grammar
@@ -16,6 +17,7 @@ extension SyntaxLanguage {
         switch self {
         case .swift: tree_sitter_swift()
         case .typescript: tree_sitter_typescript()
+        case .tsx: tree_sitter_tsx()
         case .javascript: tree_sitter_javascript()
         case .html: tree_sitter_html()
         case .css: tree_sitter_css()

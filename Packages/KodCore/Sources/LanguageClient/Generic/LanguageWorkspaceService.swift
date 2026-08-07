@@ -278,6 +278,8 @@ public actor LanguageWorkspaceService {
     private let onDiagnostics: @Sendable (URL, [Diagnostic]) -> Void
 
     private var connection: LanguageServerConnection?
+    private var connectionGeneration = 0
+    private var isRestarting = false
     private var openDocuments: [URL: SourceSnapshot] = [:]
     private var didCompleteFirstReady = false
 
@@ -317,7 +319,7 @@ public actor LanguageWorkspaceService {
         do {
             executableURL = try dependencies.discoverExecutable()
         } catch {
-            onStateChange(.missing(reason: "\(error)"))
+            onStateChange(.missing(reason: error.localizedDescription))
             throw error
         }
 
@@ -329,19 +331,26 @@ public actor LanguageWorkspaceService {
             semanticTokenTypes: configuration.semanticTokenTypes,
             semanticTokenModifiers: configuration.semanticTokenModifiers
         )
+        connectionGeneration += 1
+        let generation = connectionGeneration
         let connection = dependencies.connectionFactory(
             serverConfiguration,
             { [weak self] newState in
                 guard let self else {
                     return
                 }
-                Task { await self.handleStateChange(newState) }
+                Task { await self.handleStateChange(newState, generation: generation) }
             },
             { [weak self] notification in
                 guard let self else {
                     return
                 }
-                Task { await self.handleServerNotification(notification) }
+                Task {
+                    await self.handleServerNotification(
+                        notification,
+                        generation: generation
+                    )
+                }
             }
         )
         self.connection = connection
@@ -355,7 +364,13 @@ public actor LanguageWorkspaceService {
     /// exactly this pattern inside the same `LanguageServerConnection`,
     /// and the freshly-relaunched process has no knowledge of any
     /// previously-open document until Kod re-sends it (SPEC 6.2/6.3).
-    private func handleStateChange(_ newState: LanguageServerState) async {
+    private func handleStateChange(
+        _ newState: LanguageServerState,
+        generation: Int
+    ) async {
+        guard generation == connectionGeneration else {
+            return
+        }
         onStateChange(newState)
         guard newState == .ready else {
             return
@@ -384,7 +399,13 @@ public actor LanguageWorkspaceService {
         }
     }
 
-    private func handleServerNotification(_ notification: ServerNotification) {
+    private func handleServerNotification(
+        _ notification: ServerNotification,
+        generation: Int
+    ) {
+        guard generation == connectionGeneration else {
+            return
+        }
         guard case .publishDiagnostics(let params) = notification, let url = params.uri.fileURL else {
             return
         }
@@ -404,6 +425,12 @@ public actor LanguageWorkspaceService {
     /// clearing all tracked open-document state (SPEC 6.2's manual
     /// Restart action).
     public func restart() async throws {
+        guard !isRestarting else {
+            return
+        }
+        isRestarting = true
+        defer { isRestarting = false }
+        connectionGeneration += 1
         if let connection {
             await connection.shutdown()
         }
@@ -512,7 +539,8 @@ public actor LanguageWorkspaceService {
             params: HoverParams(
                 textDocument: TextDocumentIdentifier(uri: DocumentURI(fileURL: snapshot.url)),
                 position: LSPPosition(line: position.line, character: position.character)
-            )
+            ),
+            priority: .interactive
         )
         guard let hover else {
             return nil
@@ -526,7 +554,12 @@ public actor LanguageWorkspaceService {
     }
 
     public func definition(snapshot: SourceSnapshot, utf8Offset: Int) async throws -> [NavigationTarget] {
-        try await navigationRequest(.definition, snapshot: snapshot, utf8Offset: utf8Offset) { (result: DefinitionResult) in
+        try await navigationRequest(
+            .definition,
+            snapshot: snapshot,
+            utf8Offset: utf8Offset,
+            priority: .interactive
+        ) { (result: DefinitionResult) in
             result.locations
         }
     }
@@ -565,6 +598,7 @@ public actor LanguageWorkspaceService {
         _ method: LanguageClientOutboundMethod,
         snapshot: SourceSnapshot,
         utf8Offset: Int,
+        priority: LanguageClientRequestPriority = .normal,
         locations: (Result) -> [LSPLocation]
     ) async throws -> [NavigationTarget] {
         let connection = try connected()
@@ -577,7 +611,8 @@ public actor LanguageWorkspaceService {
             params: TextDocumentPositionParams(
                 textDocument: TextDocumentIdentifier(uri: DocumentURI(fileURL: snapshot.url)),
                 position: LSPPosition(line: position.line, character: position.character)
-            )
+            ),
+            priority: priority
         )
         return locations(result).compactMap(validatedNavigationTarget)
     }
@@ -721,7 +756,8 @@ public actor LanguageWorkspaceService {
 
         let tokens: SemanticTokens = try await connection.sendRequest(
             .semanticTokensFull,
-            params: SemanticTokensParams(textDocument: TextDocumentIdentifier(uri: DocumentURI(fileURL: snapshot.url)))
+            params: SemanticTokensParams(textDocument: TextDocumentIdentifier(uri: DocumentURI(fileURL: snapshot.url))),
+            priority: .background
         )
         return Self.decode(tokens, legend: legend, snapshot: snapshot, encoding: encoding)
     }

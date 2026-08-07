@@ -55,10 +55,89 @@ final class CodeViewportSyntaxDecorationTests: XCTestCase {
         // benchmark. Here we assert the theme property itself updated.
         XCTAssertEqual(viewport.theme.syntax["keyword"]?.foreground, ThemeColor(hex: "#ABCDEF"))
     }
+
+    func testLSPConfirmedHoverUnderlinesIdentifierAndUsesPointingHandCursor() throws {
+        let snapshot = SourceSnapshot(text: "const client = api;\n")
+        let viewport = CodeViewport(snapshot: snapshot)
+        let clientOffset = try XCTUnwrap(snapshot.text.range(of: "client"))
+        let utf8Offset = snapshot.text.utf8.distance(
+            from: snapshot.text.utf8.startIndex,
+            to: try XCTUnwrap(clientOffset.lowerBound.samePosition(in: snapshot.text.utf8))
+        )
+        let linkRange = try XCTUnwrap(viewport.linkCandidateUTF8Range(at: utf8Offset))
+
+        viewport.setHoveredLinkUTF8Range(linkRange)
+
+        let lineRange = try XCTUnwrap(snapshot.utf8RangeForLine(0))
+        let attributed = viewport.attributedString(
+            forSegment: try XCTUnwrap(snapshot.line(at: 0)),
+            utf8Range: lineRange
+        )
+        XCTAssertEqual(
+            attributed.attribute(
+                NSAttributedString.Key.underlineStyle,
+                at: utf8Offset,
+                effectiveRange: nil
+            ) as? Int,
+            NSUnderlineStyle.single.rawValue
+        )
+        XCTAssertTrue(viewport.cursor(forUTF8Offset: utf8Offset) === NSCursor.pointingHand)
+
+        viewport.setHoveredLinkUTF8Range(nil)
+        XCTAssertTrue(viewport.cursor(forUTF8Offset: utf8Offset) === NSCursor.iBeam)
+    }
+
+    func testLinkCandidateRangeSupportsUnicodeIdentifiers() throws {
+        let snapshot = SourceSnapshot(text: "const café = 1;\n")
+        let viewport = CodeViewport(snapshot: snapshot)
+        let offset = try XCTUnwrap(snapshot.text.range(of: "café"))
+        let utf8Offset = snapshot.text.utf8.distance(
+            from: snapshot.text.utf8.startIndex,
+            to: try XCTUnwrap(offset.lowerBound.samePosition(in: snapshot.text.utf8))
+        )
+
+        let range = try XCTUnwrap(viewport.linkCandidateUTF8Range(at: utf8Offset))
+        XCTAssertEqual(try snapshot.text(inUTF8Range: range), "café")
+    }
+
+    func testHoverTargetUsesWholeIdentifierAndScalarFallback() throws {
+        let snapshot = SourceSnapshot(text: "const café = value + 1;\n")
+        let viewport = CodeViewport(snapshot: snapshot)
+        let text = snapshot.text
+        let cafe = try XCTUnwrap(text.range(of: "café"))
+        let cafeStart = text.utf8.distance(
+            from: text.utf8.startIndex,
+            to: try XCTUnwrap(cafe.lowerBound.samePosition(in: text.utf8))
+        )
+        let plus = try XCTUnwrap(text.utf8.firstIndex(of: Character("+").asciiValue!))
+        let plusOffset = text.utf8.distance(from: text.utf8.startIndex, to: plus)
+        let whitespaceOffset = plusOffset - 1
+
+        let firstRange = try XCTUnwrap(viewport.hoverTargetUTF8Range(at: cafeStart))
+        let finalScalarOffset = firstRange.upperBound - "é".utf8.count
+
+        XCTAssertEqual(
+            viewport.hoverTargetUTF8Range(at: finalScalarOffset),
+            firstRange,
+            "every scalar in one identifier must resolve to the same hover anchor"
+        )
+        XCTAssertEqual(try snapshot.text(inUTF8Range: firstRange), "café")
+        XCTAssertEqual(viewport.hoverTargetUTF8Range(at: plusOffset), plusOffset..<(plusOffset + 1))
+        XCTAssertNil(viewport.hoverTargetUTF8Range(at: whitespaceOffset))
+    }
 }
 
 @MainActor
 final class CodeViewportFoldingTests: XCTestCase {
+    func testFoldIndicatorIsVisiblyLargerThanLineNumberText() {
+        let editorFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let lineNumberFont = CodeViewport.lineNumberFont(for: editorFont)
+        let foldIndicatorFont = CodeViewport.foldIndicatorFont(for: editorFont)
+
+        XCTAssertGreaterThan(foldIndicatorFont.pointSize, lineNumberFont.pointSize)
+        XCTAssertGreaterThanOrEqual(foldIndicatorFont.pointSize, 14)
+    }
+
     func testFoldingHidesLinesAndReducesContentHeight() async throws {
         let snapshot = SourceSnapshot(
             text: "func f() {\n    let x = 1\n    let y = 2\n}\nlet z = 3\n",
@@ -136,17 +215,43 @@ final class CodeViewportBracketMatchingTests: XCTestCase {
 
 @MainActor
 final class CodeViewportStickyHeaderTests: XCTestCase {
+    func testStickyScopeDoesNotCoverTheFirstRenderedLine() async throws {
+        let source = "func greet() {\n    print(\"hi\")\n}\n"
+        let snapshot = SourceSnapshot(text: source, url: URL(fileURLWithPath: "/tmp/sample.swift"))
+        let viewport = CodeViewport(snapshot: snapshot)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 40),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 40))
+        scrollView.documentView = viewport
+        window.contentView = scrollView
+        window.layoutIfNeeded()
+
+        let tree = try await SyntaxEngine().parse(snapshot: snapshot, language: .swift)
+        viewport.applySyntaxTree(tree)
+
+        XCTAssertEqual(viewport.topmostVisibleLine, 0)
+        XCTAssertTrue(
+            viewport.stickyScopeHeaders().isEmpty,
+            "A sticky overlay must not repaint line zero while line zero is already naturally visible"
+        )
+        withExtendedLifetime(window) {}
+    }
+
     func testEnclosingScopesReportedForNestedFunction() async throws {
         let source = "func outer() {\n    func inner() {\n        let x = 1\n    }\n}\n"
         let snapshot = SourceSnapshot(text: source, url: URL(fileURLWithPath: "/tmp/sample.swift"))
         let viewport = CodeViewport(snapshot: snapshot)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
-            styleMask: [.titled],
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 40),
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 40))
         scrollView.documentView = viewport
         window.contentView = scrollView
         window.layoutIfNeeded()

@@ -113,6 +113,7 @@ enum KeyboardCommandRegistry {
         // navigate
         "Back",
         "Forward",
+        "Go to Definition",
         "Go to Matching Bracket",
         // diagnose
         "Show Problems",

@@ -75,6 +75,10 @@ final class KeyboardCommandRegistryTests: XCTestCase {
         XCTAssertEqual(command(titled: "Go to Line...")?.keyEquivalent, "g")
         XCTAssertEqual(command(titled: "Go to Line...")?.modifierMask, [.control])
 
+        let expectedF12 = UnicodeScalar(NSF12FunctionKey).map(String.init)
+        XCTAssertEqual(command(titled: "Go to Definition")?.keyEquivalent, expectedF12)
+        XCTAssertEqual(command(titled: "Go to Definition")?.modifierMask, [])
+
         XCTAssertEqual(command(titled: "Toggle Source and Preview")?.keyEquivalent, "\r")
         XCTAssertEqual(command(titled: "Toggle Source and Preview")?.modifierMask, [.command])
 
@@ -110,4 +114,3 @@ final class KeyboardCommandRegistryTests: XCTestCase {
         }
     }
 }
-

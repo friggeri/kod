@@ -7,6 +7,7 @@ import Foundation
 public enum SyntaxLanguage: String, CaseIterable, Sendable, Codable {
     case swift
     case typescript
+    case tsx
     case javascript
     case html
     case css
@@ -17,6 +18,7 @@ public enum SyntaxLanguage: String, CaseIterable, Sendable, Codable {
         switch self {
         case .swift: "Swift"
         case .typescript: "TypeScript"
+        case .tsx: "TypeScript React"
         case .javascript: "JavaScript"
         case .html: "HTML"
         case .css: "CSS"
@@ -35,6 +37,8 @@ public enum SyntaxLanguage: String, CaseIterable, Sendable, Codable {
             .swift
         case "ts", "mts", "cts":
             .typescript
+        case "tsx":
+            .tsx
         case "js", "mjs", "cjs", "jsx":
             .javascript
         case "html", "htm":

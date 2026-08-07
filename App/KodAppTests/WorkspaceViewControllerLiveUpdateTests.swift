@@ -1,3 +1,4 @@
+import AppKit
 import CryptoKit
 import SearchCore
 import SourceModel
@@ -49,6 +50,18 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         throw XCTSkip("condition not observed within \(timeout)s")
+    }
+
+    private func findView(identifier: String, in view: NSView) -> NSView? {
+        if view.identifier?.rawValue == identifier {
+            return view
+        }
+        for subview in view.subviews {
+            if let match = findView(identifier: identifier, in: subview) {
+                return match
+            }
+        }
+        return nil
     }
 
     private func awaitFilenameMatches(
@@ -107,6 +120,55 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
         XCTAssertFalse(controller.layoutState.groups[group.groupID]?.tabs.first?.isTombstoned ?? true)
     }
 
+    func testOpenedTypeScriptDocumentGetsHoverAndDefinitionHooks() throws {
+        let fixture = try makeFixture()
+        let fileURL = fixture.root.appendingPathComponent("client.ts")
+        let snapshot = SourceSnapshot(
+            text: "export const client = api;\n",
+            url: fileURL
+        )
+        let group = try XCTUnwrap(
+            fixture.controller.splitContainer.controller(
+                for: fixture.controller.layoutState.activeGroupID
+            )
+        )
+
+        group.openTab(relativePath: "client.ts", pinned: true, snapshot: snapshot)
+
+        let viewport = try XCTUnwrap(group.currentDocumentController?.viewport)
+        XCTAssertNotNil(viewport.onCommandClick)
+        XCTAssertNotNil(viewport.onLinkClick)
+        XCTAssertNotNil(viewport.onHover)
+        XCTAssertNotNil(viewport.onHoverExit)
+    }
+
+    func testLanguageServerControlsLiveInFullWidthBottomStatusBar() throws {
+        let fixture = try makeFixture()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = fixture.controller
+        window.layoutIfNeeded()
+
+        let statusBar = try XCTUnwrap(
+            findView(identifier: "workspace.statusBar", in: fixture.controller.view)
+        )
+        let restartButton = try XCTUnwrap(
+            findView(
+                identifier: "workspace.languageServerRestart",
+                in: fixture.controller.view
+            )
+        )
+
+        XCTAssertEqual(statusBar.frame.minX, fixture.controller.view.bounds.minX, accuracy: 0.5)
+        XCTAssertEqual(statusBar.frame.width, fixture.controller.view.bounds.width, accuracy: 0.5)
+        XCTAssertEqual(statusBar.frame.minY, fixture.controller.view.bounds.minY, accuracy: 0.5)
+        XCTAssertTrue(restartButton.isDescendant(of: statusBar))
+    }
+
     func testHandleChangedPathUpdatesExplorerIndexForNonOpenFiles() async throws {
         let fixture = try makeFixture()
         let controller = fixture.controller
@@ -134,6 +196,45 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
         controller.handleChangedPath(fileURL.path)
 
         XCTAssertFalse((controller.entriesByParent[""] ?? []).contains { $0.relativePath == "gone.txt" })
+    }
+
+    func testIgnoredLiveUpdateStaysHiddenUntilExplorerRevealIsEnabled() async throws {
+        let fixture = try makeFixture()
+        try Data("data/\n".utf8).write(to: fixture.root.appendingPathComponent(".gitignore"))
+        try FileManager.default.createDirectory(
+            at: fixture.root.appendingPathComponent("data"),
+            withIntermediateDirectories: true
+        )
+        let ignoredFile = fixture.root.appendingPathComponent("data/cache.json")
+        try Data("{}".utf8).write(to: ignoredFile)
+
+        fixture.controller.handleChangedPath(ignoredFile.path)
+        XCTAssertFalse(
+            (fixture.controller.entriesByParent["data"] ?? []).contains {
+                $0.relativePath == "data/cache.json"
+            }
+        )
+
+        fixture.controller.viewDidAppear()
+        let revealIgnored = try XCTUnwrap(
+            findView(
+                identifier: "workspace.showIgnoredFiles",
+                in: fixture.controller.view
+            ) as? NSButton
+        )
+        revealIgnored.performClick(nil)
+
+        try await waitUntil {
+            (fixture.controller.entriesByParent["data"] ?? []).contains {
+                $0.relativePath == "data/cache.json"
+            }
+        }
+        XCTAssertEqual(revealIgnored.state, .on)
+        XCTAssertTrue(
+            (fixture.controller.entriesByParent[""] ?? []).contains {
+                $0.relativePath == "data"
+            }
+        )
     }
 
     // MARK: - Real FSEvents end to end

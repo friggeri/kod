@@ -21,6 +21,7 @@ final class SyntaxEngineTests: XCTestCase {
         let samples: [SyntaxLanguage: String] = [
             .swift: "func f() -> Int { return 1 }\n",
             .typescript: "function f(x: number): number { return x + 1; }\n",
+            .tsx: "const View = () => <button title=\"Save\" />;\n",
             .javascript: "function f(x) { return x + 1; }\n",
             .html: "<html><body><p>hi</p></body></html>\n",
             .css: "body { color: red; }\n",
@@ -38,6 +39,36 @@ final class SyntaxEngineTests: XCTestCase {
             let captures = tree.captures(inByteRange: 0..<snapshot.utf8Count)
             XCTAssertFalse(captures.isEmpty, "\(language) produced no captures")
         }
+    }
+
+    func testTypeScriptIncludesJavaScriptBaseCaptures() async throws {
+        if case .failure(let error) = TSQueryStore.shared.highlightsQuery(for: .typescript) {
+            XCTFail("TypeScript highlight query failed to compile: \(error)")
+        }
+        let engine = SyntaxEngine()
+        let source = #"import type { AppType } from "@adx/server"; const client = makeClient<AppType>("ready");"#
+        let snapshot = SourceSnapshot(text: source)
+        let tree = try await engine.parse(snapshot: snapshot, language: .typescript)
+        let captures = tree.captures(inByteRange: 0..<snapshot.utf8Count)
+
+        XCTAssertTrue(captures.contains { $0.name == "keyword" && capturedText($0, in: snapshot) == "import" })
+        XCTAssertTrue(captures.contains { $0.name == "keyword" && capturedText($0, in: snapshot) == "const" })
+        XCTAssertTrue(captures.contains { $0.name == "string" && capturedText($0, in: snapshot) == #""@adx/server""# })
+        XCTAssertTrue(captures.contains { $0.name == "type" && capturedText($0, in: snapshot) == "AppType" })
+    }
+
+    func testTSXExtensionUsesTypeScriptGrammarAndHighlightsJSX() async throws {
+        XCTAssertEqual(SyntaxLanguage.detect(forPathExtension: "tsx"), .tsx)
+
+        let engine = SyntaxEngine()
+        let source = "export const View = () => <button title=\"Save\" />;\n"
+        let snapshot = SourceSnapshot(text: source, url: URL(fileURLWithPath: "/tmp/View.tsx"))
+        let tree = try await engine.parse(snapshot: snapshot, language: .tsx)
+        let captures = tree.captures(inByteRange: 0..<snapshot.utf8Count)
+
+        XCTAssertTrue(captures.contains { $0.name == "keyword" && capturedText($0, in: snapshot) == "export" })
+        XCTAssertTrue(captures.contains { $0.name == "tag" && capturedText($0, in: snapshot) == "button" })
+        XCTAssertTrue(captures.contains { $0.name == "attribute" && capturedText($0, in: snapshot) == "title" })
     }
 
     func testHighlightPrioritizesViewportThenFull() async throws {
@@ -77,5 +108,30 @@ final class SyntaxEngineTests: XCTestCase {
         let scopes = tree.enclosingScopes(atByteOffset: utf8Offset)
         XCTAssertFalse(scopes.isEmpty)
         XCTAssertEqual(scopes.first?.startLine, 0)
+    }
+
+    func testEnclosingScopesDoNotTreatDocumentRootAsAStickyScope() async throws {
+        let engine = SyntaxEngine()
+        let snapshot = SourceSnapshot(
+            text: "import Foundation\n\nfunc greet() {\n    print(\"hi\")\n}\n"
+        )
+        let tree = try await engine.parse(snapshot: snapshot, language: .swift)
+        guard let offset = snapshot.text.range(of: "print") else {
+            return XCTFail("fixture text changed")
+        }
+        let utf8Offset = snapshot.text.utf8.distance(
+            from: snapshot.text.utf8.startIndex,
+            to: offset.lowerBound.samePosition(in: snapshot.text.utf8)!
+        )
+
+        let scopes = tree.enclosingScopes(atByteOffset: utf8Offset)
+
+        XCTAssertFalse(scopes.isEmpty)
+        XCTAssertEqual(scopes.first?.startLine, 2)
+        XCTAssertFalse(scopes.contains { $0.startLine == 0 })
+    }
+
+    private func capturedText(_ capture: SyntaxCapture, in snapshot: SourceSnapshot) -> String? {
+        try? snapshot.text(inUTF8Range: capture.utf8Range)
     }
 }

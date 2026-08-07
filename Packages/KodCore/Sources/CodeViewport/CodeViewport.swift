@@ -11,6 +11,16 @@ public final class CodeViewport: NSView {
     public let language: SyntaxLanguage?
 
     public private(set) var selectedUTF8Range: Range<Int>?
+    public private(set) var focusedUTF8Offset = 0
+    public private(set) var hoveredLinkUTF8Range: Range<Int>?
+
+    /// Editor-level language intelligence hooks. `CodeViewport` reports
+    /// source positions without depending on LanguageClient; the owning app
+    /// decides which workspace service handles the request.
+    public var onCommandClick: ((Int) -> Void)?
+    public var onLinkClick: ((Int) -> Void)?
+    public var onHover: ((Int, Range<Int>, NSRect) -> Void)?
+    public var onHoverExit: (() -> Void)?
 
     /// Off by default. When enabled for a file under the 10 MB safety-mode
     /// threshold, long lines wrap to the viewport width; safety-mode files
@@ -64,6 +74,8 @@ public final class CodeViewport: NSView {
     var lineHeight: CGFloat = 20
     private var characterWidth: CGFloat = 8
     private var anchorUTF8Offset: Int?
+    private var currentHoverUTF8Offset: Int?
+    private var hoverTrackingArea: NSTrackingArea?
     private var lineCache: [Int: CTLine] = [:]
     private var minimumViewportWidth: CGFloat = 0
 
@@ -164,6 +176,21 @@ public final class CodeViewport: NSView {
         true
     }
 
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseMoved, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+    }
+
     public func setMinimumViewportWidth(_ width: CGFloat) {
         guard width != minimumViewportWidth else {
             return
@@ -259,9 +286,48 @@ public final class CodeViewport: NSView {
         }
 
         let offset = sourceOffset(at: point)
+        focusedUTF8Offset = offset
+        if event.modifierFlags.contains(.command) {
+            onCommandClick?(offset)
+            return
+        }
+        if hoveredLinkUTF8Range?.contains(offset) == true, let onLinkClick {
+            onLinkClick(offset)
+            return
+        }
         anchorUTF8Offset = offset
         selectedUTF8Range = nil
         needsDisplay = true
+    }
+
+    public override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard point.x >= gutterWidth else {
+            currentHoverUTF8Offset = nil
+            NSCursor.arrow.set()
+            onHoverExit?()
+            return
+        }
+        let offset = sourceOffset(at: point)
+        currentHoverUTF8Offset = offset
+        cursor(forUTF8Offset: offset).set()
+        let anchorRect = NSRect(
+            x: point.x,
+            y: floor(point.y / lineHeight) * lineHeight,
+            width: 1,
+            height: lineHeight
+        )
+        guard let targetRange = hoverTargetUTF8Range(at: offset) else {
+            onHoverExit?()
+            return
+        }
+        onHover?(offset, targetRange, anchorRect)
+    }
+
+    public override func mouseExited(with event: NSEvent) {
+        currentHoverUTF8Offset = nil
+        NSCursor.arrow.set()
+        onHoverExit?()
     }
 
     public override func mouseDragged(with event: NSEvent) {
@@ -425,6 +491,119 @@ public final class CodeViewport: NSView {
         return true
     }
 
+    /// Marks the source token under the pointer as navigable. The app only
+    /// calls this after an LSP definition request returns at least one valid
+    /// target, so the underline and pointing-hand cursor never promise a
+    /// link that cannot actually be followed.
+    public func setHoveredLinkUTF8Range(_ range: Range<Int>?) {
+        let validatedRange: Range<Int>?
+        if let range,
+           !range.isEmpty,
+           range.lowerBound >= 0,
+           range.upperBound <= snapshot.utf8Count {
+            validatedRange = range
+        } else {
+            validatedRange = nil
+        }
+        guard validatedRange != hoveredLinkUTF8Range else {
+            return
+        }
+        hoveredLinkUTF8Range = validatedRange
+        lineCache.removeAll(keepingCapacity: true)
+        needsDisplay = true
+        if let currentHoverUTF8Offset {
+            cursor(forUTF8Offset: currentHoverUTF8Offset).set()
+        }
+    }
+
+    /// Returns the identifier-like source range surrounding a hover offset,
+    /// for use as the visual link affordance after LSP confirms that the
+    /// position has a definition target.
+    public func linkCandidateUTF8Range(at utf8Offset: Int) -> Range<Int>? {
+        guard utf8Offset >= 0,
+              utf8Offset < snapshot.utf8Count,
+              let position = try? snapshot.position(
+                forUTF8Offset: utf8Offset,
+                encoding: .utf8
+              ),
+              let lineRange = snapshot.utf8RangeForLine(position.line),
+              let line = snapshot.line(at: position.line) else {
+            return nil
+        }
+
+        var tokenStart: Int?
+        var absoluteOffset = lineRange.lowerBound
+        for scalar in line.unicodeScalars {
+            let scalarLength = String(scalar).utf8.count
+            let scalarRange = absoluteOffset..<(absoluteOffset + scalarLength)
+            if Self.isIdentifierScalar(scalar) {
+                if tokenStart == nil {
+                    tokenStart = scalarRange.lowerBound
+                }
+            } else if let start = tokenStart {
+                let tokenRange = start..<scalarRange.lowerBound
+                if tokenRange.contains(utf8Offset) {
+                    return tokenRange
+                }
+                tokenStart = nil
+            }
+            absoluteOffset = scalarRange.upperBound
+        }
+
+        if let start = tokenStart {
+            let tokenRange = start..<absoluteOffset
+            if tokenRange.contains(utf8Offset) {
+                return tokenRange
+            }
+        }
+        return nil
+    }
+
+    /// Returns a stable source range for hover scheduling. Identifiers use
+    /// their complete Unicode-aware range so moving between characters does
+    /// not restart language requests; punctuation uses one scalar and
+    /// whitespace has no hover target.
+    public func hoverTargetUTF8Range(at utf8Offset: Int) -> Range<Int>? {
+        if let identifierRange = linkCandidateUTF8Range(at: utf8Offset) {
+            return identifierRange
+        }
+        guard utf8Offset >= 0,
+              utf8Offset < snapshot.utf8Count,
+              let position = try? snapshot.position(
+                forUTF8Offset: utf8Offset,
+                encoding: .utf8
+              ),
+              let lineRange = snapshot.utf8RangeForLine(position.line),
+              let line = snapshot.line(at: position.line) else {
+            return nil
+        }
+
+        var absoluteOffset = lineRange.lowerBound
+        for scalar in line.unicodeScalars {
+            let scalarRange = absoluteOffset..<(absoluteOffset + UTF8.width(scalar))
+            if scalarRange.contains(utf8Offset) {
+                return CharacterSet.whitespacesAndNewlines.contains(scalar)
+                    ? nil
+                    : scalarRange
+            }
+            absoluteOffset = scalarRange.upperBound
+        }
+        return nil
+    }
+
+    private static func isIdentifierScalar(_ scalar: Unicode.Scalar) -> Bool {
+        scalar == "_" || scalar == "$"
+            || CharacterSet.alphanumerics.contains(scalar)
+            || CharacterSet.nonBaseCharacters.contains(scalar)
+    }
+
+    func cursor(forUTF8Offset utf8Offset: Int) -> NSCursor {
+        if hoveredLinkUTF8Range?.contains(utf8Offset) == true {
+            return .pointingHand
+        }
+        return .iBeam
+    }
+
     // MARK: - Folding
 
     public func isFoldable(atLine line: Int) -> Bool {
@@ -548,6 +727,7 @@ public final class CodeViewport: NSView {
         return Array(
             syntaxTree
                 .enclosingScopes(atByteOffset: lineRange.lowerBound, maximumDepth: stickyHeaderMaximumDepth)
+                .filter { $0.startLine < line }
                 .prefix(stickyHeaderMaximumDepth)
         )
     }
@@ -601,22 +781,37 @@ public final class CodeViewport: NSView {
     }
 
     /// Measures the gutter width needed to fit `lineCount`'s largest line
-    /// number plus a fold-indicator glyph, at the gutter font size
-    /// `lineNumberLayout(at:)` actually draws with (the resolved editor
-    /// font, minus 2pt, floored at 9pt) — kept in exact sync with that
-    /// drawing code so this measurement can never under- or over-estimate
-    /// what gets painted. Never below the original fixed 64pt budget, so
+    /// number plus a fold-indicator glyph, at the two font sizes
+    /// `lineNumberLayout(at:)` actually draws with — kept in exact sync
+    /// with that drawing code so this measurement can never under- or
+    /// over-estimate what gets painted. Never below the original fixed
+    /// 64pt budget, so
     /// short files/small fonts keep their existing spacious layout.
+    static func lineNumberFont(for editorFont: NSFont) -> NSFont {
+        NSFont.monospacedDigitSystemFont(
+            ofSize: max(9, editorFont.pointSize - 2),
+            weight: .regular
+        )
+    }
+
+    static func foldIndicatorFont(for editorFont: NSFont) -> NSFont {
+        NSFont.systemFont(
+            ofSize: max(14, editorFont.pointSize + 1),
+            weight: .medium
+        )
+    }
+
     static func measureGutterWidth(lineCount: Int, resolvedFont: ResolvedFont) -> CGFloat {
         let digitCount = max(1, String(max(1, lineCount)).count)
-        let sample = "\u{25BE} " + String(repeating: "8", count: digitCount)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(
-                ofSize: max(9, resolvedFont.nsFont.pointSize - 2),
-                weight: .regular
-            )
-        ]
-        let line = CTLineCreateWithAttributedString(NSAttributedString(string: sample, attributes: attributes))
+        let sample = NSMutableAttributedString(
+            string: "\u{25BE} ",
+            attributes: [.font: foldIndicatorFont(for: resolvedFont.nsFont)]
+        )
+        sample.append(NSAttributedString(
+            string: String(repeating: "8", count: digitCount),
+            attributes: [.font: lineNumberFont(for: resolvedFont.nsFont)]
+        ))
+        let line = CTLineCreateWithAttributedString(sample)
         let measuredWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         // Matches the 12pt gap `drawLine(atVisualRow:line:segmentIndex:)`
         // already leaves between the number and `gutterWidth`, plus a
@@ -877,7 +1072,7 @@ public final class CodeViewport: NSView {
         return ctLine
     }
 
-    private func attributedString(forSegment text: String, utf8Range segmentRange: Range<Int>) -> NSAttributedString {
+    func attributedString(forSegment text: String, utf8Range segmentRange: Range<Int>) -> NSAttributedString {
         let result = NSMutableAttributedString(string: text, attributes: baseTextAttributes())
         guard !segmentRange.isEmpty,
               let segmentStartPosition = try? snapshot.position(
@@ -888,23 +1083,15 @@ public final class CodeViewport: NSView {
         }
 
         let runs = decorationCompositor.composedRuns(inUTF8Range: segmentRange)
-        guard !runs.isEmpty else {
-            return result
-        }
         let textLength = (text as NSString).length
 
         for run in runs {
-            let clampedStart = max(run.utf8Range.lowerBound, segmentRange.lowerBound)
-            let clampedEnd = min(run.utf8Range.upperBound, segmentRange.upperBound)
-            guard clampedStart < clampedEnd,
-                  let startPosition = try? snapshot.position(forUTF8Offset: clampedStart, encoding: .utf16),
-                  let endPosition = try? snapshot.position(forUTF8Offset: clampedEnd, encoding: .utf16) else {
-                continue
-            }
-
-            let localStart = max(0, startPosition.character - segmentStartPosition.character)
-            let localEnd = min(textLength, endPosition.character - segmentStartPosition.character)
-            guard localStart < localEnd else {
+            guard let localRange = localUTF16Range(
+                for: run.utf8Range,
+                in: segmentRange,
+                segmentStartPosition: segmentStartPosition,
+                textLength: textLength
+            ) else {
                 continue
             }
 
@@ -927,9 +1114,50 @@ public final class CodeViewport: NSView {
             guard !attributes.isEmpty else {
                 continue
             }
-            result.addAttributes(attributes, range: NSRange(location: localStart, length: localEnd - localStart))
+            result.addAttributes(attributes, range: localRange)
+        }
+
+        if let hoveredLinkUTF8Range,
+           let localRange = localUTF16Range(
+            for: hoveredLinkUTF8Range,
+            in: segmentRange,
+            segmentStartPosition: segmentStartPosition,
+            textLength: textLength
+           ) {
+            result.addAttribute(
+                .underlineStyle,
+                value: NSUnderlineStyle.single.rawValue,
+                range: localRange
+            )
         }
         return result
+    }
+
+    private func localUTF16Range(
+        for utf8Range: Range<Int>,
+        in segmentRange: Range<Int>,
+        segmentStartPosition: SourcePosition,
+        textLength: Int
+    ) -> NSRange? {
+        let clampedStart = max(utf8Range.lowerBound, segmentRange.lowerBound)
+        let clampedEnd = min(utf8Range.upperBound, segmentRange.upperBound)
+        guard clampedStart < clampedEnd,
+              let startPosition = try? snapshot.position(
+                forUTF8Offset: clampedStart,
+                encoding: .utf16
+              ),
+              let endPosition = try? snapshot.position(
+                forUTF8Offset: clampedEnd,
+                encoding: .utf16
+              ) else {
+            return nil
+        }
+        let localStart = max(0, startPosition.character - segmentStartPosition.character)
+        let localEnd = min(textLength, endPosition.character - segmentStartPosition.character)
+        guard localStart < localEnd else {
+            return nil
+        }
+        return NSRange(location: localStart, length: localEnd - localStart)
     }
 
     /// Not `private`: `CodeViewportAccessibility.swift`'s
@@ -961,20 +1189,24 @@ public final class CodeViewport: NSView {
     }
 
     private func lineNumberLayout(at index: Int) -> CTLine {
-        var numberString = String(index + 1)
+        let attributed = NSMutableAttributedString()
         if isFoldable(atLine: index) {
-            numberString = (isFolded(atLine: index) ? "\u{25B8} " : "\u{25BE} ") + numberString
+            attributed.append(NSAttributedString(
+                string: isFolded(atLine: index) ? "\u{25B8} " : "\u{25BE} ",
+                attributes: [
+                    .font: Self.foldIndicatorFont(for: resolvedFont.nsFont),
+                    .foregroundColor: theme.editor.gutterForeground.nsColor
+                ]
+            ))
         }
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(
-                ofSize: max(9, resolvedFont.nsFont.pointSize - 2),
-                weight: .regular
-            ),
-            .foregroundColor: theme.editor.gutterForeground.nsColor
-        ]
-        return CTLineCreateWithAttributedString(
-            NSAttributedString(string: numberString, attributes: attributes)
-        )
+        attributed.append(NSAttributedString(
+            string: String(index + 1),
+            attributes: [
+                .font: Self.lineNumberFont(for: resolvedFont.nsFont),
+                .foregroundColor: theme.editor.gutterForeground.nsColor
+            ]
+        ))
+        return CTLineCreateWithAttributedString(attributed)
     }
 
     private func drawLine(atVisualRow visualRow: Int, line: Int, segmentIndex: Int) {
@@ -1153,13 +1385,9 @@ public final class CodeViewport: NSView {
         }
 
         let top = visibleRect.minY
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: resolvedFont.nsFont,
-            .foregroundColor: theme.editor.foreground.nsColor
-        ]
-
         for (index, header) in headers.enumerated() {
-            guard let text = snapshot.line(at: header.startLine) else {
+            guard let text = snapshot.line(at: header.startLine),
+                  let lineRange = snapshot.utf8RangeForLine(header.startLine) else {
                 continue
             }
             let rowOriginY = top + (CGFloat(index) * lineHeight)
@@ -1167,7 +1395,9 @@ public final class CodeViewport: NSView {
             theme.editor.stickyScopeBackground.nsColor.setFill()
             NSRect(x: 0, y: rowOriginY, width: max(bounds.width, visibleRect.width), height: lineHeight).fill()
 
-            let ctLine = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+            let ctLine = CTLineCreateWithAttributedString(
+                attributedString(forSegment: text, utf8Range: lineRange)
+            )
             context.saveGState()
             context.textMatrix = .identity
             context.translateBy(x: 0, y: bounds.height)

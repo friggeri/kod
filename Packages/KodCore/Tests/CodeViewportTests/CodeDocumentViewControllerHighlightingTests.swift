@@ -52,6 +52,17 @@ final class CodeDocumentViewControllerHighlightingTests: XCTestCase {
         XCTAssertNil(controller.highlightingTask)
     }
 
+    func testTSXStartsTypeScriptHighlighting() async {
+        let controller = makeController(
+            text: "export const View = () => <div />;\n",
+            path: "/tmp/View.tsx"
+        )
+
+        XCTAssertEqual(controller.viewport.language, .tsx)
+        XCTAssertNotNil(controller.highlightingTask)
+        await controller.highlightingTask?.value
+    }
+
     func testSkipsHighlightingForSafetyModeFiles() {
         let oversizedLine = String(repeating: "a", count: 200_001)
         let controller = makeController(text: oversizedLine)

@@ -390,6 +390,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(forward)
 
         menu.addItem(.separator())
+        let goToDefinition = NSMenuItem(
+            title: Localized.string("Go to Definition", comment: "Navigate menu item that opens the selected symbol's definition"),
+            action: #selector(WorkspaceViewController.goToDefinition(_:)),
+            keyEquivalent: Self.functionKeyEquivalent(NSF12FunctionKey)
+        )
+        goToDefinition.keyEquivalentModifierMask = []
+        menu.addItem(goToDefinition)
         menu.addItem(
             withTitle: Localized.string("Go to Matching Bracket", comment: "Navigate menu item that jumps to the matching bracket"),
             action: #selector(CodeViewport.jumpToMatchingBracket(_:)),

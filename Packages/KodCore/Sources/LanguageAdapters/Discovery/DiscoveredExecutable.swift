@@ -62,3 +62,15 @@ public enum LanguageServerDiscoveryError: Error, Equatable, Sendable {
     /// found" since the user configured this path themselves.
     case overrideNotExecutable(URL, source: ExecutableDiscoverySource)
 }
+
+extension LanguageServerDiscoveryError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notFound(let languageName, let attemptedSources):
+            let sources = attemptedSources.map(\.displayName).joined(separator: ", ")
+            return "No \(languageName) executable was found. Checked: \(sources). Install a compatible server or configure a language-server override."
+        case .overrideNotExecutable(let url, let source):
+            return "The \(source.displayName.lowercased()) at \(url.path) is not executable."
+        }
+    }
+}

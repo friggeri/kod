@@ -48,6 +48,7 @@ final class EditorGroupViewController: NSViewController {
     /// integration (document sync, semantic tokens) without this type
     /// needing to know anything about `LanguageClient`.
     var onDocumentReady: ((String, CodeDocumentViewController) -> Void)?
+    var onActiveDocumentChange: ((CodeDocumentViewController?) -> Void)?
 
     /// Disables the close-group affordance when this is the only group left.
     var isOnlyGroup = true {
@@ -678,6 +679,7 @@ final class EditorGroupViewController: NSViewController {
                 let controller = documentController(for: tabID, snapshot: snapshot)
                 preparePreviewIfNeeded(tabID: tabID, relativePath: tab.relativePath, snapshot: snapshot)
                 showContent(contentController(forTabID: tabID))
+                onDocumentReady?(tab.relativePath, controller)
                 refreshPreviewToggleButton()
                 if let entry {
                     controller.restoreNavigationAnchor(
@@ -930,6 +932,7 @@ final class EditorGroupViewController: NSViewController {
                 placeholderLabel.centerXAnchor.constraint(equalTo: contentHost.centerXAnchor),
                 placeholderLabel.centerYAnchor.constraint(equalTo: contentHost.centerYAnchor)
             ])
+            onActiveDocumentChange?(nil)
             return
         }
 
@@ -943,6 +946,7 @@ final class EditorGroupViewController: NSViewController {
             contentView.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor),
             contentView.bottomAnchor.constraint(equalTo: contentHost.bottomAnchor)
         ])
+        onActiveDocumentChange?(currentDocumentController)
     }
 
     private func refreshNavigationButtons() {

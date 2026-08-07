@@ -1,3 +1,4 @@
+import CodeViewport
 import LanguageAdapters
 import LanguageClient
 import SourceModel
@@ -75,10 +76,24 @@ final class MultiLanguageServicesCoordinatorTests: XCTestCase {
         let fileURL = root.appendingPathComponent("main.ts")
         try "class Foo {}".write(to: fileURL, atomically: true, encoding: .utf8)
         let snapshot = try SourceSnapshotLoader().load(url: fileURL, version: 1)
-        coordinator.handleDocumentReady(url: fileURL, snapshot: snapshot)
+        let documentController = CodeDocumentViewController(snapshot: snapshot)
+        coordinator.handleDocumentReady(
+            relativePath: "main.ts",
+            controller: documentController
+        )
 
         // Give any (incorrectly) started async work a moment to run.
         try? await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertNil(coordinator.service(forURL: fileURL), "No service may start for an untrusted workspace")
+
+        untrustedStore.trust(identity)
+        coordinator.handleTrustGranted()
+        for _ in 0..<50 where coordinator.service(forURL: fileURL) == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertNotNil(
+            coordinator.service(forURL: fileURL),
+            "Granting trust must retry documents that were already open"
+        )
     }
 }

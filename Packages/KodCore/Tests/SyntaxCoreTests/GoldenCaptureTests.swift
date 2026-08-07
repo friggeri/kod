@@ -16,6 +16,7 @@ final class GoldenCaptureTests: XCTestCase {
     private static let languages: [(SyntaxLanguage, String)] = [
         (.swift, "swift"),
         (.typescript, "ts"),
+        (.tsx, "tsx"),
         (.javascript, "js"),
         (.html, "html"),
         (.css, "css"),

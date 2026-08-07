@@ -111,4 +111,83 @@ final class CodeViewportTests: XCTestCase {
             "safety-mode files keep the fast, unwrapped rendering path even when word wrap is toggled on"
         )
     }
+
+    @MainActor
+    func testCommandClickAndHoverReportSourceOffsetsWithoutChangingText() throws {
+        let snapshot = SourceSnapshot(text: "const client = api;\n")
+        let viewport = CodeViewport(snapshot: snapshot)
+        viewport.frame = NSRect(x: 0, y: 0, width: 500, height: 100)
+        let window = NSWindow(
+            contentRect: viewport.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = viewport
+
+        var commandClickOffset: Int?
+        var linkClickOffset: Int?
+        var hoverOffset: Int?
+        var hoverExited = false
+        viewport.onCommandClick = { commandClickOffset = $0 }
+        viewport.onLinkClick = { linkClickOffset = $0 }
+        viewport.onHover = { offset, _, _ in hoverOffset = offset }
+        viewport.onHoverExit = { hoverExited = true }
+
+        let location = viewport.convert(NSPoint(x: 75, y: 10), to: nil)
+        let commandClick = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: location,
+                modifierFlags: [.command],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+        viewport.mouseDown(with: commandClick)
+        let clickOffset = try XCTUnwrap(commandClickOffset)
+        viewport.setHoveredLinkUTF8Range(clickOffset..<(clickOffset + 1))
+
+        let linkClick = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: location,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 2,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+        viewport.mouseDown(with: linkClick)
+
+        let mouseMoved = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .mouseMoved,
+                location: location,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 3,
+                clickCount: 0,
+                pressure: 0
+            )
+        )
+        viewport.mouseMoved(with: mouseMoved)
+        viewport.mouseExited(with: mouseMoved)
+
+        XCTAssertNotNil(commandClickOffset)
+        XCTAssertEqual(linkClickOffset, commandClickOffset)
+        XCTAssertEqual(hoverOffset, commandClickOffset)
+        XCTAssertTrue(hoverExited)
+        XCTAssertEqual(viewport.focusedUTF8Offset, commandClickOffset)
+        XCTAssertEqual(snapshot.text, "const client = api;\n")
+    }
 }

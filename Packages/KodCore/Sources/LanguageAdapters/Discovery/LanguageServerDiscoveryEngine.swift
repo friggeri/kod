@@ -31,6 +31,7 @@ public enum LanguageServerDiscoveryEngine {
             home.appendingPathComponent(".cargo/bin"),
             home.appendingPathComponent(".local/bin"),
             home.appendingPathComponent(".volta/bin"),
+            home.appendingPathComponent("Library/pnpm/bin"),
             home.appendingPathComponent("Library/pnpm"),
             home.appendingPathComponent(".bun/bin")
         ]
@@ -52,30 +53,33 @@ public enum LanguageServerDiscoveryEngine {
         overrideStore: LanguageServerOverrideStore,
         identity: WorkspaceIdentity?,
         loginShellPath: @Sendable () -> String? = { LoginShellPathCapture.capture() },
-        packageManagerDirectories: [URL] = LanguageServerDiscoveryEngine.defaultPackageManagerDirectories()
+        packageManagerDirectories: [URL] = LanguageServerDiscoveryEngine.defaultPackageManagerDirectories(),
+        includeOverrides: Bool = true
     ) throws -> DiscoveredExecutable {
         var attempted: [ExecutableDiscoverySource] = []
 
-        if let identity {
-            attempted.append(.workspaceOverride)
-            if let override = overrideStore.workspaceOverride(languageKey: languageKey, identity: identity) {
+        if includeOverrides {
+            if let identity {
+                attempted.append(.workspaceOverride)
+                if let override = overrideStore.workspaceOverride(languageKey: languageKey, identity: identity) {
+                    return try makeResult(
+                        url: override.url,
+                        arguments: override.arguments,
+                        source: .workspaceOverride,
+                        versionArguments: versionArguments
+                    )
+                }
+            }
+
+            attempted.append(.globalOverride)
+            if let override = overrideStore.globalOverride(languageKey: languageKey) {
                 return try makeResult(
                     url: override.url,
                     arguments: override.arguments,
-                    source: .workspaceOverride,
+                    source: .globalOverride,
                     versionArguments: versionArguments
                 )
             }
-        }
-
-        attempted.append(.globalOverride)
-        if let override = overrideStore.globalOverride(languageKey: languageKey) {
-            return try makeResult(
-                url: override.url,
-                arguments: override.arguments,
-                source: .globalOverride,
-                versionArguments: versionArguments
-            )
         }
 
         if let languageSpecificProbe {

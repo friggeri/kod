@@ -20,6 +20,7 @@ enum MarkdownFenceLanguage {
         switch language.lowercased() {
         case "swift": return .swift
         case "typescript", "ts": return .typescript
+        case "tsx": return .tsx
         case "javascript", "js", "jsx", "mjs", "cjs": return .javascript
         case "html", "htm": return .html
         case "css": return .css

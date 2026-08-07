@@ -4,6 +4,7 @@ function 30..<39
 variable 30..<39
 punctuation.bracket 39..<40
 variable 40..<41
+variable.parameter 40..<41
 punctuation.bracket 41..<42
 punctuation.bracket 43..<44
 keyword 49..<51

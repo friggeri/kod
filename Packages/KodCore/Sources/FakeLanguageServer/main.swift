@@ -9,10 +9,8 @@ import LanguageClient
 //
 // Scenario is selected by argv[1]; unrecognized/missing selects "normal".
 // An optional `FAKE_LSP_STATE_FILE` environment variable, if set, gets
-// one appended line per `textDocument/didOpen` notification received —
-// used by the restart-resync test to observe re-synchronization across
-// an auto-restarted process (each restart is a fresh process with no
-// in-memory state of its own).
+// one appended line per observed event used by fixture tests (currently
+// `didOpen` and `cancel`) to inspect process behavior across stdio.
 
 let scenario = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "normal"
 
@@ -77,13 +75,29 @@ final class CancelledIDRegistry: @unchecked Sendable {
     }
 }
 
+final class RequestCountRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var counts: [String: Int] = [:]
+
+    func increment(_ method: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        counts[method, default: 0] += 1
+        return counts[method, default: 0]
+    }
+}
+
 let cancelledIDs = CancelledIDRegistry()
+let requestCounts = RequestCountRegistry()
 let stateFilePath = ProcessInfo.processInfo.environment["FAKE_LSP_STATE_FILE"]
+let stateFileLock = NSLock()
 
 func appendStateFileLine(_ line: String) {
     guard let stateFilePath else {
         return
     }
+    stateFileLock.lock()
+    defer { stateFileLock.unlock() }
     let entry = line + "\n"
     if let handle = FileHandle(forWritingAtPath: stateFilePath) {
         handle.seekToEndOfFile()
@@ -140,6 +154,14 @@ func initializeResult() -> JSONValue {
 }
 
 func handleInitialize(id: JSONRPCID) {
+    if scenario == "initialize-error" {
+        respondError(
+            id: id,
+            code: JSONRPCErrorCode.internalError,
+            message: "No compatible language runtime was found."
+        )
+        return
+    }
     respond(id: id, result: initializeResult())
 }
 
@@ -567,6 +589,25 @@ func handleTypeHierarchySubtypes(id: JSONRPCID, params: JSONValue?) {
 }
 
 func handleSemanticTokens(id: JSONRPCID) {
+    if scenario == "priority",
+       requestCounts.increment("textDocument/semanticTokens/full") == 1 {
+        DispatchQueue.global().async {
+            let deadline = Date().addingTimeInterval(3)
+            while Date() < deadline {
+                if cancelledIDs.isCancelled(id) {
+                    respondError(
+                        id: id,
+                        code: JSONRPCErrorCode.requestCancelled,
+                        message: "cancelled"
+                    )
+                    return
+                }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            respondError(id: id, code: JSONRPCErrorCode.internalError, message: "not preempted")
+        }
+        return
+    }
     respond(id: id, result: .object([
         "resultId": .string("1"),
         "data": .array([.number(0), .number(0), .number(4), .number(3), .number(0)])
@@ -578,6 +619,7 @@ func handleShutdown(id: JSONRPCID) {
 }
 
 func handleRequest(id: JSONRPCID, method: String, params: JSONValue?) {
+    appendStateFileLine("request:\(method)")
     switch method {
     case "initialize":
         handleInitialize(id: id)
@@ -664,6 +706,7 @@ func handleNotification(method: String, params: JSONValue?) {
         exit(0)
 
     case "$/cancelRequest":
+        appendStateFileLine("cancel")
         if case .object(let fields)? = params {
             if case .number(let number)? = fields["id"] {
                 cancelledIDs.markCancelled(.number(Int(number)))

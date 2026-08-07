@@ -25,6 +25,16 @@ final class WorkspaceViewController: NSViewController {
     let diagnosticsLog: BoundedEventLog
     private let outlineView = NSOutlineView()
     private let statusLabel = NSTextField(labelWithString: Localized.string("Discovering files...", comment: "Status label shown in the workspace Explorer while the initial file scan is in progress"))
+    private let showHiddenFilesButton = NSButton(
+        checkboxWithTitle: Localized.string("Hidden", comment: "Explorer checkbox that reveals hidden files"),
+        target: nil,
+        action: nil
+    )
+    private let showIgnoredFilesButton = NSButton(
+        checkboxWithTitle: Localized.string("Ignored", comment: "Explorer checkbox that reveals Git-ignored files"),
+        target: nil,
+        action: nil
+    )
     private let trustBanner = NSStackView()
     private let trustBannerLabel = NSTextField(labelWithString: "")
     private let trustActionButton = NSButton(title: "", target: nil, action: nil)
@@ -62,13 +72,37 @@ final class WorkspaceViewController: NSViewController {
     var entriesByParent: [String: [WorkspaceFileEntry]] = [:]
     private var nodeCache: [String: WorkspaceTreeNode] = [:]
     private var discoveryTask: Task<Void, Never>?
+    private var discoveryOptions = WorkspaceDiscoveryOptions()
+    private var discoveryGeneration = 0
     private var sourceLoadTask: Task<Void, Never>?
     private var quickOpenController: QuickOpenPanelController?
     private var commandPaletteController: CommandPaletteController?
     private var goToLinePanelController: GoToLinePanelController?
     private var peekPanelController: PeekPanelController?
     private var hierarchyPanelController: HierarchyPanelController?
+    private var definitionNavigationTask: Task<Void, Never>?
+    private lazy var languageHoverController = LanguageHoverController(
+        hoverRequest: { [weak self] snapshot, utf8Offset in
+            guard let self else {
+                throw CancellationError()
+            }
+            return try await self.hover(
+                snapshot: snapshot,
+                utf8Offset: utf8Offset
+            )
+        },
+        definitionRequest: { [weak self] snapshot, utf8Offset in
+            guard let self else {
+                throw CancellationError()
+            }
+            return try await self.definitionTargets(
+                snapshot: snapshot,
+                utf8Offset: utf8Offset
+            )
+        }
+    )
     private var hasStartedDiscovery = false
+    private var lastLanguageServerStates: [String: LanguageServerState] = [:]
 
     /// FSEvents-driven live updates (SPEC 5.6): incremental Explorer/index
     /// updates, automatic reload of externally modified open files into a
@@ -130,6 +164,8 @@ final class WorkspaceViewController: NSViewController {
         let outerSplit = NSSplitViewController()
         addChild(outerSplit)
         outerSplit.view.translatesAutoresizingMaskIntoConstraints = false
+        let statusBar = makeStatusBar()
+        statusBar.translatesAutoresizingMaskIntoConstraints = false
 
         let sidebarController = NSViewController()
         sidebarController.view = makeSidebar()
@@ -151,6 +187,7 @@ final class WorkspaceViewController: NSViewController {
         container.addSubview(rootLabel)
         container.addSubview(trustBanner)
         container.addSubview(outerSplit.view)
+        container.addSubview(statusBar)
 
         NSLayoutConstraint.activate([
             rootLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 9),
@@ -159,14 +196,20 @@ final class WorkspaceViewController: NSViewController {
             trustBanner.topAnchor.constraint(equalTo: rootLabel.bottomAnchor, constant: 7),
             trustBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             trustBanner.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -12),
+            trustBanner.heightAnchor.constraint(equalTo: trustActionButton.heightAnchor),
             outerSplit.view.topAnchor.constraint(equalTo: trustBanner.bottomAnchor, constant: 8),
             outerSplit.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             outerSplit.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            outerSplit.view.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            outerSplit.view.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            statusBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            statusBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            statusBar.heightAnchor.constraint(equalToConstant: 29)
         ])
 
         view = container
         refreshActiveGroupHighlighting()
+        refreshLanguageServerStateUI()
     }
 
     override func viewDidAppear() {
@@ -266,13 +309,13 @@ final class WorkspaceViewController: NSViewController {
 
     private func configureLanguageServicesCoordinator() {
         languageServicesCoordinator.onStateChange = { [weak self] in
-            self?.refreshLanguageServerStateUI()
+            self?.languageServerStateDidChange()
         }
         languageServicesCoordinator.onDiagnostics = { [weak self] url, diagnostics in
             self?.problemsViewController.update(url: url, diagnostics: diagnostics)
         }
         multiLanguageServicesCoordinator.onStateChange = { [weak self] in
-            self?.refreshLanguageServerStateUI()
+            self?.languageServerStateDidChange()
         }
         multiLanguageServicesCoordinator.onDiagnostics = { [weak self] url, diagnostics in
             self?.problemsViewController.update(url: url, diagnostics: diagnostics)
@@ -280,12 +323,47 @@ final class WorkspaceViewController: NSViewController {
         refreshLanguageServerStateUI()
     }
 
+    private func languageServerStateDidChange() {
+        recordLanguageServerState(
+            providerIdentifier: "swift",
+            state: languageServicesCoordinator.state
+        )
+        for status in multiLanguageServicesCoordinator.states {
+            recordLanguageServerState(
+                providerIdentifier: status.adapter.languageKey,
+                state: status.state
+            )
+        }
+        refreshLanguageServerStateUI()
+    }
+
+    private func recordLanguageServerState(
+        providerIdentifier: String,
+        state: LanguageServerState
+    ) {
+        defer { lastLanguageServerStates[providerIdentifier] = state }
+        guard lastLanguageServerStates[providerIdentifier] != state else {
+            return
+        }
+        switch state {
+        case .missing, .starting, .stopping, .stopped, .crashed, .disabled:
+            languageHoverController.invalidateCache(
+                forProvider: providerIdentifier
+            )
+        case .indexing, .ready, .busy:
+            break
+        }
+    }
+
     private func refreshLanguageServerStateUI() {
-        let state = languageServicesCoordinator.state
+        let status = activeLanguageServerStatus()
+        let state = status.state
+        let prefix = status.languageName.map { "\($0) LSP" } ?? "LSP"
         languageServerStateLabel.stringValue = Localized.string(
-            "LSP: \(state.displayName)",
+            "\(prefix): \(state.displayName)",
             comment: "Status label showing the current language server state"
         )
+        languageServerStateLabel.toolTip = stateReason(state)
         // Explicit label/value pair (SPEC 14): color alone (`.systemRed`
         // for crashed/disabled) never carries the state — the label text
         // already spells it out, but an explicit accessibility label
@@ -299,10 +377,11 @@ final class WorkspaceViewController: NSViewController {
         switch state {
         case .crashed, .disabled:
             languageServerStateLabel.textColor = .systemRed
-            languageServerRestartButton.isEnabled = true
+            languageServerRestartButton.isEnabled = trustStore.isTrusted(identity)
         case .missing:
             languageServerStateLabel.textColor = .secondaryLabelColor
-            languageServerRestartButton.isEnabled = false
+            languageServerRestartButton.isEnabled = status.languageName != nil
+                && trustStore.isTrusted(identity)
         default:
             languageServerStateLabel.textColor = .secondaryLabelColor
             languageServerRestartButton.isEnabled = true
@@ -311,7 +390,165 @@ final class WorkspaceViewController: NSViewController {
 
     @objc
     private func restartLanguageServer(_ sender: Any?) {
-        languageServicesCoordinator.restart()
+        guard let url = activeGroupController?.currentDocumentController?.snapshot.url else {
+            return
+        }
+        languageHoverController.invalidateCache(
+            forProvider: languageProviderIdentifier(for: url)
+        )
+        if url.pathExtension.lowercased() == "swift" {
+            languageServicesCoordinator.restart()
+        } else {
+            multiLanguageServicesCoordinator.restart(forURL: url)
+        }
+    }
+
+    private func activeLanguageServerStatus() -> (languageName: String?, state: LanguageServerState) {
+        guard let url = activeGroupController?.currentDocumentController?.snapshot.url else {
+            return (nil, .missing(reason: "No active source document"))
+        }
+        if url.pathExtension.lowercased() == "swift" {
+            let state = trustStore.isTrusted(identity)
+                ? languageServicesCoordinator.state
+                : .disabled(reason: "Workspace is not trusted")
+            return ("Swift", state)
+        }
+        if let status = multiLanguageServicesCoordinator.status(forURL: url) {
+            return status
+        }
+        return (nil, .missing(reason: "No language server is registered for this file type"))
+    }
+
+    private func stateReason(_ state: LanguageServerState) -> String? {
+        switch state {
+        case .missing(let reason), .crashed(let reason), .disabled(let reason):
+            return reason
+        case .starting, .indexing, .ready, .busy, .stopping, .stopped:
+            return nil
+        }
+    }
+
+    private func configureLanguageInteractions(for controller: CodeDocumentViewController) {
+        controller.viewport.onCommandClick = { [weak self, weak controller] utf8Offset in
+            guard let self, let controller else {
+                return
+            }
+            self.performDefinitionNavigation(from: controller, utf8Offset: utf8Offset)
+        }
+        controller.viewport.onLinkClick = { [weak self, weak controller] utf8Offset in
+            guard let self, let controller else {
+                return
+            }
+            self.performDefinitionNavigation(from: controller, utf8Offset: utf8Offset)
+        }
+        controller.viewport.onHover = { [weak self, weak controller] utf8Offset, targetRange, anchorRect in
+            guard let self, let controller else {
+                return
+            }
+            self.languageHoverController.update(
+                controller: controller,
+                providerIdentifier: self.languageProviderIdentifier(
+                    for: controller.snapshot.url
+                ),
+                utf8Offset: utf8Offset,
+                targetRange: targetRange,
+                anchorRect: anchorRect
+            )
+        }
+        controller.viewport.onHoverExit = { [weak self, weak controller] in
+            guard let controller else {
+                return
+            }
+            self?.cancelHover(for: controller)
+        }
+    }
+
+    private func cancelHover(for controller: CodeDocumentViewController? = nil) {
+        languageHoverController.cancel(for: controller)
+    }
+
+    private func hover(snapshot: SourceSnapshot, utf8Offset: Int) async throws -> Hover? {
+        if snapshot.url.pathExtension.lowercased() == "swift" {
+            return try await languageServicesCoordinator.hover(
+                snapshot: snapshot,
+                utf8Offset: utf8Offset
+            )
+        }
+        return try await multiLanguageServicesCoordinator.hover(
+            snapshot: snapshot,
+            utf8Offset: utf8Offset
+        )
+    }
+
+    private func definitionTargets(
+        snapshot: SourceSnapshot,
+        utf8Offset: Int
+    ) async throws -> [NavigationTarget] {
+        if snapshot.url.pathExtension.lowercased() == "swift" {
+            return try await languageServicesCoordinator.definition(
+                snapshot: snapshot,
+                utf8Offset: utf8Offset
+            )
+        }
+        return try await multiLanguageServicesCoordinator.definition(
+            snapshot: snapshot,
+            utf8Offset: utf8Offset
+        )
+    }
+
+    private func performDefinitionNavigation(
+        from controller: CodeDocumentViewController,
+        utf8Offset: Int
+    ) {
+        definitionNavigationTask?.cancel()
+        definitionNavigationTask = nil
+        let providerIdentifier = languageProviderIdentifier(
+            for: controller.snapshot.url
+        )
+        switch languageHoverController.cachedDefinitions(
+            controller: controller,
+            providerIdentifier: providerIdentifier,
+            utf8Offset: utf8Offset
+        ) {
+        case .resolved(let targets):
+            cancelHover()
+            guard let target = targets.first else {
+                return
+            }
+            navigateToLSPLocation(url: target.url, range: target.range)
+            return
+        case .missing:
+            break
+        }
+        cancelHover()
+        let snapshot = controller.snapshot
+        definitionNavigationTask = Task { [weak self, weak controller] in
+            guard let self else {
+                return
+            }
+            guard let targets = try? await self.definitionTargets(
+                snapshot: snapshot,
+                utf8Offset: utf8Offset
+            ) else {
+                return
+            }
+            guard !Task.isCancelled,
+                  let controller,
+                  controller.snapshot.version == snapshot.version,
+                  controller.view.window != nil,
+                  let target = targets.first else {
+                return
+            }
+            self.navigateToLSPLocation(url: target.url, range: target.range)
+        }
+    }
+
+    private func languageProviderIdentifier(for url: URL) -> String {
+        if url.pathExtension.lowercased() == "swift" {
+            return "swift"
+        }
+        return multiLanguageServicesCoordinator.languageKey(forURL: url)
+            ?? url.pathExtension.lowercased()
     }
 
     /// Opens `relativePath` in the active editor group and selects the
@@ -361,31 +598,31 @@ final class WorkspaceViewController: NSViewController {
 
     // MARK: - Peek Definition / References, Call / Type Hierarchy (Phase 7)
     //
-    // Both commands require a currently-selected position in the active
-    // Swift document — capability-gated: an absent/not-yet-started
+    // Commands require a currently-selected position in the active
+    // document — capability-gated: an absent/not-yet-started
     // server, or a server that never advertised the relevant capability,
     // simply produces no panel rather than an error dialog (SPEC:
     // "unsupported features are hidden/disabled, not errors").
 
-    private func currentSwiftPositionForActiveDocument() -> (snapshot: SourceSnapshot, utf8Offset: Int)? {
-        guard let documentController = activeGroupController?.currentDocumentController,
-              documentController.snapshot.url.pathExtension.lowercased() == "swift" else {
+    private func currentPositionForActiveDocument() -> (snapshot: SourceSnapshot, utf8Offset: Int)? {
+        guard let documentController = activeGroupController?.currentDocumentController else {
             return nil
         }
-        let offset = documentController.viewport.selectedUTF8Range?.lowerBound ?? 0
+        let offset = documentController.viewport.selectedUTF8Range?.lowerBound
+            ?? documentController.viewport.focusedUTF8Offset
         return (documentController.snapshot, offset)
     }
 
     @objc
     func showPeekDefinition(_ sender: Any?) {
-        guard let window = view.window, let position = currentSwiftPositionForActiveDocument() else {
+        guard let window = view.window, let position = currentPositionForActiveDocument() else {
             return
         }
         Task { [weak self] in
             guard let self else {
                 return
             }
-            guard let targets = try? await self.languageServicesCoordinator.definition(
+            guard let targets = try? await self.definitionTargets(
                 snapshot: position.snapshot,
                 utf8Offset: position.utf8Offset
             ), !targets.isEmpty else {
@@ -406,7 +643,9 @@ final class WorkspaceViewController: NSViewController {
 
     @objc
     func showCallHierarchy(_ sender: Any?) {
-        guard let window = view.window, let position = currentSwiftPositionForActiveDocument() else {
+        guard let window = view.window,
+              let position = currentPositionForActiveDocument(),
+              position.snapshot.url.pathExtension.lowercased() == "swift" else {
             return
         }
         Task { [weak self] in
@@ -519,6 +758,16 @@ final class WorkspaceViewController: NSViewController {
     }
 
     @objc
+    func goToDefinition(_ sender: Any?) {
+        guard let controller = activeGroupController?.currentDocumentController else {
+            return
+        }
+        let offset = controller.viewport.selectedUTF8Range?.lowerBound
+            ?? controller.viewport.focusedUTF8Offset
+        performDefinitionNavigation(from: controller, utf8Offset: offset)
+    }
+
+    @objc
     func showCommandPalette(_ sender: Any?) {
         guard let window = view.window else {
             return
@@ -562,6 +811,9 @@ final class WorkspaceViewController: NSViewController {
             },
             PaletteCommand(id: "command.navigateForward", title: Localized.string("Navigate Forward", comment: "Command palette entry that navigates forward in history")) { [weak self] in
                 self?.navigateForward(nil)
+            },
+            PaletteCommand(id: "command.goToDefinition", title: Localized.string("Go to Definition", comment: "Command palette entry that navigates to the selected symbol's definition")) { [weak self] in
+                self?.goToDefinition(nil)
             },
             PaletteCommand(id: "command.peekDefinition", title: Localized.string("Peek Definition", comment: "Command palette entry that shows Peek Definition")) { [weak self] in
                 self?.showPeekDefinition(nil)
@@ -654,6 +906,8 @@ final class WorkspaceViewController: NSViewController {
         controller.onActivate = { [weak self] groupID in
             self?.layoutState.activeGroupID = groupID
             self?.refreshActiveGroupHighlighting()
+            self?.cancelHover()
+            self?.refreshLanguageServerStateUI()
             self?.persistLayout()
         }
         controller.onSplit = { [weak self] groupID, orientation in
@@ -663,14 +917,20 @@ final class WorkspaceViewController: NSViewController {
             self?.handleCloseGroup(groupID: groupID)
         }
         controller.onDocumentReady = { [weak self] relativePath, documentController in
+            self?.configureLanguageInteractions(for: documentController)
             self?.languageServicesCoordinator.handleDocumentReady(
                 relativePath: relativePath,
                 controller: documentController
             )
             self?.multiLanguageServicesCoordinator.handleDocumentReady(
-                url: documentController.snapshot.url,
-                snapshot: documentController.snapshot
+                relativePath: relativePath,
+                controller: documentController
             )
+            self?.refreshLanguageServerStateUI()
+        }
+        controller.onActiveDocumentChange = { [weak self] _ in
+            self?.cancelHover()
+            self?.refreshLanguageServerStateUI()
         }
         return controller
     }
@@ -731,6 +991,7 @@ final class WorkspaceViewController: NSViewController {
     // MARK: - Sidebar / Explorer
 
     private func configureTrustBanner() {
+        trustBanner.identifier = NSUserInterfaceItemIdentifier("workspace.trustBanner")
         trustBanner.orientation = .horizontal
         trustBanner.alignment = .centerY
         trustBanner.spacing = 8
@@ -848,47 +1109,16 @@ final class WorkspaceViewController: NSViewController {
         sourceControlController.view.translatesAutoresizingMaskIntoConstraints = false
         sourceControlController.view.isHidden = true
 
-        languageServerStateLabel.font = .systemFont(ofSize: 10)
-        languageServerStateLabel.textColor = .secondaryLabelColor
-        languageServerStateLabel.identifier = NSUserInterfaceItemIdentifier("workspace.languageServerState")
-        languageServerStateLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        languageServerRestartButton.bezelStyle = .rounded
-        languageServerRestartButton.controlSize = .small
-        languageServerRestartButton.font = .systemFont(ofSize: 10)
-        languageServerRestartButton.target = self
-        languageServerRestartButton.action = #selector(restartLanguageServer(_:))
-        languageServerRestartButton.identifier = NSUserInterfaceItemIdentifier("workspace.languageServerRestart")
-        languageServerRestartButton.setAccessibilityLabel(Localized.string("Restart Language Server", comment: "Accessibility label for the language server restart button"))
-        languageServerRestartButton.isEnabled = false
-        languageServerRestartButton.translatesAutoresizingMaskIntoConstraints = false
-
         container.addSubview(sidebarModeControl)
         container.addSubview(explorerContainer)
         container.addSubview(searchController.view)
         container.addSubview(problemsController.view)
         container.addSubview(symbolsController.view)
         container.addSubview(sourceControlController.view)
-        container.addSubview(languageServerStateLabel)
-        container.addSubview(languageServerRestartButton)
         NSLayoutConstraint.activate([
             sidebarModeControl.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
             sidebarModeControl.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-
-            languageServerStateLabel.centerYAnchor.constraint(equalTo: sidebarModeControl.centerYAnchor),
-            languageServerStateLabel.leadingAnchor.constraint(
-                greaterThanOrEqualTo: sidebarModeControl.trailingAnchor,
-                constant: 8
-            ),
-            languageServerRestartButton.centerYAnchor.constraint(equalTo: sidebarModeControl.centerYAnchor),
-            languageServerRestartButton.leadingAnchor.constraint(
-                equalTo: languageServerStateLabel.trailingAnchor,
-                constant: 6
-            ),
-            languageServerRestartButton.trailingAnchor.constraint(
-                lessThanOrEqualTo: container.trailingAnchor,
-                constant: -8
-            ),
+            sidebarModeControl.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8),
 
             explorerContainer.topAnchor.constraint(equalTo: sidebarModeControl.bottomAnchor, constant: 6),
             explorerContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -914,6 +1144,49 @@ final class WorkspaceViewController: NSViewController {
             sourceControlController.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             sourceControlController.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             sourceControlController.view.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+        return container
+    }
+
+    private func makeStatusBar() -> NSView {
+        let container = NSVisualEffectView()
+        container.identifier = NSUserInterfaceItemIdentifier("workspace.statusBar")
+        container.material = .contentBackground
+        container.blendingMode = .withinWindow
+        container.state = .active
+
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+
+        languageServerStateLabel.font = .systemFont(ofSize: 11)
+        languageServerStateLabel.textColor = .secondaryLabelColor
+        languageServerStateLabel.identifier = NSUserInterfaceItemIdentifier("workspace.languageServerState")
+        languageServerStateLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        languageServerRestartButton.bezelStyle = .rounded
+        languageServerRestartButton.controlSize = .small
+        languageServerRestartButton.font = .systemFont(ofSize: 10)
+        languageServerRestartButton.target = self
+        languageServerRestartButton.action = #selector(restartLanguageServer(_:))
+        languageServerRestartButton.identifier = NSUserInterfaceItemIdentifier("workspace.languageServerRestart")
+        languageServerRestartButton.setAccessibilityLabel(Localized.string("Restart Language Server", comment: "Accessibility label for the language server restart button"))
+        languageServerRestartButton.isEnabled = false
+        languageServerRestartButton.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(separator)
+        container.addSubview(languageServerStateLabel)
+        container.addSubview(languageServerRestartButton)
+        NSLayoutConstraint.activate([
+            separator.topAnchor.constraint(equalTo: container.topAnchor),
+            separator.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+
+            languageServerStateLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
+            languageServerStateLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            languageServerRestartButton.leadingAnchor.constraint(equalTo: languageServerStateLabel.trailingAnchor, constant: 8),
+            languageServerRestartButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            languageServerRestartButton.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -10)
         ])
         return container
     }
@@ -944,18 +1217,37 @@ final class WorkspaceViewController: NSViewController {
         statusLabel.identifier = NSUserInterfaceItemIdentifier("workspace.discoveryStatus")
         statusLabel.font = .systemFont(ofSize: 10)
         statusLabel.textColor = .secondaryLabelColor
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        showHiddenFilesButton.identifier = NSUserInterfaceItemIdentifier("workspace.showHiddenFiles")
+        showHiddenFilesButton.target = self
+        showHiddenFilesButton.action = #selector(explorerVisibilityChanged(_:))
+        showHiddenFilesButton.state = discoveryOptions.includeHidden ? .on : .off
+        showHiddenFilesButton.controlSize = .small
+
+        showIgnoredFilesButton.identifier = NSUserInterfaceItemIdentifier("workspace.showIgnoredFiles")
+        showIgnoredFilesButton.target = self
+        showIgnoredFilesButton.action = #selector(explorerVisibilityChanged(_:))
+        showIgnoredFilesButton.state = discoveryOptions.includeIgnored ? .on : .off
+        showIgnoredFilesButton.controlSize = .small
+
+        let footer = NSStackView(views: [statusLabel, showHiddenFilesButton, showIgnoredFilesButton])
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 8
+        footer.translatesAutoresizingMaskIntoConstraints = false
 
         container.addSubview(scrollView)
-        container.addSubview(statusLabel)
+        container.addSubview(footer)
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -4),
-            statusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            statusLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -5)
+            scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -4),
+            footer.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            footer.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            footer.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -5)
         ])
         return container
     }
@@ -1029,16 +1321,36 @@ final class WorkspaceViewController: NSViewController {
 
     private func startDiscovery() {
         discoveryTask?.cancel()
+        discoveryGeneration += 1
+        let generation = discoveryGeneration
+        entriesByParent.removeAll()
+        nodeCache.removeAll()
+        outlineView.reloadData()
+        statusLabel.stringValue = Localized.string("Discovering files...", comment: "Status label shown in the workspace Explorer while a file scan is in progress")
+        let options = discoveryOptions
         discoveryTask = Task { [weak self] in
             guard let self else {
                 return
             }
 
             do {
-                for try await batch in scanner.scan(root: identity.root) {
+                await filenameIndex.removeAll()
+                guard self.discoveryGeneration == generation else {
+                    return
+                }
+                for try await batch in scanner.scan(root: identity.root, options: options) {
                     try Task.checkCancellation()
+                    guard self.discoveryGeneration == generation else {
+                        return
+                    }
                     await filenameIndex.append(batch.entries)
+                    guard self.discoveryGeneration == generation else {
+                        return
+                    }
                     apply(batch)
+                }
+                guard self.discoveryGeneration == generation else {
+                    return
                 }
                 let fileCount = await filenameIndex.count
                 statusLabel.stringValue = Localized.string("\(fileCount) files", comment: "Status label reporting the total number of discovered files in the workspace Explorer")
@@ -1087,11 +1399,6 @@ final class WorkspaceViewController: NSViewController {
             // An ignore-defining file changed: ignored state anywhere in
             // the tree may now be stale, so re-derive it with a full
             // rescan rather than risk showing/hiding the wrong files.
-            entriesByParent.removeAll()
-            nodeCache.removeValue(forKey: "")
-            nodeCache.removeAll()
-            Task { await filenameIndex.removeAll() }
-            outlineView.reloadData()
             startDiscovery()
             return
         }
@@ -1109,9 +1416,15 @@ final class WorkspaceViewController: NSViewController {
         guard let relativePath = relativePath(of: url) else {
             return
         }
+        invalidateLanguageHoverCache(forChangedURL: url)
 
         if exists {
             guard let entry = scanner.classify(path: url, root: identity.root) else {
+                return
+            }
+            guard shouldIncludeInExplorer(entry) else {
+                removeEntry(relativePath: relativePath)
+                Task { await filenameIndex.remove(relativePaths: [relativePath]) }
                 return
             }
             addOrUpdateEntry(entry)
@@ -1127,6 +1440,52 @@ final class WorkspaceViewController: NSViewController {
             Task { await filenameIndex.remove(relativePaths: [relativePath]) }
             tombstoneOpenTabsIfNeeded(relativePath: relativePath)
         }
+    }
+
+    private func invalidateLanguageHoverCache(forChangedURL url: URL) {
+        let fileName = url.lastPathComponent.lowercased()
+        let providerIdentifier: String?
+        switch fileName {
+        case "package.swift", "package.resolved":
+            providerIdentifier = "swift"
+        case "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
+             "tsconfig.json", "jsconfig.json":
+            providerIdentifier = "typescript"
+        case "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt",
+             "poetry.lock":
+            providerIdentifier = "python"
+        case "cargo.toml", "cargo.lock":
+            providerIdentifier = "rust"
+        default:
+            if (fileName.hasPrefix("tsconfig.") || fileName.hasPrefix("jsconfig.")),
+               fileName.hasSuffix(".json") {
+                providerIdentifier = "typescript"
+            } else if fileName.hasPrefix("requirements"), fileName.hasSuffix(".txt") {
+                providerIdentifier = "python"
+            } else {
+                providerIdentifier = url.pathExtension.lowercased() == "swift"
+                    ? "swift"
+                    : multiLanguageServicesCoordinator.languageKey(forURL: url)
+            }
+        }
+        guard let providerIdentifier else {
+            return
+        }
+        languageHoverController.invalidateCache(forProvider: providerIdentifier)
+    }
+
+    private func shouldIncludeInExplorer(_ entry: WorkspaceFileEntry) -> Bool {
+        (!entry.isHidden || discoveryOptions.includeHidden)
+            && (!entry.isIgnored || discoveryOptions.includeIgnored)
+    }
+
+    @objc
+    private func explorerVisibilityChanged(_ sender: Any?) {
+        discoveryOptions = WorkspaceDiscoveryOptions(
+            includeHidden: showHiddenFilesButton.state == .on,
+            includeIgnored: showIgnoredFilesButton.state == .on
+        )
+        startDiscovery()
     }
 
     private func relativePath(of url: URL) -> String? {
@@ -1307,6 +1666,9 @@ final class WorkspaceViewController: NSViewController {
     func trustWorkspace(_ sender: Any?) {
         trustStore.trust(identity)
         refreshTrustBanner()
+        languageServicesCoordinator.handleTrustGranted()
+        multiLanguageServicesCoordinator.handleTrustGranted()
+        refreshLanguageServerStateUI()
         Task {
             await diagnosticsLog.record(
                 subsystem: .workspace,
@@ -1331,6 +1693,8 @@ final class WorkspaceViewController: NSViewController {
         refreshTrustBanner()
         languageServicesCoordinator.handleTrustRevoked()
         multiLanguageServicesCoordinator.handleTrustRevoked()
+        languageHoverController.invalidateCache()
+        refreshLanguageServerStateUI()
         Task {
             await diagnosticsLog.record(
                 subsystem: .workspace,
@@ -1346,6 +1710,9 @@ final class WorkspaceViewController: NSViewController {
 
 extension WorkspaceViewController: NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
+        cancelHover()
+        definitionNavigationTask?.cancel()
+        definitionNavigationTask = nil
         for controller in splitContainer.allGroupControllers {
             controller.captureLatestAnchorIntoState()
             layoutState.groups[controller.groupID] = controller.state

@@ -28,7 +28,7 @@ public enum LoginShellPathCapture {
         process.executableURL = shellURL
         // Fixed, constant command text Kod authors and ships — never
         // interpolated from any external source.
-        process.arguments = ["-l", "-c", "printf '%s%s%s' '\(beginMarker)' \"$PATH\" '\(endMarker)'"]
+        process.arguments = ["-l", "-i", "-c", "printf '%s%s%s' '\(beginMarker)' \"$PATH\" '\(endMarker)'"]
         let stdoutPipe = Pipe()
         process.standardOutput = stdoutPipe
         process.standardError = FileHandle.nullDevice

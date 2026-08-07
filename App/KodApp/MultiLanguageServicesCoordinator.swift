@@ -26,6 +26,8 @@ final class MultiLanguageServicesCoordinator {
     private let diagnosticsLog: BoundedEventLog
     private var services: [ObjectIdentifier: LanguageWorkspaceService] = [:]
     private var statesByAdapter: [ObjectIdentifier: LanguageServerState] = [:]
+    private var controllersByRelativePath: [String: WeakMultiLanguageDocumentController] = [:]
+    private var semanticDecorationTasks: [String: Task<Void, Never>] = [:]
 
     var onStateChange: (() -> Void)?
     var onDiagnostics: ((URL, [Diagnostic]) -> Void)?
@@ -68,13 +70,21 @@ final class MultiLanguageServicesCoordinator {
     /// Called whenever any document becomes visible. A no-op for a file
     /// extension no managed adapter claims (e.g. plain text), so syntax
     /// viewing and search remain fully independent of this coordinator.
-    func handleDocumentReady(url: URL, snapshot: SourceSnapshot) {
-        guard let adapter = Self.managedAdapters.first(where: { $0.fileExtensions.contains(url.pathExtension.lowercased()) }),
-              isTrusted else {
+    func handleDocumentReady(relativePath: String, controller: CodeDocumentViewController) {
+        let url = controller.snapshot.url
+        guard let adapter = Self.adapter(for: url) else {
+            return
+        }
+        controllersByRelativePath[relativePath] = WeakMultiLanguageDocumentController(controller)
+        guard isTrusted else {
             return
         }
         Task {
-            await self.syncDocument(adapter: adapter, snapshot: snapshot)
+            await self.syncAndDecorate(
+                adapter: adapter,
+                relativePath: relativePath,
+                controller: controller
+            )
         }
     }
 
@@ -83,9 +93,65 @@ final class MultiLanguageServicesCoordinator {
         guard let service = services[ObjectIdentifier(adapter)] else {
             return
         }
-        Task {
-            try? await service.restart()
+        for (relativePath, weakController) in controllersByRelativePath {
+            guard let controller = weakController.controller,
+                  let controllerAdapter = Self.adapter(for: controller.snapshot.url),
+                  ObjectIdentifier(controllerAdapter) == ObjectIdentifier(adapter) else {
+                continue
+            }
+            semanticDecorationTasks[relativePath]?.cancel()
+            semanticDecorationTasks.removeValue(forKey: relativePath)
         }
+        Task {
+            do {
+                try await service.restart()
+            } catch {
+                return
+            }
+            for (relativePath, weakController) in self.controllersByRelativePath {
+                guard let controller = weakController.controller,
+                      let controllerAdapter = Self.adapter(for: controller.snapshot.url),
+                      ObjectIdentifier(controllerAdapter) == ObjectIdentifier(adapter) else {
+                    continue
+                }
+                await self.syncAndDecorate(
+                    adapter: adapter,
+                    relativePath: relativePath,
+                    controller: controller
+                )
+            }
+        }
+    }
+
+    func restart(forURL url: URL) {
+        guard let adapter = Self.adapter(for: url) else {
+            return
+        }
+        restart(adapter: adapter)
+    }
+
+    func status(forURL url: URL) -> (languageName: String, state: LanguageServerState)? {
+        guard let adapter = Self.adapter(for: url) else {
+            return nil
+        }
+        let state: LanguageServerState
+        if !isTrusted {
+            state = .disabled(reason: "Workspace is not trusted")
+        } else {
+            state = statesByAdapter[ObjectIdentifier(adapter)] ?? .missing(reason: "Not started")
+        }
+        let languageName: String
+        switch adapter.languageKey {
+        case "typescript": languageName = "TypeScript"
+        case "html": languageName = "HTML"
+        case "css": languageName = "CSS"
+        default: languageName = adapter.languageKey.capitalized
+        }
+        return (languageName, state)
+    }
+
+    func languageKey(forURL url: URL) -> String? {
+        Self.adapter(for: url)?.languageKey
     }
 
     /// Returns the already-started service for `url`'s adapter, if any
@@ -93,10 +159,30 @@ final class MultiLanguageServicesCoordinator {
     /// unavailable (hidden) rather than erroring when no server for that
     /// language is running yet.
     func service(forURL url: URL) -> LanguageWorkspaceService? {
-        guard let adapter = Self.managedAdapters.first(where: { $0.fileExtensions.contains(url.pathExtension.lowercased()) }) else {
+        guard let adapter = Self.adapter(for: url) else {
             return nil
         }
         return services[ObjectIdentifier(adapter)]
+    }
+
+    func hover(snapshot: SourceSnapshot, utf8Offset: Int) async throws -> Hover? {
+        guard let adapter = Self.adapter(for: snapshot.url),
+              let service = services[ObjectIdentifier(adapter)] else {
+            return nil
+        }
+        return try await service.hover(snapshot: snapshot, utf8Offset: utf8Offset)
+    }
+
+    func definition(snapshot: SourceSnapshot, utf8Offset: Int) async throws -> [NavigationTarget] {
+        guard let adapter = Self.adapter(for: snapshot.url),
+              let service = services[ObjectIdentifier(adapter)] else {
+            return []
+        }
+        return try await service.definition(snapshot: snapshot, utf8Offset: utf8Offset)
+    }
+
+    private static func adapter(for url: URL) -> (any LanguageAdapter.Type)? {
+        managedAdapters.first { $0.fileExtensions.contains(url.pathExtension.lowercased()) }
     }
 
     private func startServiceIfNeeded(adapter: any LanguageAdapter.Type) async -> LanguageWorkspaceService? {
@@ -166,14 +252,126 @@ final class MultiLanguageServicesCoordinator {
         }
     }
 
-    private func syncDocument(adapter: any LanguageAdapter.Type, snapshot: SourceSnapshot) async {
+    private func syncAndDecorate(
+        adapter: any LanguageAdapter.Type,
+        relativePath: String,
+        controller: CodeDocumentViewController
+    ) async {
+        let snapshot = controller.snapshot
         guard let service = await startServiceIfNeeded(adapter: adapter) else {
             return
         }
         do {
             try await service.didOpen(snapshot)
         } catch {
-            try? await service.didChange(snapshot)
+            do {
+                try await service.didChange(snapshot)
+            } catch {
+                return
+            }
+        }
+        guard let liveController = controllersByRelativePath[relativePath]?.controller,
+              liveController.snapshot.version == snapshot.version else {
+            return
+        }
+        scheduleSemanticDecoration(
+            adapter: adapter,
+            relativePath: relativePath,
+            controller: liveController,
+            service: service
+        )
+    }
+
+    private func scheduleSemanticDecoration(
+        adapter: any LanguageAdapter.Type,
+        relativePath: String,
+        controller: CodeDocumentViewController,
+        service: LanguageWorkspaceService,
+        delay: Duration = .zero
+    ) {
+        semanticDecorationTasks[relativePath]?.cancel()
+        let snapshot = controller.snapshot
+        semanticDecorationTasks[relativePath] = Task { @MainActor [weak self, weak controller] in
+            if delay != .zero {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+            }
+            guard let self, let controller,
+                  self.controllersByRelativePath[relativePath]?.controller === controller,
+                  controller.snapshot.version == snapshot.version else {
+                return
+            }
+            await self.applySemanticDecoration(
+                adapter: adapter,
+                relativePath: relativePath,
+                controller: controller,
+                service: service,
+                snapshot: snapshot
+            )
+        }
+    }
+
+    private func applySemanticDecoration(
+        adapter: any LanguageAdapter.Type,
+        relativePath: String,
+        controller: CodeDocumentViewController,
+        service: LanguageWorkspaceService,
+        snapshot: SourceSnapshot
+    ) async {
+        do {
+            let tokens = try await service.semanticTokens(snapshot: snapshot)
+            guard let stillLiveController = controllersByRelativePath[relativePath]?.controller,
+                  stillLiveController.snapshot.version == snapshot.version else {
+                return
+            }
+            let layer = SemanticTokenDecorationSource.layer(
+                fromTokens: tokens,
+                theme: stillLiveController.theme,
+                snapshotVersion: snapshot.version,
+                layerVersion: 1
+            )
+            stillLiveController.viewport.applyDecorationLayer(layer)
+        } catch is CancellationError {
+            guard !Task.isCancelled,
+                  controllersByRelativePath[relativePath]?.controller === controller,
+                  controller.snapshot.version == snapshot.version else {
+                return
+            }
+            scheduleSemanticDecoration(
+                adapter: adapter,
+                relativePath: relativePath,
+                controller: controller,
+                service: service,
+                delay: .milliseconds(250)
+            )
+        } catch LanguageWorkspaceServiceError.capabilityUnavailable {
+            // Lexical highlighting remains active when this adapter does not
+            // advertise semantic tokens.
+        } catch {
+            // Connection state and diagnostics expose server failures; the
+            // independent lexical layer remains usable.
+        }
+    }
+
+    func handleTrustGranted() {
+        guard isTrusted else {
+            return
+        }
+        for (relativePath, weakController) in controllersByRelativePath {
+            guard let controller = weakController.controller,
+                  let adapter = Self.adapter(for: controller.snapshot.url) else {
+                continue
+            }
+            Task {
+                await self.syncAndDecorate(
+                    adapter: adapter,
+                    relativePath: relativePath,
+                    controller: controller
+                )
+            }
         }
     }
 
@@ -184,6 +382,8 @@ final class MultiLanguageServicesCoordinator {
     /// server-state UI reflects the revocation right away rather than
     /// only on the next document open.
     func handleTrustRevoked() {
+        semanticDecorationTasks.values.forEach { $0.cancel() }
+        semanticDecorationTasks.removeAll()
         guard !services.isEmpty else {
             return
         }
@@ -208,6 +408,14 @@ final class MultiLanguageServicesCoordinator {
                     DiagnosticContextField(name: "workspaceRoot", category: .fullPath, value: identity.root.path)
                 ]
             )
+        }
+    }
+
+    private struct WeakMultiLanguageDocumentController {
+        weak var controller: CodeDocumentViewController?
+
+        init(_ controller: CodeDocumentViewController) {
+            self.controller = controller
         }
     }
 }

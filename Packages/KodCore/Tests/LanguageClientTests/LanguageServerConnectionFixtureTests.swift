@@ -355,7 +355,15 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
     // MARK: - Cancellation / timeout
 
     func testCancellingTheCallingTaskSendsCancelRequestAndTheServerRespondsWithCancelled() async throws {
-        let configuration = try makeConfiguration(scenario: "cancel", requestTimeout: 10)
+        let stateFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kod-lsp-cancel-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: stateFile.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: stateFile) }
+        let configuration = try makeConfiguration(
+            scenario: "cancel",
+            requestTimeout: 10,
+            environment: ["FAKE_LSP_STATE_FILE": stateFile.path]
+        )
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
         defer { Task { await connection.shutdown() } }
@@ -375,11 +383,107 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         do {
             _ = try await task.value
             XCTFail("Expected the cancelled request to throw")
-        } catch {
-            // Either a client-side cancellation error or the server's own
-            // RequestCancelled response is acceptable; what matters is it
-            // never silently "succeeds" with stale data.
+        } catch is CancellationError {
+            // expected
         }
+
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline,
+              !((try? String(contentsOf: stateFile, encoding: .utf8)) ?? "").contains("cancel") {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(
+            ((try? String(contentsOf: stateFile, encoding: .utf8)) ?? "").contains("cancel"),
+            "local cancellation must still notify the server"
+        )
+    }
+
+    func testCancellingARequestCompletesLocallyWhenServerNeverResponds() async throws {
+        let configuration = try makeConfiguration(scenario: "timeout", requestTimeout: 10)
+        let connection = LanguageServerConnection(configuration: configuration)
+        try await connection.start()
+        defer { Task { await connection.shutdown() } }
+
+        let task = Task<Hover, Error> {
+            try await connection.sendRequest(
+                .hover,
+                params: HoverParams(
+                    textDocument: TextDocumentIdentifier(
+                        uri: DocumentURI(
+                            fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("fake.swift")
+                        )
+                    ),
+                    position: LSPPosition(line: 0, character: 0)
+                )
+            )
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        let start = ContinuousClock.now
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected CancellationError")
+        } catch is CancellationError {
+            // expected
+        }
+        XCTAssertLessThan(ContinuousClock.now - start, .milliseconds(250))
+        let state = await connection.state
+        XCTAssertEqual(state, .ready)
+    }
+
+    func testInteractiveRequestPreemptsBackgroundRequestOnSameConnection() async throws {
+        let stateFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kod-lsp-priority-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: stateFile.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: stateFile) }
+        let configuration = try makeConfiguration(
+            scenario: "priority",
+            requestTimeout: 10,
+            environment: ["FAKE_LSP_STATE_FILE": stateFile.path]
+        )
+        let connection = LanguageServerConnection(configuration: configuration)
+        try await connection.start()
+        defer { Task { await connection.shutdown() } }
+        let document = TextDocumentIdentifier(
+            uri: DocumentURI(
+                fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("fake.swift")
+            )
+        )
+
+        let backgroundTask = Task<SemanticTokens, Error> {
+            try await connection.sendRequest(
+                .semanticTokensFull,
+                params: SemanticTokensParams(textDocument: document),
+                priority: .background
+            )
+        }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline,
+              !((try? String(contentsOf: stateFile, encoding: .utf8)) ?? "")
+                .contains("request:textDocument/semanticTokens/full") {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let hover: Hover = try await connection.sendRequest(
+            .hover,
+            params: HoverParams(
+                textDocument: document,
+                position: LSPPosition(line: 0, character: 0)
+            ),
+            priority: .interactive
+        )
+        XCTAssertEqual(hover.contents.value, "Fake hover")
+        do {
+            _ = try await backgroundTask.value
+            XCTFail("Expected interactive hover to preempt semantic tokens")
+        } catch is CancellationError {
+            // expected
+        }
+
+        let state = (try? String(contentsOf: stateFile, encoding: .utf8)) ?? ""
+        XCTAssertTrue(state.contains("cancel"))
+        XCTAssertTrue(state.contains("request:textDocument/hover"))
     }
 
     func testRequestTimesOutWhenServerNeverResponds() async throws {

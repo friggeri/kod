@@ -29,29 +29,26 @@ final class TSQueryStore: @unchecked Sendable {
     private static func compileHighlightsQuery(
         for language: SyntaxLanguage
     ) -> Result<TSQueryBox, TreeSitterQueryError> {
-        guard let url = Bundle.module.url(
-            forResource: "highlights",
-            withExtension: "scm",
-            subdirectory: "Resources/Queries/\(language.rawValue)"
-        ) ?? Bundle.module.url(
-            forResource: "highlights",
-            withExtension: "scm",
-            subdirectory: "Queries/\(language.rawValue)"
-        ) else {
-            let error = TreeSitterQueryError.missingResource("\(language.rawValue)/highlights.scm")
-            SyntaxCoreLog.queries.error(
-                "Bundled highlights.scm missing for \(language.rawValue, privacy: .public): \(String(describing: error), privacy: .public)"
-            )
-            return .failure(error)
+        var sources: [String] = []
+        for resource in highlightResources(for: language) {
+            guard let url = queryResourceURL(directory: resource.directory, name: resource.name) else {
+                let relativePath = "\(resource.directory)/\(resource.name).scm"
+                let error = TreeSitterQueryError.missingResource(relativePath)
+                SyntaxCoreLog.queries.error(
+                    "Bundled query missing at \(relativePath, privacy: .public): \(String(describing: error), privacy: .public)"
+                )
+                return .failure(error)
+            }
+            guard let source = try? String(contentsOf: url, encoding: .utf8) else {
+                let error = TreeSitterQueryError.missingResource(url.path)
+                SyntaxCoreLog.queries.error(
+                    "Could not read query at \(url.path, privacy: .public)"
+                )
+                return .failure(error)
+            }
+            sources.append(source)
         }
-
-        guard let source = try? String(contentsOf: url, encoding: .utf8) else {
-            let error = TreeSitterQueryError.missingResource(url.path)
-            SyntaxCoreLog.queries.error(
-                "Could not read highlights.scm at \(url.path, privacy: .public)"
-            )
-            return .failure(error)
-        }
+        let source = sources.joined(separator: "\n")
 
         var errorOffset: UInt32 = 0
         var errorType = TSQueryErrorNone
@@ -80,5 +77,43 @@ final class TSQueryStore: @unchecked Sendable {
             return .failure(error)
         }
         return .success(TSQueryBox(pointer: query))
+    }
+
+    /// Tree-sitter's TypeScript queries extend JavaScript's base query.
+    /// JavaScript also keeps parameter/JSX captures in companion files, and
+    /// TSX shares the compatible JSX captures. The C query API does not
+    /// resolve those conventions, so Kod composes each compatible set.
+    private static func highlightResources(
+        for language: SyntaxLanguage
+    ) -> [(directory: String, name: String)] {
+        let javascriptBase = [(directory: "javascript", name: "highlights")]
+        switch language {
+        case .javascript:
+            return javascriptBase + [
+                (directory: "javascript", name: "highlights-params"),
+                (directory: "javascript", name: "highlights-jsx")
+            ]
+        case .typescript:
+            return javascriptBase + [(directory: "typescript", name: "highlights")]
+        case .tsx:
+            return javascriptBase + [
+                (directory: "javascript", name: "highlights-jsx"),
+                (directory: "typescript", name: "highlights")
+            ]
+        default:
+            return [(directory: language.rawValue, name: "highlights")]
+        }
+    }
+
+    private static func queryResourceURL(directory: String, name: String) -> URL? {
+        Bundle.module.url(
+            forResource: name,
+            withExtension: "scm",
+            subdirectory: "Resources/Queries/\(directory)"
+        ) ?? Bundle.module.url(
+            forResource: name,
+            withExtension: "scm",
+            subdirectory: "Queries/\(directory)"
+        )
     }
 }

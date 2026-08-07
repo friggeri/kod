@@ -98,6 +98,8 @@
 		B00000000000000000000065 /* EditorGroupTabAccessibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000004D /* EditorGroupTabAccessibilityTests.swift */; };
 		B00000000000000000000066 /* PseudolocalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000004E /* PseudolocalizationTests.swift */; };
 		B00000000000000000000067 /* UserFacingStringAuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000004F /* UserFacingStringAuditTests.swift */; };
+		B00000000000000000000068 /* LanguageHoverController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000050 /* LanguageHoverController.swift */; };
+		B00000000000000000000069 /* LanguageHoverControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000051 /* LanguageHoverControllerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -184,6 +186,8 @@
 		C0000000000000000000004D /* EditorGroupTabAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorGroupTabAccessibilityTests.swift; sourceTree = "<group>"; };
 		C0000000000000000000004E /* PseudolocalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PseudolocalizationTests.swift; sourceTree = "<group>"; };
 		C0000000000000000000004F /* UserFacingStringAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserFacingStringAuditTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000050 /* LanguageHoverController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageHoverController.swift; sourceTree = "<group>"; };
+		C00000000000000000000051 /* LanguageHoverControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageHoverControllerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -306,6 +310,7 @@
 				C00000000000000000000047 /* KeyboardCommandRegistry.swift */,
 				C00000000000000000000048 /* Localized.swift */,
 				C00000000000000000000049 /* Localizable.xcstrings */,
+				C00000000000000000000050 /* LanguageHoverController.swift */,
 			);
 			path = KodApp;
 			sourceTree = "<group>";
@@ -339,6 +344,7 @@
 				C0000000000000000000004D /* EditorGroupTabAccessibilityTests.swift */,
 				C0000000000000000000004E /* PseudolocalizationTests.swift */,
 				C0000000000000000000004F /* UserFacingStringAuditTests.swift */,
+				C00000000000000000000051 /* LanguageHoverControllerTests.swift */,
 			);
 			path = KodAppTests;
 			sourceTree = "<group>";
@@ -550,6 +556,7 @@
 				B0000000000000000000005C /* DiagnosticsViewModel.swift in Sources */,
 				B0000000000000000000005F /* KeyboardCommandRegistry.swift in Sources */,
 				B00000000000000000000060 /* Localized.swift in Sources */,
+				B00000000000000000000068 /* LanguageHoverController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -583,6 +590,7 @@
 				B00000000000000000000065 /* EditorGroupTabAccessibilityTests.swift in Sources */,
 				B00000000000000000000066 /* PseudolocalizationTests.swift in Sources */,
 				B00000000000000000000067 /* UserFacingStringAuditTests.swift in Sources */,
+				B00000000000000000000069 /* LanguageHoverControllerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

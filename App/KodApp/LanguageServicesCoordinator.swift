@@ -30,6 +30,7 @@ final class LanguageServicesCoordinator {
     /// semantic-tokens response that arrives after the user has already
     /// switched tabs still lands on the right (still-alive) viewport.
     private var controllersByRelativePath: [String: WeakDocumentController] = [:]
+    private var semanticDecorationTasks: [String: Task<Void, Never>] = [:]
 
     var onStateChange: (() -> Void)?
     var onDiagnostics: ((URL, [Diagnostic]) -> Void)?
@@ -63,13 +64,28 @@ final class LanguageServicesCoordinator {
     /// Manual Restart action (SPEC 6.2), available regardless of current
     /// state — most useful once `state` is `.disabled`.
     func restart() {
+        guard let service else {
+            return
+        }
+        semanticDecorationTasks.values.forEach { $0.cancel() }
+        semanticDecorationTasks.removeAll()
         Task {
             do {
-                try await self.service?.restart()
+                try await service.restart()
             } catch {
                 // Failure is already reflected via the state-change
                 // callback (the connection reports its own crashed/
                 // disabled/missing state); nothing further to do here.
+                return
+            }
+            for (relativePath, weakController) in self.controllersByRelativePath {
+                guard let controller = weakController.controller else {
+                    continue
+                }
+                await self.syncAndDecorate(
+                    relativePath: relativePath,
+                    controller: controller
+                )
             }
         }
     }
@@ -89,6 +105,11 @@ final class LanguageServicesCoordinator {
     // running yet, exactly like `workspaceSymbols` above) so the
     // Peek/Hierarchy/Inlay UI surfaces can call them uniformly whether
     // or not a server happens to be ready.
+
+    func hover(snapshot: SourceSnapshot, utf8Offset: Int) async throws -> Hover? {
+        guard let service else { throw SwiftLanguageServiceError.notStarted }
+        return try await service.hover(snapshot: snapshot, utf8Offset: utf8Offset)
+    }
 
     func definition(snapshot: SourceSnapshot, utf8Offset: Int) async throws -> [NavigationTarget] {
         guard let service else { throw SwiftLanguageServiceError.notStarted }
@@ -252,6 +273,8 @@ final class LanguageServicesCoordinator {
     /// nothing left running to gate around, and a subsequent re-trust
     /// starts a fresh service rather than resuming a stale connection.
     func handleTrustRevoked() {
+        semanticDecorationTasks.values.forEach { $0.cancel() }
+        semanticDecorationTasks.removeAll()
         guard let runningService = service else {
             return
         }
@@ -274,11 +297,25 @@ final class LanguageServicesCoordinator {
         }
     }
 
+    func handleTrustGranted() {
+        guard isTrusted else {
+            return
+        }
+        for (relativePath, weakController) in controllersByRelativePath {
+            guard let controller = weakController.controller else {
+                continue
+            }
+            Task {
+                await self.syncAndDecorate(relativePath: relativePath, controller: controller)
+            }
+        }
+    }
+
     private func syncAndDecorate(relativePath: String, controller: CodeDocumentViewController) async {
+        let snapshot = controller.snapshot
         guard let service = await startServiceIfNeeded() else {
             return
         }
-        let snapshot = controller.snapshot
         do {
             try await service.didOpen(snapshot)
         } catch {
@@ -293,7 +330,49 @@ final class LanguageServicesCoordinator {
               liveController.snapshot.version == snapshot.version else {
             return
         }
+        scheduleSemanticDecoration(
+            relativePath: relativePath,
+            controller: liveController,
+            service: service
+        )
+    }
 
+    private func scheduleSemanticDecoration(
+        relativePath: String,
+        controller: CodeDocumentViewController,
+        service: SwiftWorkspaceLanguageService,
+        delay: Duration = .zero
+    ) {
+        semanticDecorationTasks[relativePath]?.cancel()
+        let snapshot = controller.snapshot
+        semanticDecorationTasks[relativePath] = Task { @MainActor [weak self, weak controller] in
+            if delay != .zero {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+            }
+            guard let self, let controller,
+                  self.controllersByRelativePath[relativePath]?.controller === controller,
+                  controller.snapshot.version == snapshot.version else {
+                return
+            }
+            await self.applySemanticDecoration(
+                relativePath: relativePath,
+                controller: controller,
+                service: service,
+                snapshot: snapshot
+            )
+        }
+    }
+
+    private func applySemanticDecoration(
+        relativePath: String,
+        controller: CodeDocumentViewController,
+        service: SwiftWorkspaceLanguageService,
+        snapshot: SourceSnapshot
+    ) async {
         do {
             let tokens = try await service.semanticTokens(snapshot: snapshot)
             guard let stillLiveController = controllersByRelativePath[relativePath]?.controller,
@@ -307,6 +386,18 @@ final class LanguageServicesCoordinator {
                 layerVersion: 1
             )
             stillLiveController.viewport.applyDecorationLayer(layer)
+        } catch is CancellationError {
+            guard !Task.isCancelled,
+                  controllersByRelativePath[relativePath]?.controller === controller,
+                  controller.snapshot.version == snapshot.version else {
+                return
+            }
+            scheduleSemanticDecoration(
+                relativePath: relativePath,
+                controller: controller,
+                service: service,
+                delay: .milliseconds(250)
+            )
         } catch SwiftLanguageServiceError.capabilityUnavailable {
             // Capability-gated off for this server (e.g. no semantic
             // tokens support): the lexical layer remains the only

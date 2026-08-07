@@ -159,6 +159,56 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
     }
 
     @MainActor
+    func testInitializationFailureReportsStartingThenCrashed() async throws {
+        let (identity, store, _) = try makeTrustedIdentity()
+        let states = LockedArray<LanguageServerState>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
+            dependencies: try makeDependencies(scenario: "initialize-error"),
+            onStateChange: { states.append($0) }
+        )
+
+        do {
+            try await service.start()
+            XCTFail("Expected initialization to fail")
+        } catch {
+            // expected
+        }
+        try await Task.sleep(for: .milliseconds(50))
+
+        let observedStates = states.snapshot()
+        XCTAssertEqual(observedStates.first, .starting)
+        guard case .crashed(let reason)? = observedStates.last else {
+            return XCTFail("Expected a crashed state, got \(observedStates)")
+        }
+        XCTAssertTrue(reason.contains("No compatible language runtime was found"))
+    }
+
+    @MainActor
+    func testManualRestartFinishesInReadyRatherThanAStaleStoppedState() async throws {
+        let (identity, store, _) = try makeTrustedIdentity()
+        let states = LockedArray<LanguageServerState>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
+            dependencies: try makeDependencies(scenario: "normal"),
+            onStateChange: { states.append($0) }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+
+        try await service.restart()
+        try await Task.sleep(for: .milliseconds(100))
+
+        let currentState = await service.currentState
+        XCTAssertEqual(currentState, .ready)
+        XCTAssertEqual(states.snapshot().last, .ready)
+    }
+
+    @MainActor
     func testRepositoryFilesAreNeverModifiedForANonSwiftLanguageId() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -195,5 +245,55 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
         let finalChecksum = try Data(contentsOf: fileURL)
         XCTAssertEqual(originalChecksum, finalChecksum, "Kod must never modify a workspace file via LSP operations")
+    }
+
+    @MainActor
+    func testInteractiveHoverPreemptsAndAllowsReschedulingSemanticTokens() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let stateFile = root.appendingPathComponent("priority-state")
+        FileManager.default.createFile(atPath: stateFile.path, contents: Data())
+        let service = try makeService(
+            identity: identity,
+            trustStore: store,
+            scenario: "priority",
+            environment: ["FAKE_LSP_STATE_FILE": stateFile.path]
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+        let snapshot = SourceSnapshot(
+            text: "class Greeter {}\n",
+            url: root.appendingPathComponent("Fake.ts"),
+            version: 1
+        )
+        try await service.didOpen(snapshot)
+
+        let semanticTask = Task<[SemanticToken], Error> {
+            try await service.semanticTokens(snapshot: snapshot)
+        }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline,
+              !((try? String(contentsOf: stateFile, encoding: .utf8)) ?? "")
+                .contains("request:textDocument/semanticTokens/full") {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let declarations = try await service.declaration(snapshot: snapshot, utf8Offset: 0)
+        XCTAssertEqual(declarations.count, 1)
+        XCTAssertFalse(
+            ((try? String(contentsOf: stateFile, encoding: .utf8)) ?? "").contains("cancel"),
+            "Unrelated navigation commands must remain normal priority"
+        )
+
+        let hover = try await service.hover(snapshot: snapshot, utf8Offset: 0)
+        XCTAssertEqual(hover?.contents.value, "Fake hover")
+        do {
+            _ = try await semanticTask.value
+            XCTFail("Expected hover to preempt the background semantic-token request")
+        } catch is CancellationError {
+            // expected
+        }
+
+        let resumedTokens = try await service.semanticTokens(snapshot: snapshot)
+        XCTAssertFalse(resumedTokens.isEmpty)
     }
 }
