@@ -690,7 +690,7 @@ final class WorkspaceViewController: NSViewController {
         let controller = QuickOpenPanelController(
             filenameIndex: filenameIndex,
             onSelect: { [weak self] entry in
-                self?.open(entry, pinned: true)
+                self?.open(entry)
             }
         )
         quickOpenController = controller
@@ -890,7 +890,7 @@ final class WorkspaceViewController: NSViewController {
                     guard !Task.isCancelled else {
                         return
                     }
-                    controller.openTab(relativePath: relativePath, pinned: false, snapshot: snapshot)
+                    controller.openTab(relativePath: relativePath, pinned: true, snapshot: snapshot)
                 } catch is CancellationError {
                     return
                 } catch {
@@ -1204,7 +1204,7 @@ final class WorkspaceViewController: NSViewController {
         outlineView.dataSource = self
         outlineView.delegate = self
         outlineView.target = self
-        outlineView.doubleAction = #selector(handleOutlineDoubleClick(_:))
+        outlineView.action = #selector(handleOutlineClick(_:))
         outlineView.identifier = NSUserInterfaceItemIdentifier("workspace.explorer")
         outlineView.menu = makeExplorerContextMenu()
 
@@ -1600,11 +1600,8 @@ final class WorkspaceViewController: NSViewController {
             }
     }
 
-    /// Opens `entry` in the currently active editor group. Single-click
-    /// Explorer selection uses `pinned: false` (a reused preview tab);
-    /// double-click and Quick Open use `pinned: true` since they represent
-    /// an explicit "work on this file" action.
-    private func open(_ entry: WorkspaceFileEntry, pinned: Bool) {
+    /// Opens `entry` as a persistent tab in the currently active editor group.
+    private func open(_ entry: WorkspaceFileEntry) {
         guard entry.kind != .directory else {
             return
         }
@@ -1622,7 +1619,7 @@ final class WorkspaceViewController: NSViewController {
                 guard !Task.isCancelled, let groupController else {
                     return
                 }
-                groupController.openTab(relativePath: entry.relativePath, pinned: pinned, snapshot: snapshot)
+                groupController.openTab(relativePath: entry.relativePath, pinned: true, snapshot: snapshot)
             } catch is CancellationError {
                 return
             } catch {
@@ -1637,7 +1634,7 @@ final class WorkspaceViewController: NSViewController {
                 if let preview = await self.tryMakeImagePreview(forRelativePath: entry.relativePath) {
                     groupController.openImagePreviewTab(
                         relativePath: entry.relativePath,
-                        pinned: pinned,
+                        pinned: true,
                         kind: preview.kind,
                         preview: preview
                     )
@@ -1653,13 +1650,13 @@ final class WorkspaceViewController: NSViewController {
     }
 
     @objc
-    private func handleOutlineDoubleClick(_ sender: Any?) {
+    private func handleOutlineClick(_ sender: Any?) {
         guard outlineView.clickedRow >= 0,
               let node = outlineView.item(atRow: outlineView.clickedRow) as? WorkspaceTreeNode,
               node.entry.kind != .directory else {
             return
         }
-        open(node.entry, pinned: true)
+        open(node.entry)
     }
 
     @objc
@@ -1862,16 +1859,6 @@ extension WorkspaceViewController: NSOutlineViewDataSource, NSOutlineViewDelegat
         }
     }
 
-    func outlineViewSelectionDidChange(_ notification: Notification) {
-        guard outlineView.selectedRow >= 0,
-              let node = outlineView.item(
-                atRow: outlineView.selectedRow
-              ) as? WorkspaceTreeNode,
-              node.entry.kind != .directory else {
-            return
-        }
-        open(node.entry, pinned: false)
-    }
 }
 
 final class WorkspaceTreeNode: NSObject {

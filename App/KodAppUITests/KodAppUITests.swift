@@ -6,6 +6,7 @@ final class KodAppUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+
     func testWelcomeWindowLaunchesWithVisibleCommands() {
         let app = XCUIApplication()
         app.launch()
@@ -92,6 +93,128 @@ final class KodAppUITests: XCTestCase {
         XCTAssertTrue(app.textViews["code.viewport"].waitForExistence(timeout: 5))
         app.terminate()
 
+        XCTAssertEqual(try Data(contentsOf: sourceURL), originalData)
+    }
+
+    func testExplorerClicksOpenPersistentTabs() throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let firstURL = workspace.appendingPathComponent("First.swift")
+        let secondURL = workspace.appendingPathComponent("Second.swift")
+        let firstData = Data("struct First {}\n".utf8)
+        let secondData = Data("struct Second {}\n".utf8)
+        try firstData.write(to: firstURL)
+        try secondData.write(to: secondURL)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: workspace)
+        }
+
+        let app = XCUIApplication()
+        app.launchArguments = ["--open-folder", workspace.path]
+        app.launch()
+
+        XCTAssertTrue(app.outlines["workspace.explorer"].waitForExistence(timeout: 5))
+        let firstFile = app.staticTexts["First.swift"]
+        firstFile.click()
+        let firstCloseButton = app.buttons["tab.close.First.swift"]
+        XCTAssertTrue(firstCloseButton.waitForExistence(timeout: 5))
+
+        firstCloseButton.click()
+        XCTAssertEqual(
+            XCTWaiter().wait(
+                for: [
+                    XCTNSPredicateExpectation(
+                        predicate: NSPredicate(format: "exists == false"),
+                        object: firstCloseButton
+                    )
+                ],
+                timeout: 5
+            ),
+            .completed
+        )
+        firstFile.click()
+        XCTAssertTrue(firstCloseButton.waitForExistence(timeout: 5))
+
+        app.staticTexts["Second.swift"].click()
+        XCTAssertTrue(app.buttons["tab.close.Second.swift"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["tab.close.First.swift"].exists)
+        XCTAssertFalse(app.buttons["tab.pin.First.swift"].exists)
+        XCTAssertFalse(app.buttons["tab.pin.Second.swift"].exists)
+
+        app.terminate()
+        XCTAssertEqual(try Data(contentsOf: firstURL), firstData)
+        XCTAssertEqual(try Data(contentsOf: secondURL), secondData)
+    }
+
+    func testSplitPaneControlsRemainClickableAndCanUnsplit() throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let sources = workspace.appendingPathComponent("Sources", isDirectory: true)
+        try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: true)
+        let sourceURL = sources.appendingPathComponent("Pane.swift")
+        let originalData = Data("struct Pane {}\n".utf8)
+        try originalData.write(to: sourceURL)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: workspace)
+        }
+
+        let app = XCUIApplication()
+        app.launchArguments = ["--open-folder", workspace.path]
+        app.launch()
+
+        func waitForGroupCount(_ expectedCount: Int) {
+            let predicate = NSPredicate { _, _ in
+                app.buttons.matching(identifier: "editorGroup.back").count == expectedCount
+            }
+            XCTAssertEqual(
+                XCTWaiter().wait(
+                    for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)],
+                    timeout: 5
+                ),
+                .completed
+            )
+        }
+
+        XCTAssertTrue(app.outlines["workspace.explorer"].waitForExistence(timeout: 5))
+        app.typeKey("p", modifierFlags: .command)
+        let search = app.searchFields["quickOpen.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.typeText("Pane")
+        search.typeKey(.return, modifierFlags: [])
+
+        let tabCloseButton = app.buttons["tab.close.Sources/Pane.swift"]
+        XCTAssertTrue(tabCloseButton.waitForExistence(timeout: 5))
+
+        app.buttons["editorGroup.splitRight"].firstMatch.click()
+        waitForGroupCount(2)
+
+        tabCloseButton.click()
+        XCTAssertEqual(
+            XCTWaiter().wait(
+                for: [
+                    XCTNSPredicateExpectation(
+                        predicate: NSPredicate(format: "exists == false"),
+                        object: tabCloseButton
+                    )
+                ],
+                timeout: 5
+            ),
+            .completed
+        )
+
+        let splitDownButtons = app.buttons.matching(identifier: "editorGroup.splitDown")
+        splitDownButtons.element(boundBy: splitDownButtons.count - 1).click()
+        waitForGroupCount(3)
+
+        let closeGroupButtons = app.buttons.matching(identifier: "editorGroup.closeGroup")
+        closeGroupButtons.element(boundBy: closeGroupButtons.count - 1).click()
+        waitForGroupCount(2)
+
+        closeGroupButtons.element(boundBy: closeGroupButtons.count - 1).click()
+        waitForGroupCount(1)
+
+        app.terminate()
         XCTAssertEqual(try Data(contentsOf: sourceURL), originalData)
     }
 
@@ -267,4 +390,3 @@ final class KodAppUITests: XCTestCase {
         try assertFixtureBytesUnchanged()
     }
 }
-

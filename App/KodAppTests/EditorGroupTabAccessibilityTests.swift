@@ -117,6 +117,59 @@ final class EditorGroupTabAccessibilityTests: XCTestCase {
         XCTAssertTrue(value.contains("Unavailable"))
     }
 
+    func testPaneActivationMonitorReturnsControlClicksUnchanged() throws {
+        let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
+        controller.isOnlyGroup = false
+        host(controller)
+        controller.openTab(relativePath: "src/a.txt", pinned: true, snapshot: SourceSnapshot(text: "hello"))
+        controller.view.layoutSubtreeIfNeeded()
+
+        var activatedGroupID: EditorGroupID?
+        var closedGroupID: EditorGroupID?
+        controller.onActivate = { activatedGroupID = $0 }
+        controller.onCloseGroup = { closedGroupID = $0 }
+
+        let closeGroupButton = try XCTUnwrap(
+            findView(identifier: "editorGroup.closeGroup", in: controller.view) as? NSButton
+        )
+        let closeTabButton = try XCTUnwrap(
+            findView(identifier: "tab.close.src/a.txt", in: controller.view) as? NSButton
+        )
+        let window = try XCTUnwrap(controller.view.window)
+
+        XCTAssertTrue(controller.view.gestureRecognizers.isEmpty)
+        for button in [closeGroupButton, closeTabButton] {
+            let event = try XCTUnwrap(
+                NSEvent.mouseEvent(
+                    with: .leftMouseDown,
+                    location: button.convert(
+                        NSPoint(x: button.bounds.midX, y: button.bounds.midY),
+                        to: nil
+                    ),
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 0,
+                    clickCount: 1,
+                    pressure: 1
+                )
+            )
+            XCTAssertTrue(controller.processActivationMouseDown(event) === event)
+            XCTAssertEqual(activatedGroupID, controller.groupID)
+            activatedGroupID = nil
+        }
+
+        closeGroupButton.sendAction(closeGroupButton.action, to: closeGroupButton.target)
+        XCTAssertEqual(activatedGroupID, controller.groupID)
+        XCTAssertEqual(closedGroupID, controller.groupID)
+
+        activatedGroupID = nil
+        closeTabButton.sendAction(closeTabButton.action, to: closeTabButton.target)
+        XCTAssertEqual(activatedGroupID, controller.groupID)
+        XCTAssertTrue(controller.state.tabs.isEmpty)
+    }
+
     // MARK: - Active split group (SplitContainerViewController-adjacent)
 
     func testActiveEditorGroupHasDistinctAccessibilityValueFromInactive() {

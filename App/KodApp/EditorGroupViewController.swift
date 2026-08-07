@@ -10,6 +10,21 @@ import WorkspaceCore
 /// drag-and-drop reordering.
 private let tabPasteboardType = NSPasteboard.PasteboardType("com.kodapp.editorTab")
 
+private final class LocalEventMonitor: @unchecked Sendable {
+    private let token: Any
+
+    init?(matching mask: NSEvent.EventTypeMask, handler: @escaping (NSEvent) -> NSEvent?) {
+        guard let token = NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler) else {
+            return nil
+        }
+        self.token = token
+    }
+
+    deinit {
+        NSEvent.removeMonitor(token)
+    }
+}
+
 /// One editor pane: a tab bar (preview vs. pinned tabs, close buttons, drag
 /// reordering), a Back/Forward navigation toolbar, split/close affordances,
 /// and a content host that swaps in the `CodeDocumentViewController` for the
@@ -125,6 +140,7 @@ final class EditorGroupViewController: NSViewController {
     /// is no meaningful "Source" view to toggle to).
     private var imageOnlyTabIDs: Set<EditorTabID> = []
     private var loadTask: Task<Void, Never>?
+    private var activationMouseMonitor: LocalEventMonitor?
 
     init(groupID: EditorGroupID, state: EditorGroupState) {
         self.groupID = groupID
@@ -285,10 +301,12 @@ final class EditorGroupViewController: NSViewController {
 
         view = container
 
-        let activationRecognizer = NSClickGestureRecognizer(target: self, action: #selector(handleActivationClick))
-        activationRecognizer.delaysPrimaryMouseButtonEvents = false
-        activationRecognizer.numberOfClicksRequired = 1
-        view.addGestureRecognizer(activationRecognizer)
+        // A recognizer on the group competes with NSControl tracking after the
+        // view is reparented into an NSSplitView. A local monitor observes the
+        // click without participating in gesture recognition or consuming it.
+        activationMouseMonitor = LocalEventMonitor(matching: .leftMouseDown) { [weak self] event in
+            self?.processActivationMouseDown(event) ?? event
+        }
 
         applyActiveAppearance()
     }
@@ -530,6 +548,7 @@ final class EditorGroupViewController: NSViewController {
 
     @objc
     private func handleBack(_ sender: Any?) {
+        onActivate?(groupID)
         captureLatestAnchorIntoState()
         guard let entry = state.goBack() else {
             return
@@ -542,6 +561,7 @@ final class EditorGroupViewController: NSViewController {
 
     @objc
     private func handleForward(_ sender: Any?) {
+        onActivate?(groupID)
         captureLatestAnchorIntoState()
         guard let entry = state.goForward() else {
             return
@@ -557,7 +577,7 @@ final class EditorGroupViewController: NSViewController {
         if let existing = state.tabs.first(where: { $0.relativePath == entry.relativePath }) {
             tabID = existing.id
         } else {
-            tabID = state.openTab(relativePath: entry.relativePath, pinned: false)
+            tabID = state.openTab(relativePath: entry.relativePath, pinned: true)
         }
         state.selectedTabID = tabID
         state.current = entry
@@ -578,12 +598,20 @@ final class EditorGroupViewController: NSViewController {
 
     @objc
     private func handleCloseGroup(_ sender: Any?) {
+        onActivate?(groupID)
         onCloseGroup?(groupID)
     }
 
-    @objc
-    private func handleActivationClick(_ sender: NSClickGestureRecognizer) {
+    func processActivationMouseDown(_ event: NSEvent) -> NSEvent {
+        guard let window = view.window, event.windowNumber == window.windowNumber else {
+            return event
+        }
+        let location = view.convert(event.locationInWindow, from: nil)
+        guard view.bounds.contains(location) else {
+            return event
+        }
         onActivate?(groupID)
+        return event
     }
 
     // MARK: - Persisted-state restoration
@@ -836,6 +864,7 @@ final class EditorGroupViewController: NSViewController {
 
     @objc
     private func handleTogglePreviewSource(_ sender: Any?) {
+        onActivate?(groupID)
         togglePreviewSource(sender)
     }
 
@@ -969,10 +998,26 @@ final class EditorGroupViewController: NSViewController {
             let chip = EditorTabChipView(
                 tab: tab,
                 isSelected: tab.id == state.selectedTabID,
-                onSelect: { [weak self] in self?.selectTab(tab.id) },
-                onClose: { [weak self] in self?.closeTab(tab.id) },
-                onPin: { [weak self] in self?.pinTab(tab.id) },
-                onDropBefore: { [weak self] draggedID in self?.handleDrop(draggedID: draggedID, before: tab.id) }
+                onSelect: { [weak self] in
+                    guard let self else { return }
+                    self.onActivate?(self.groupID)
+                    self.selectTab(tab.id)
+                },
+                onClose: { [weak self] in
+                    guard let self else { return }
+                    self.onActivate?(self.groupID)
+                    self.closeTab(tab.id)
+                },
+                onPin: { [weak self] in
+                    guard let self else { return }
+                    self.onActivate?(self.groupID)
+                    self.pinTab(tab.id)
+                },
+                onDropBefore: { [weak self] draggedID in
+                    guard let self else { return }
+                    self.onActivate?(self.groupID)
+                    self.handleDrop(draggedID: draggedID, before: tab.id)
+                }
             )
             tabBarStack.addArrangedSubview(chip)
         }
