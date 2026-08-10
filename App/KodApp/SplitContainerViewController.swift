@@ -66,9 +66,6 @@ final class SplitContainerViewController: NSViewController {
             builtView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             builtView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
-
-        let isOnlyGroup = survivingIDs.count <= 1
-        groupControllers.values.forEach { $0.isOnlyGroup = isOnlyGroup }
     }
 
     private func groupController(for id: EditorGroupID) -> EditorGroupViewController {

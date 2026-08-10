@@ -532,6 +532,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let window = self.welcomeWindowController?.window else {
                     return
                 }
+                self.restoreStandardWindowChrome(window)
                 window.contentViewController = controller
                 window.title = url.lastPathComponent
             } catch is CancellationError {
@@ -544,6 +545,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await alert.beginSheetModal(for: window)
             }
         }
+    }
+
+    private func restoreStandardWindowChrome(_ window: NSWindow) {
+        window.toolbar = nil
+        window.styleMask.remove(.fullSizeContentView)
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.titlebarSeparatorStyle = .automatic
+        window.toolbarStyle = .automatic
     }
 
     private func commandLineURL(after flag: String) -> URL? {

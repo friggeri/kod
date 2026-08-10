@@ -7,6 +7,212 @@ import PreviewCore
 import SourceModel
 import WorkspaceCore
 
+private extension NSToolbarItem.Identifier {
+    static let workspaceToggleSidebar = NSToolbarItem.Identifier(
+        "workspace.toggleSidebar"
+    )
+    static let workspaceSplitControls = NSToolbarItem.Identifier(
+        "workspace.splitControls"
+    )
+}
+
+private final class WorkspaceTitleOverlayView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
+@MainActor
+private final class WorkspaceSplitControlsView: NSView {
+    private let divider = NSView()
+
+    init(target: WorkspaceViewController) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 65, height: 28))
+
+        let splitRightButton = Self.makeButton(
+            symbolName: "square.split.2x1",
+            identifier: "editorGroup.splitRight",
+            accessibilityLabel: Localized.string(
+                "Split Right",
+                comment: "Accessibility label for the titlebar split-editor-right button"
+            ),
+            target: target,
+            action: #selector(WorkspaceViewController.splitActiveGroupRight(_:))
+        )
+        let splitDownButton = Self.makeButton(
+            symbolName: "square.split.1x2",
+            identifier: "editorGroup.splitDown",
+            accessibilityLabel: Localized.string(
+                "Split Down",
+                comment: "Accessibility label for the titlebar split-editor-down button"
+            ),
+            target: target,
+            action: #selector(WorkspaceViewController.splitActiveGroupDown(_:))
+        )
+
+        identifier = NSUserInterfaceItemIdentifier("workspace.splitControls")
+        wantsLayer = true
+        layer?.cornerRadius = 9
+        layer?.cornerCurve = .continuous
+        layer?.borderWidth = 0.5
+
+        divider.wantsLayer = true
+        divider.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(splitRightButton)
+        addSubview(divider)
+        addSubview(splitDownButton)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: 65),
+            heightAnchor.constraint(equalToConstant: 28),
+            splitRightButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            splitRightButton.topAnchor.constraint(equalTo: topAnchor),
+            splitRightButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+            splitRightButton.widthAnchor.constraint(equalToConstant: 32),
+            divider.leadingAnchor.constraint(equalTo: splitRightButton.trailingAnchor),
+            divider.centerYAnchor.constraint(equalTo: centerYAnchor),
+            divider.widthAnchor.constraint(equalToConstant: 1),
+            divider.heightAnchor.constraint(equalToConstant: 16),
+            splitDownButton.leadingAnchor.constraint(equalTo: divider.trailingAnchor),
+            splitDownButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            splitDownButton.topAnchor.constraint(equalTo: topAnchor),
+            splitDownButton.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        updateAppearance()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearance()
+    }
+
+    private static func makeButton(
+        symbolName: String,
+        identifier: String,
+        accessibilityLabel: String,
+        target: AnyObject,
+        action: Selector
+    ) -> NSButton {
+        let image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: accessibilityLabel
+        ) ?? NSImage()
+        let button = NSButton(image: image, target: target, action: action)
+        button.identifier = NSUserInterfaceItemIdentifier(identifier)
+        button.bezelStyle = .toolbar
+        button.isBordered = false
+        button.imageScaling = .scaleProportionallyDown
+        button.toolTip = accessibilityLabel
+        button.setAccessibilityLabel(accessibilityLabel)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }
+
+    private func updateAppearance() {
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        layer?.backgroundColor = (
+            isDark
+                ? NSColor.white.withAlphaComponent(0.10)
+                : NSColor.black.withAlphaComponent(0.065)
+        ).cgColor
+        layer?.borderColor = (
+            isDark
+                ? NSColor.white.withAlphaComponent(0.12)
+                : NSColor.black.withAlphaComponent(0.08)
+        ).cgColor
+        divider.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.45).cgColor
+    }
+}
+
+@MainActor
+private final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
+    weak var target: WorkspaceViewController?
+
+    init(target: WorkspaceViewController) {
+        self.target = target
+    }
+
+    func toolbarAllowedItemIdentifiers(
+        _ toolbar: NSToolbar
+    ) -> [NSToolbarItem.Identifier] {
+        [
+            .workspaceToggleSidebar,
+            .sidebarTrackingSeparator,
+            .workspaceSplitControls,
+            .flexibleSpace
+        ]
+    }
+
+    func toolbarDefaultItemIdentifiers(
+        _ toolbar: NSToolbar
+    ) -> [NSToolbarItem.Identifier] {
+        [
+            .flexibleSpace,
+            .workspaceToggleSidebar,
+            .sidebarTrackingSeparator,
+            .flexibleSpace,
+            .workspaceSplitControls
+        ]
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        guard let target else {
+            return nil
+        }
+
+        if itemIdentifier == .workspaceSplitControls {
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = Localized.string(
+                "Split Editor",
+                comment: "Label for the grouped titlebar split-editor controls"
+            )
+            item.view = WorkspaceSplitControlsView(target: target)
+            item.visibilityPriority = .high
+            return item
+        }
+
+        guard itemIdentifier == .workspaceToggleSidebar else {
+            return nil
+        }
+
+        let image = NSImage(
+            systemSymbolName: "sidebar.left",
+            accessibilityDescription: Localized.string(
+                "Toggle Sidebar",
+                comment: "Accessibility description for the workspace titlebar button that shows or hides the sidebar"
+            )
+        ) ?? NSImage()
+        let button = NSButton(image: image, target: target, action: #selector(WorkspaceViewController.toggleSidebar(_:)))
+        button.identifier = NSUserInterfaceItemIdentifier("workspace.toggleSidebar")
+        button.bezelStyle = .toolbar
+        button.setAccessibilityLabel(
+            Localized.string(
+                "Toggle Sidebar",
+                comment: "Accessibility label for the workspace titlebar button that shows or hides the sidebar"
+            )
+        )
+
+        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+        item.label = Localized.string(
+            "Toggle Sidebar",
+            comment: "Label for the workspace titlebar sidebar toggle item"
+        )
+        item.toolTip = button.accessibilityLabel()
+        item.view = button
+        item.visibilityPriority = .high
+        return item
+    }
+}
+
 @MainActor
 final class WorkspaceViewController: NSViewController {
     let identity: WorkspaceIdentity
@@ -64,6 +270,9 @@ final class WorkspaceViewController: NSViewController {
         target: nil,
         action: nil
     )
+    private let workspaceTitleLabel = NSTextField(labelWithString: "")
+    private var workspaceSplitViewController: NSSplitViewController!
+    private var windowToolbarDelegate: WorkspaceToolbarDelegate?
     private var explorerContainer: NSView!
     private var searchSidebarController: SearchSidebarViewController!
     private var problemsViewController: ProblemsViewController!
@@ -169,10 +378,22 @@ final class WorkspaceViewController: NSViewController {
         trustBanner.translatesAutoresizingMaskIntoConstraints = false
 
         let outerSplit = NSSplitViewController()
+        workspaceSplitViewController = outerSplit
         addChild(outerSplit)
         outerSplit.view.translatesAutoresizingMaskIntoConstraints = false
         let statusBar = makeStatusBar()
         statusBar.translatesAutoresizingMaskIntoConstraints = false
+        let titleOverlay = WorkspaceTitleOverlayView()
+        titleOverlay.translatesAutoresizingMaskIntoConstraints = false
+        workspaceTitleLabel.stringValue = identity.root.lastPathComponent
+        workspaceTitleLabel.identifier = NSUserInterfaceItemIdentifier("workspace.directoryName")
+        workspaceTitleLabel.alignment = .center
+        workspaceTitleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        workspaceTitleLabel.lineBreakMode = .byTruncatingMiddle
+        workspaceTitleLabel.setAccessibilityLabel(identity.root.lastPathComponent)
+        workspaceTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        workspaceTitleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 240).isActive = true
+        titleOverlay.addSubview(workspaceTitleLabel)
 
         let sidebarController = NSViewController()
         sidebarController.view = makeSidebar()
@@ -180,6 +401,7 @@ final class WorkspaceViewController: NSViewController {
         sidebarItem.minimumThickness = 180
         sidebarItem.maximumThickness = 420
         sidebarItem.canCollapse = true
+        sidebarItem.titlebarSeparatorStyle = .none
         outerSplit.addSplitViewItem(sidebarItem)
 
         splitContainer = SplitContainerViewController(
@@ -189,34 +411,56 @@ final class WorkspaceViewController: NSViewController {
                     ?? EditorGroupViewController(groupID: id, state: EditorGroupState(id: id))
             }
         )
-        outerSplit.addSplitViewItem(NSSplitViewItem(viewController: splitContainer))
+        splitContainer.view.translatesAutoresizingMaskIntoConstraints = false
 
-        container.addSubview(trustBanner)
+        let editorController = NSViewController()
+        let editorContainer = NSView()
+        editorContainer.identifier = NSUserInterfaceItemIdentifier("workspace.editorArea")
+        editorController.view = editorContainer
+        editorController.addChild(splitContainer)
+        editorContainer.addSubview(trustBanner)
+        editorContainer.addSubview(splitContainer.view)
+        outerSplit.addSplitViewItem(NSSplitViewItem(viewController: editorController))
+
         container.addSubview(outerSplit.view)
         container.addSubview(statusBar)
+        container.addSubview(titleOverlay)
 
-        let contentTopWithTrustBannerConstraint = outerSplit.view.topAnchor.constraint(
+        let contentTopWithTrustBannerConstraint = splitContainer.view.topAnchor.constraint(
             equalTo: trustBanner.bottomAnchor,
             constant: 8
         )
-        let contentTopWithoutTrustBannerConstraint = outerSplit.view.topAnchor.constraint(
-            equalTo: container.topAnchor
+        let contentTopWithoutTrustBannerConstraint = splitContainer.view.topAnchor.constraint(
+            equalTo: editorContainer.safeAreaLayoutGuide.topAnchor
         )
         self.contentTopWithTrustBannerConstraint = contentTopWithTrustBannerConstraint
         self.contentTopWithoutTrustBannerConstraint = contentTopWithoutTrustBannerConstraint
 
         NSLayoutConstraint.activate([
-            trustBanner.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
-            trustBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            trustBanner.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            trustBanner.topAnchor.constraint(
+                equalTo: editorContainer.safeAreaLayoutGuide.topAnchor,
+                constant: 8
+            ),
+            trustBanner.leadingAnchor.constraint(equalTo: editorContainer.leadingAnchor, constant: 8),
+            trustBanner.trailingAnchor.constraint(equalTo: editorContainer.trailingAnchor, constant: -8),
             trustBanner.heightAnchor.constraint(equalTo: trustActionButton.heightAnchor, constant: 12),
+            splitContainer.view.leadingAnchor.constraint(equalTo: editorContainer.leadingAnchor),
+            splitContainer.view.trailingAnchor.constraint(equalTo: editorContainer.trailingAnchor),
+            splitContainer.view.bottomAnchor.constraint(equalTo: editorContainer.bottomAnchor),
+            outerSplit.view.topAnchor.constraint(equalTo: container.topAnchor),
             outerSplit.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             outerSplit.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             outerSplit.view.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
             statusBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            statusBar.heightAnchor.constraint(equalToConstant: 29)
+            statusBar.heightAnchor.constraint(equalToConstant: 29),
+            titleOverlay.topAnchor.constraint(equalTo: container.topAnchor),
+            titleOverlay.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            titleOverlay.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            titleOverlay.bottomAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
+            workspaceTitleLabel.centerXAnchor.constraint(equalTo: titleOverlay.centerXAnchor),
+            workspaceTitleLabel.centerYAnchor.constraint(equalTo: titleOverlay.centerYAnchor)
         ])
         updateTrustBannerVisibility()
 
@@ -227,6 +471,7 @@ final class WorkspaceViewController: NSViewController {
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        configureWindowChrome()
         view.window?.delegate = self
         guard !hasStartedDiscovery else {
             return
@@ -235,6 +480,34 @@ final class WorkspaceViewController: NSViewController {
         startDiscovery()
         configureLanguageServicesCoordinator()
         startGitCoordinator()
+    }
+
+    @objc
+    func toggleSidebar(_ sender: Any?) {
+        workspaceSplitViewController.toggleSidebar(sender)
+    }
+
+    private func configureWindowChrome() {
+        guard let window = view.window else {
+            return
+        }
+
+        window.styleMask.insert(.fullSizeContentView)
+        window.title = identity.root.lastPathComponent
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.toolbarStyle = .unified
+
+        let delegate = WorkspaceToolbarDelegate(target: self)
+        let toolbar = NSToolbar(identifier: NSToolbar.Identifier("workspace.toolbar"))
+        toolbar.delegate = delegate
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        toolbar.autosavesConfiguration = false
+        windowToolbarDelegate = delegate
+        window.toolbar = toolbar
+        window.layoutIfNeeded()
     }
 
     // MARK: - Git (SPEC 9)
@@ -952,12 +1225,6 @@ final class WorkspaceViewController: NSViewController {
             self?.refreshLanguageServerStateUI()
             self?.persistLayout()
         }
-        controller.onSplit = { [weak self] groupID, orientation in
-            self?.handleSplit(groupID: groupID, orientation: orientation)
-        }
-        controller.onCloseGroup = { [weak self] groupID in
-            self?.handleCloseGroup(groupID: groupID)
-        }
         controller.onDocumentReady = { [weak self] relativePath, documentController in
             self?.configureLanguageInteractions(for: documentController)
             self?.languageServicesCoordinator.handleDocumentReady(
@@ -1124,7 +1391,11 @@ final class WorkspaceViewController: NSViewController {
 
 
     private func makeSidebar() -> NSView {
-        let container = NSView()
+        let container = NSVisualEffectView()
+        container.identifier = NSUserInterfaceItemIdentifier("workspace.sidebar")
+        container.material = .sidebar
+        container.blendingMode = .behindWindow
+        container.state = .active
 
         sidebarModeControl.segmentStyle = .texturedRounded
         sidebarModeControl.selectedSegment = 0
@@ -1192,7 +1463,10 @@ final class WorkspaceViewController: NSViewController {
         container.addSubview(symbolsController.view)
         container.addSubview(sourceControlController.view)
         NSLayoutConstraint.activate([
-            sidebarModeControl.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
+            sidebarModeControl.topAnchor.constraint(
+                equalTo: container.safeAreaLayoutGuide.topAnchor,
+                constant: 8
+            ),
             sidebarModeControl.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
             sidebarModeControl.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8),
 
@@ -1283,11 +1557,13 @@ final class WorkspaceViewController: NSViewController {
         outlineView.action = #selector(handleOutlineClick(_:))
         outlineView.identifier = NSUserInterfaceItemIdentifier("workspace.explorer")
         outlineView.menu = makeExplorerContextMenu()
+        outlineView.backgroundColor = .clear
 
         let scrollView = NSScrollView()
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         statusLabel.identifier = NSUserInterfaceItemIdentifier("workspace.discoveryStatus")

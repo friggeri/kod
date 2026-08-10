@@ -216,11 +216,40 @@ final class EditorGroupTabAccessibilityTests: XCTestCase {
         controller.view.layoutSubtreeIfNeeded()
 
         let tabBar = try XCTUnwrap(findView(identifier: "editorGroup.tabBar", in: controller.view))
+        let tabRail = try XCTUnwrap(findView(identifier: "editorGroup.tabRail", in: controller.view))
+        let tabCollection = try XCTUnwrap(
+            findView(identifier: "editorGroup.tabCollection", in: controller.view) as? NSCollectionView
+        )
         let totalTabWidth = try ["first.swift", "second.swift", "third.swift"].reduce(CGFloat.zero) {
             $0 + (try XCTUnwrap(findView(identifier: "tab.\($1)", in: controller.view))).frame.width
         }
 
         XCTAssertEqual(totalTabWidth + 16, tabBar.bounds.width, accuracy: 2)
+        XCTAssertEqual(tabRail.layer?.cornerRadius, 16)
+        XCTAssertEqual(tabRail.frame.minX, 8, accuracy: 0.5)
+        XCTAssertEqual(tabRail.frame.maxX, tabBar.bounds.maxX - 8, accuracy: 0.5)
+        XCTAssertNil(tabCollection.enclosingScrollView)
+    }
+
+    func testManyTabsShrinkToTheRoundedRailWithoutOverflow() throws {
+        let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
+        host(controller)
+        let paths = (0..<12).map { "tab-\($0).swift" }
+        for path in paths {
+            controller.openTab(relativePath: path, pinned: true, snapshot: SourceSnapshot(text: path))
+        }
+        controller.view.window?.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        let tabCollection = try XCTUnwrap(
+            findView(identifier: "editorGroup.tabCollection", in: controller.view) as? NSCollectionView
+        )
+        let totalTabWidth = try paths.reduce(CGFloat.zero) {
+            $0 + (try XCTUnwrap(findView(identifier: "tab.\($1)", in: controller.view))).frame.width
+        }
+
+        XCTAssertEqual(totalTabWidth, tabCollection.bounds.width, accuracy: 1)
+        XCTAssertNil(tabCollection.enclosingScrollView)
     }
 
     func testCloseButtonUsesFixedLeadingOverlayWithoutMovingContent() throws {
@@ -248,28 +277,203 @@ final class EditorGroupTabAccessibilityTests: XCTestCase {
         XCTAssertEqual(contentView.frame, originalContentFrame)
     }
 
-    func testPaneActivationMonitorReturnsControlClicksUnchanged() throws {
+    func testDragGeometryUsesThresholdRailClampingAndLiveSlotCrossings() {
+        XCTAssertFalse(
+            EditorTabDragGeometry.hasExceededActivationDistance(
+                from: .zero,
+                to: NSPoint(x: 2, y: 2)
+            )
+        )
+        XCTAssertTrue(
+            EditorTabDragGeometry.hasExceededActivationDistance(
+                from: .zero,
+                to: NSPoint(x: 3, y: 0)
+            )
+        )
+
+        let visibleBounds = NSRect(x: 100, y: 0, width: 400, height: 32)
+        XCTAssertEqual(
+            EditorTabDragGeometry.clampedOriginX(
+                20,
+                itemWidth: 100,
+                visibleBounds: visibleBounds,
+                horizontalInset: 8
+            ),
+            108
+        )
+        XCTAssertEqual(
+            EditorTabDragGeometry.clampedOriginX(
+                1_000,
+                itemWidth: 100,
+                visibleBounds: visibleBounds,
+                horizontalInset: 8
+            ),
+            392
+        )
+
+        let centers: [CGFloat] = [50, 150, 250, 350]
+        XCTAssertEqual(
+            EditorTabDragGeometry.updatedTargetIndex(
+                currentTargetIndex: 0,
+                draggedCenterX: 149,
+                slotCenters: centers
+            ),
+            0
+        )
+        XCTAssertEqual(
+            EditorTabDragGeometry.updatedTargetIndex(
+                currentTargetIndex: 0,
+                draggedCenterX: 251,
+                slotCenters: centers
+            ),
+            2
+        )
+        XCTAssertEqual(
+            EditorTabDragGeometry.updatedTargetIndex(
+                currentTargetIndex: 2,
+                draggedCenterX: 49,
+                slotCenters: centers
+            ),
+            0
+        )
+    }
+
+    func testDragGeometryShiftsOnlyTabsBetweenSourceAndTarget() {
+        XCTAssertEqual(
+            (0..<4).map {
+                EditorTabDragGeometry.visualSlot(
+                    forItemAt: $0,
+                    sourceIndex: 0,
+                    targetIndex: 2
+                )
+            },
+            [0, 0, 1, 3]
+        )
+        XCTAssertEqual(
+            (0..<4).map {
+                EditorTabDragGeometry.visualSlot(
+                    forItemAt: $0,
+                    sourceIndex: 3,
+                    targetIndex: 1
+                )
+            },
+            [0, 2, 3, 3]
+        )
+    }
+
+    func testDropAnchorsPreserveInsertionPointWhenAnotherTabClosesDuringSettlement() throws {
+        let a = EditorTabID()
+        let b = EditorTabID()
+        let c = EditorTabID()
+        let d = EditorTabID()
+        let anchors = try XCTUnwrap(
+            EditorTabDropAnchors(
+                tabIDs: [a, b, c, d],
+                sourceTabID: d,
+                destination: 1
+            )
+        )
+
+        XCTAssertEqual(anchors.destination(in: [b, c, d]), 0)
+        XCTAssertNil(anchors.destination(in: [a, b, c]))
+    }
+
+    func testDraggingTabTracksHorizontallyAndCommitsLiveReorder() throws {
         let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
-        controller.isOnlyGroup = false
+        host(controller)
+        for path in ["first.md", "second.swift", "third.swift"] {
+            controller.openTab(relativePath: path, pinned: true, snapshot: SourceSnapshot(text: path))
+        }
+        controller.view.window?.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        let draggedTab = try XCTUnwrap(findView(identifier: "tab.first.md", in: controller.view))
+        let destinationTab = try XCTUnwrap(findView(identifier: "tab.third.swift", in: controller.view))
+        let window = try XCTUnwrap(controller.view.window)
+        let draggedTabID = try XCTUnwrap(
+            controller.state.tabs.first(where: { $0.relativePath == "first.md" })?.id
+        )
+        let originalDraggedFrame = draggedTab.frame
+        let downLocation = draggedTab.convert(
+            NSPoint(x: draggedTab.bounds.midX, y: draggedTab.bounds.midY),
+            to: nil
+        )
+        let destinationLocation = destinationTab.convert(
+            NSPoint(x: destinationTab.bounds.midX + 1, y: destinationTab.bounds.midY + 80),
+            to: nil
+        )
+
+        func event(_ type: NSEvent.EventType, at location: NSPoint) throws -> NSEvent {
+            try XCTUnwrap(
+                NSEvent.mouseEvent(
+                    with: type,
+                    location: location,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 0,
+                    clickCount: 1,
+                    pressure: 1
+                )
+            )
+        }
+
+        draggedTab.mouseDown(with: try event(.leftMouseDown, at: downLocation))
+        draggedTab.mouseDragged(with: try event(.leftMouseDragged, at: destinationLocation))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+
+        let currentDraggedTab = try XCTUnwrap(
+            findView(identifier: "tab.first.md", in: controller.view)
+        )
+        XCTAssertEqual(currentDraggedTab.frame.minY, originalDraggedFrame.minY, accuracy: 0.5)
+        XCTAssertEqual(currentDraggedTab.frame.height, originalDraggedFrame.height, accuracy: 0.5)
+        let shiftedSecondVisual = try XCTUnwrap(
+            findView(identifier: "tab.visual.second.swift", in: controller.view)
+        )
+        XCTAssertLessThan(
+            shiftedSecondVisual.frame.minX,
+            0,
+            "The neighboring tab should move into the open slot during the drag"
+        )
+
+        draggedTab.mouseUp(with: try event(.leftMouseUp, at: destinationLocation))
+        controller.pinTab(draggedTabID)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.25))
+
+        XCTAssertEqual(
+            controller.state.tabs.map(\.relativePath),
+            ["second.swift", "third.swift", "first.md"]
+        )
+        for path in ["first.md", "second.swift", "third.swift"] {
+            let tab = try XCTUnwrap(findView(identifier: "tab.\(path)", in: controller.view))
+            let visual = try XCTUnwrap(findView(identifier: "tab.visual.\(path)", in: controller.view))
+            XCTAssertEqual(tab.layer?.zPosition, 0)
+            XCTAssertEqual(visual.frame.minX, 0, accuracy: 0.5)
+        }
+    }
+
+    func testPaneActivationMonitorReturnsRemainingControlClicksUnchanged() throws {
+        let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
         host(controller)
         controller.openTab(relativePath: "src/a.txt", pinned: true, snapshot: SourceSnapshot(text: "hello"))
         controller.view.layoutSubtreeIfNeeded()
 
         var activatedGroupID: EditorGroupID?
-        var closedGroupID: EditorGroupID?
         controller.onActivate = { activatedGroupID = $0 }
-        controller.onCloseGroup = { closedGroupID = $0 }
 
-        let closeGroupButton = try XCTUnwrap(
-            findView(identifier: "editorGroup.closeGroup", in: controller.view) as? NSButton
-        )
         let closeTabButton = try XCTUnwrap(
             findView(identifier: "tab.close.src/a.txt", in: controller.view) as? NSButton
         )
         let window = try XCTUnwrap(controller.view.window)
 
+        XCTAssertNil(findView(identifier: "editorGroup.back", in: controller.view))
+        XCTAssertNil(findView(identifier: "editorGroup.forward", in: controller.view))
+        XCTAssertNil(findView(identifier: "editorGroup.closeGroup", in: controller.view))
+        XCTAssertNil(findView(identifier: "editorGroup.splitRight", in: controller.view))
+        XCTAssertNil(findView(identifier: "editorGroup.splitDown", in: controller.view))
         XCTAssertTrue(controller.view.gestureRecognizers.isEmpty)
-        for button in [closeGroupButton, closeTabButton] {
+        for button in [closeTabButton] {
             let event = try XCTUnwrap(
                 NSEvent.mouseEvent(
                     with: .leftMouseDown,
@@ -290,10 +494,6 @@ final class EditorGroupTabAccessibilityTests: XCTestCase {
             XCTAssertEqual(activatedGroupID, controller.groupID)
             activatedGroupID = nil
         }
-
-        closeGroupButton.sendAction(closeGroupButton.action, to: closeGroupButton.target)
-        XCTAssertEqual(activatedGroupID, controller.groupID)
-        XCTAssertEqual(closedGroupID, controller.groupID)
 
         activatedGroupID = nil
         closeTabButton.sendAction(closeTabButton.action, to: closeTabButton.target)

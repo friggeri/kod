@@ -87,7 +87,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         XCTAssertGreaterThan(controller.splitContainer.view.frame.height, 350)
     }
 
-    func testTrustBannerCanBeDismissedAndWorkspaceNameIsNotDuplicated() throws {
+    func testTrustBannerCanBeDismissedAndSidebarDoesNotOwnWindowTitle() throws {
         let (controller, _, _) = try makeFixture()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),
@@ -104,6 +104,9 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         let dismissButton = try XCTUnwrap(
             findView(identifier: "workspace.trustDismiss", in: controller.view) as? NSButton
         )
+        let sidebar = try XCTUnwrap(
+            findView(identifier: "workspace.sidebar", in: controller.view)
+        )
         let initialContentHeight = controller.splitContainer.view.frame.height
 
         dismissButton.sendAction(dismissButton.action, to: dismissButton.target)
@@ -111,7 +114,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
 
         XCTAssertTrue(banner.isHidden)
         XCTAssertGreaterThan(controller.splitContainer.view.frame.height, initialContentHeight)
-        XCTAssertNil(findView(identifier: "workspace.root", in: controller.view))
+        XCTAssertNil(findView(identifier: "workspace.directoryName", in: sidebar))
     }
 
     func testRevokeTrustStopsLanguageServiceCoordinatorsWithoutCrashing() throws {

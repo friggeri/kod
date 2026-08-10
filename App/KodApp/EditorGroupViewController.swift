@@ -3,13 +3,10 @@ import CodeViewport
 import FontCore
 import GitCore
 import PreviewCore
+import QuartzCore
 import SourceModel
 import ThemeCore
 import WorkspaceCore
-
-/// A pasteboard type carrying an `EditorTabID.rawValue` for in-process tab
-/// drag-and-drop reordering.
-private let tabPasteboardType = NSPasteboard.PasteboardType("com.kodapp.editorTab")
 
 private final class LocalEventMonitor: @unchecked Sendable {
     private let token: Any
@@ -27,10 +24,10 @@ private final class LocalEventMonitor: @unchecked Sendable {
 }
 
 /// One editor pane: a tab bar (preview vs. pinned tabs, close buttons, drag
-/// reordering), a Back/Forward navigation toolbar, split/close affordances,
-/// and a content host that swaps in the `CodeDocumentViewController` for the
-/// selected tab. Owns one `EditorGroupState` and reports every state change
-/// upward so the workspace can persist it.
+/// reordering), split affordances, and a content host that swaps in the
+/// `CodeDocumentViewController` for the selected tab. Owns one
+/// `EditorGroupState` and reports every state change upward so the workspace
+/// can persist it.
 @MainActor
 final class EditorGroupViewController: NSViewController {
     let groupID: EditorGroupID
@@ -56,8 +53,6 @@ final class EditorGroupViewController: NSViewController {
     var onOpenLocalRelativePath: ((String) -> Void)?
     var onStateChange: ((EditorGroupID, EditorGroupState) -> Void)?
     var onActivate: ((EditorGroupID) -> Void)?
-    var onSplit: ((EditorGroupID, SplitOrientation) -> Void)?
-    var onCloseGroup: ((EditorGroupID) -> Void)?
     /// Fired whenever a `CodeDocumentViewController` becomes available for
     /// `relativePath` — on first open and again after every reload — so
     /// the owning `WorkspaceViewController` can wire language-service
@@ -65,11 +60,6 @@ final class EditorGroupViewController: NSViewController {
     /// needing to know anything about `LanguageClient`.
     var onDocumentReady: ((String, CodeDocumentViewController) -> Void)?
     var onActiveDocumentChange: ((CodeDocumentViewController?) -> Void)?
-
-    /// Disables the close-group affordance when this is the only group left.
-    var isOnlyGroup = true {
-        didSet { closeGroupButton.isEnabled = !isOnlyGroup }
-    }
 
     /// Whether this is the currently-active split group — the one
     /// Command Palette/Quick Open/Go to Line/etc. target, and the one a
@@ -79,7 +69,7 @@ final class EditorGroupViewController: NSViewController {
     /// no way — visual or accessible — to tell which group was active
     /// with more than one group on screen (SPEC 14: "the currently-active
     /// split group must be accessibly distinguishable"). `didSet` updates
-    /// both a subtle header-row highlight and an explicit accessibility
+    /// both a subtle tab-rail tint and an explicit accessibility
     /// label/value, so a VoiceOver user gets the same information a
     /// sighted user would from the highlight.
     var isActive = true {
@@ -102,11 +92,6 @@ final class EditorGroupViewController: NSViewController {
 
     private let tabBarView = EditorTabBarView(frame: .zero)
     private let headerRow = NSStackView()
-    private let backButton: NSButton
-    private let forwardButton: NSButton
-    private let splitRightButton: NSButton
-    private let splitDownButton: NSButton
-    private let closeGroupButton: NSButton
     private let previewSourceToggleButton: NSButton
     private let contentHost = NSView()
     private let placeholderLabel = NSTextField(
@@ -149,46 +134,6 @@ final class EditorGroupViewController: NSViewController {
     init(groupID: EditorGroupID, state: EditorGroupState) {
         self.groupID = groupID
         self.state = state
-        backButton = NSButton(
-            image: NSImage(
-                systemSymbolName: "chevron.left",
-                accessibilityDescription: Localized.string("Back", comment: "Accessibility description for the editor group's back-navigation button")
-            ) ?? NSImage(),
-            target: nil,
-            action: nil
-        )
-        forwardButton = NSButton(
-            image: NSImage(
-                systemSymbolName: "chevron.right",
-                accessibilityDescription: Localized.string("Forward", comment: "Accessibility description for the editor group's forward-navigation button")
-            ) ?? NSImage(),
-            target: nil,
-            action: nil
-        )
-        splitRightButton = NSButton(
-            image: NSImage(
-                systemSymbolName: "square.split.2x1",
-                accessibilityDescription: Localized.string("Split Right", comment: "Accessibility description for the split-editor-right button")
-            ) ?? NSImage(),
-            target: nil,
-            action: nil
-        )
-        splitDownButton = NSButton(
-            image: NSImage(
-                systemSymbolName: "square.split.1x2",
-                accessibilityDescription: Localized.string("Split Down", comment: "Accessibility description for the split-editor-down button")
-            ) ?? NSImage(),
-            target: nil,
-            action: nil
-        )
-        closeGroupButton = NSButton(
-            image: NSImage(
-                systemSymbolName: "xmark.square",
-                accessibilityDescription: Localized.string("Close Group", comment: "Accessibility description for the close-editor-group button")
-            ) ?? NSImage(),
-            target: nil,
-            action: nil
-        )
         previewSourceToggleButton = NSButton(
             title: Localized.string("Preview", comment: "Initial title of the editor group's preview/source toggle button"),
             target: nil,
@@ -225,35 +170,12 @@ final class EditorGroupViewController: NSViewController {
     }
     override func loadView() {
         let container = NSView()
-        container.identifier = NSUserInterfaceItemIdentifier("editorGroup.\(groupID.rawValue)")
+        container.identifier = NSUserInterfaceItemIdentifier("editorGroup.container")
+        container.setAccessibilityElement(true)
+        container.setAccessibilityRole(.group)
+        container.setAccessibilityIdentifier("editorGroup.container")
 
         tabBarView.identifier = NSUserInterfaceItemIdentifier("editorGroup.tabBar")
-
-        backButton.identifier = NSUserInterfaceItemIdentifier("editorGroup.back")
-        backButton.bezelStyle = .rounded
-        backButton.target = self
-        backButton.action = #selector(handleBack)
-
-        forwardButton.identifier = NSUserInterfaceItemIdentifier("editorGroup.forward")
-        forwardButton.bezelStyle = .rounded
-        forwardButton.target = self
-        forwardButton.action = #selector(handleForward)
-
-        splitRightButton.identifier = NSUserInterfaceItemIdentifier("editorGroup.splitRight")
-        splitRightButton.bezelStyle = .rounded
-        splitRightButton.target = self
-        splitRightButton.action = #selector(handleSplitRight)
-
-        splitDownButton.identifier = NSUserInterfaceItemIdentifier("editorGroup.splitDown")
-        splitDownButton.bezelStyle = .rounded
-        splitDownButton.target = self
-        splitDownButton.action = #selector(handleSplitDown)
-
-        closeGroupButton.identifier = NSUserInterfaceItemIdentifier("editorGroup.closeGroup")
-        closeGroupButton.bezelStyle = .rounded
-        closeGroupButton.target = self
-        closeGroupButton.action = #selector(handleCloseGroup)
-        closeGroupButton.isEnabled = !isOnlyGroup
 
         previewSourceToggleButton.identifier = NSUserInterfaceItemIdentifier("editorGroup.previewSourceToggle")
         previewSourceToggleButton.bezelStyle = .rounded
@@ -262,19 +184,12 @@ final class EditorGroupViewController: NSViewController {
         previewSourceToggleButton.isHidden = true
         previewSourceToggleButton.setAccessibilityLabel(Localized.string("Toggle Source and Preview", comment: "Accessibility label for the preview/source toggle button"))
 
-        let toolbar = NSStackView(views: [
-            previewSourceToggleButton, backButton, forwardButton, splitRightButton, splitDownButton, closeGroupButton
-        ])
-        toolbar.orientation = .horizontal
-        toolbar.spacing = 4
-
-        headerRow.setViews([tabBarView, toolbar], in: .leading)
+        headerRow.setViews([tabBarView, previewSourceToggleButton], in: .leading)
         headerRow.identifier = NSUserInterfaceItemIdentifier("editorGroup.header")
         headerRow.orientation = .horizontal
         headerRow.distribution = .fill
         headerRow.spacing = 8
         headerRow.translatesAutoresizingMaskIntoConstraints = false
-        headerRow.wantsLayer = true
         tabBarView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         tabBarView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -313,7 +228,7 @@ final class EditorGroupViewController: NSViewController {
         applyActiveAppearance()
     }
 
-    /// Reflects `isActive` both visually (a faint header-row tint, so
+    /// Reflects `isActive` both visually (a faint tab-rail tint, so
     /// sighted users don't need to guess which group last-clicked
     /// commands like Quick Open/Go to Line/Command Palette will target)
     /// and accessibly (an explicit label/value on the group's root view,
@@ -321,9 +236,7 @@ final class EditorGroupViewController: NSViewController {
     /// comment; SPEC 14 explicitly calls out this state must not rely on
     /// the visual highlight alone).
     private func applyActiveAppearance() {
-        headerRow.layer?.backgroundColor = isActive
-            ? NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
-            : NSColor.clear.cgColor
+        tabBarView.isActive = isActive
         view.setAccessibilityLabel(Localized.string("Editor group", comment: "Accessibility label for an editor group's root view"))
         view.setAccessibilityValue(
             isActive
@@ -335,7 +248,6 @@ final class EditorGroupViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         refreshTabBar()
-        refreshNavigationButtons()
         restoreIfNeeded()
     }
 
@@ -351,7 +263,6 @@ final class EditorGroupViewController: NSViewController {
         showContent(contentController(forTabID: tabID))
         recordCurrentNavigation()
         refreshTabBar()
-        refreshNavigationButtons()
         refreshPreviewToggleButton()
         notifyStateChange()
         onDocumentReady?(relativePath, controller)
@@ -366,7 +277,6 @@ final class EditorGroupViewController: NSViewController {
         diffControllers[tabID] = controller
         showContent(controller)
         refreshTabBar()
-        refreshNavigationButtons()
         refreshPreviewToggleButton()
         notifyStateChange()
     }
@@ -515,7 +425,6 @@ final class EditorGroupViewController: NSViewController {
             showContent(nil)
         }
         refreshTabBar()
-        refreshNavigationButtons()
         refreshPreviewToggleButton()
         notifyStateChange()
     }
@@ -569,7 +478,6 @@ final class EditorGroupViewController: NSViewController {
         }
         applyNavigation(entry)
         refreshTabBar()
-        refreshNavigationButtons()
         notifyStateChange()
     }
 
@@ -582,7 +490,6 @@ final class EditorGroupViewController: NSViewController {
         }
         applyNavigation(entry)
         refreshTabBar()
-        refreshNavigationButtons()
         notifyStateChange()
     }
 
@@ -597,24 +504,6 @@ final class EditorGroupViewController: NSViewController {
         diffControllers.removeValue(forKey: tabID)
         state.current = entry
         loadAndShow(tabID: tabID, restoring: entry)
-    }
-
-    @objc
-    private func handleSplitRight(_ sender: Any?) {
-        onActivate?(groupID)
-        onSplit?(groupID, .horizontal)
-    }
-
-    @objc
-    private func handleSplitDown(_ sender: Any?) {
-        onActivate?(groupID)
-        onSplit?(groupID, .vertical)
-    }
-
-    @objc
-    private func handleCloseGroup(_ sender: Any?) {
-        onActivate?(groupID)
-        onCloseGroup?(groupID)
     }
 
     func processActivationMouseDown(_ event: NSEvent) -> NSEvent {
@@ -1017,7 +906,6 @@ final class EditorGroupViewController: NSViewController {
         showContent(preview)
         recordCurrentNavigation()
         refreshTabBar()
-        refreshNavigationButtons()
         refreshPreviewToggleButton()
         notifyStateChange()
     }
@@ -1052,11 +940,6 @@ final class EditorGroupViewController: NSViewController {
         onActiveDocumentChange?(currentDocumentController)
     }
 
-    private func refreshNavigationButtons() {
-        backButton.isEnabled = state.canGoBack
-        forwardButton.isEnabled = state.canGoForward
-    }
-
     private func notifyStateChange() {
         onStateChange?(groupID, state)
     }
@@ -1084,7 +967,6 @@ final class EditorGroupViewController: NSViewController {
             },
             onMove: { [weak self] tabID, index in
                 guard let self else { return }
-                self.onActivate?(self.groupID)
                 self.moveTab(tabID, toIndex: index)
             }
         )
@@ -1117,16 +999,284 @@ func editorTabAccessibilityValue(tab: EditorTab, isSelected: Bool) -> String {
     return parts.joined(separator: ", ")
 }
 
-/// A horizontally scrolling, fixed-width AppKit collection view gives tabs
-/// stable hit targets and sizing while retaining native selection and
-/// drag-and-drop behavior.
+struct EditorTabDragGeometry {
+    static let activationDistance: CGFloat = 3
+
+    static func hasExceededActivationDistance(from start: NSPoint, to current: NSPoint) -> Bool {
+        let deltaX = current.x - start.x
+        let deltaY = current.y - start.y
+        return deltaX * deltaX + deltaY * deltaY >= activationDistance * activationDistance
+    }
+
+    static func clampedOriginX(
+        _ proposedOriginX: CGFloat,
+        itemWidth: CGFloat,
+        visibleBounds: NSRect,
+        horizontalInset: CGFloat
+    ) -> CGFloat {
+        let minimum = visibleBounds.minX + horizontalInset
+        let maximum = max(minimum, visibleBounds.maxX - horizontalInset - itemWidth)
+        return min(max(proposedOriginX, minimum), maximum)
+    }
+
+    static func updatedTargetIndex(
+        currentTargetIndex: Int,
+        draggedCenterX: CGFloat,
+        slotCenters: [CGFloat]
+    ) -> Int {
+        guard slotCenters.indices.contains(currentTargetIndex) else {
+            return currentTargetIndex
+        }
+
+        var targetIndex = currentTargetIndex
+        while targetIndex < slotCenters.count - 1,
+              draggedCenterX >= slotCenters[targetIndex + 1] - 0.5 {
+            targetIndex += 1
+        }
+        while targetIndex > 0,
+              draggedCenterX <= slotCenters[targetIndex - 1] + 0.5 {
+            targetIndex -= 1
+        }
+        return targetIndex
+    }
+
+    static func visualSlot(
+        forItemAt itemIndex: Int,
+        sourceIndex: Int,
+        targetIndex: Int
+    ) -> Int {
+        if sourceIndex < targetIndex,
+           itemIndex > sourceIndex,
+           itemIndex <= targetIndex {
+            return itemIndex - 1
+        }
+        if targetIndex < sourceIndex,
+           itemIndex >= targetIndex,
+           itemIndex < sourceIndex {
+            return itemIndex + 1
+        }
+        return itemIndex
+    }
+}
+
+struct EditorTabDropAnchors {
+    let sourceTabID: EditorTabID
+    let previousTabID: EditorTabID?
+    let nextTabID: EditorTabID?
+    let fallbackDestination: Int
+
+    init?(
+        tabIDs: [EditorTabID],
+        sourceTabID: EditorTabID,
+        destination: Int
+    ) {
+        guard let sourceIndex = tabIDs.firstIndex(of: sourceTabID) else {
+            return nil
+        }
+        var finalOrder = tabIDs
+        finalOrder.remove(at: sourceIndex)
+        let destination = max(0, min(destination, finalOrder.count))
+        finalOrder.insert(sourceTabID, at: destination)
+
+        self.sourceTabID = sourceTabID
+        previousTabID = destination > 0 ? finalOrder[destination - 1] : nil
+        nextTabID = destination + 1 < finalOrder.count
+            ? finalOrder[destination + 1]
+            : nil
+        fallbackDestination = destination
+    }
+
+    func destination(in currentTabIDs: [EditorTabID]) -> Int? {
+        guard currentTabIDs.contains(sourceTabID) else {
+            return nil
+        }
+        let remainingTabIDs = currentTabIDs.filter { $0 != sourceTabID }
+        if let nextTabID,
+           let nextIndex = remainingTabIDs.firstIndex(of: nextTabID) {
+            return nextIndex
+        }
+        if let previousTabID,
+           let previousIndex = remainingTabIDs.firstIndex(of: previousTabID) {
+            return previousIndex + 1
+        }
+        return max(0, min(fallbackDestination, remainingTabIDs.count))
+    }
+}
+
+@MainActor
+private final class EditorTabReorderLayout: NSCollectionViewLayout {
+    private let itemHeight: CGFloat = 32
+    private var sourceIndex: Int?
+    private var draggedFrame: NSRect?
+
+    var isReordering: Bool {
+        sourceIndex != nil
+    }
+
+    func beginReordering(sourceIndex: Int, frame: NSRect) {
+        self.sourceIndex = sourceIndex
+        draggedFrame = frame
+        invalidateLayout()
+    }
+
+    func update(targetIndex _: Int, draggedFrame: NSRect) {
+        self.draggedFrame = draggedFrame
+        invalidateLayout()
+    }
+
+    func updateDraggedFrame(_ frame: NSRect) {
+        draggedFrame = frame
+    }
+
+    func endReordering() {
+        sourceIndex = nil
+        draggedFrame = nil
+        invalidateLayout()
+    }
+
+    func restingFrame(at index: Int) -> NSRect? {
+        baseFrame(at: index)
+    }
+
+    override var collectionViewContentSize: NSSize {
+        guard let collectionView else {
+            return .zero
+        }
+        return NSSize(width: collectionView.bounds.width, height: itemHeight)
+    }
+
+    override func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
+        guard let collectionView else {
+            return []
+        }
+
+        return (0..<collectionView.numberOfItems(inSection: 0)).compactMap { index in
+            guard let attributes = layoutAttributesForItem(
+                at: IndexPath(item: index, section: 0)
+            ), attributes.frame.intersects(rect) else {
+                return nil
+            }
+            return attributes
+        }
+    }
+
+    override func layoutAttributesForItem(
+        at indexPath: IndexPath
+    ) -> NSCollectionViewLayoutAttributes? {
+        guard let frame = baseFrame(at: indexPath.item) else {
+            return nil
+        }
+        let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
+        attributes.frame = frame
+
+        if indexPath.item == sourceIndex {
+            if let draggedFrame {
+                attributes.frame = draggedFrame
+            }
+            attributes.zIndex = 1_000
+        }
+        return attributes
+    }
+
+    override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
+        guard let collectionView else {
+            return false
+        }
+        return abs(collectionView.bounds.width - newBounds.width) > 0.5
+    }
+
+    private func baseFrame(at index: Int) -> NSRect? {
+        guard let collectionView else {
+            return nil
+        }
+        let count = collectionView.numberOfItems(inSection: 0)
+        guard count > 0, (0..<count).contains(index) else {
+            return nil
+        }
+        let width = max(collectionView.bounds.width / CGFloat(count), 1)
+        return NSRect(
+            x: CGFloat(index) * width,
+            y: 0,
+            width: width,
+            height: itemHeight
+        )
+    }
+}
+
+private final class EditorTabClipView: NSClipView {
+    override func scroll(to newOrigin: NSPoint) {
+        super.scroll(to: .zero)
+    }
+
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var constrained = super.constrainBoundsRect(proposedBounds)
+        constrained.origin = .zero
+        return constrained
+    }
+
+    override func layout() {
+        super.layout()
+        guard let documentView else {
+            return
+        }
+        documentView.frame = bounds
+    }
+}
+
+private final class EditorTabCollectionView: NSCollectionView {
+    override func setFrameSize(_ newSize: NSSize) {
+        guard let clipView = superview as? EditorTabClipView else {
+            super.setFrameSize(newSize)
+            return
+        }
+        super.setFrameSize(clipView.bounds.size)
+    }
+}
+
+/// A fixed-width AppKit collection view keeps every tab inside the rail while
+/// a custom flow layout provides in-rail, interactive reordering.
 @MainActor
 private final class EditorTabBarView: NSView {
     private static let itemIdentifier = NSUserInterfaceItemIdentifier("editorGroup.tabItem")
-    private static let minimumTabWidth: CGFloat = 88
+    private static let horizontalRailInset: CGFloat = 0
+    private static let reorderAnimationDuration: TimeInterval = 0.12
+
+    private final class DragSession {
+        let tabID: EditorTabID
+        let sourceIndex: Int
+        let sourceItemView: EditorTabItemView
+        let pointerDownLocation: NSPoint
+        let sourceFrame: NSRect
+        var targetIndex: Int
+        var draggedFrame: NSRect
+        var latestWindowLocation: NSPoint
+        var isDragging = false
+        var isSettling = false
+        var pendingCommit: EditorTabDropAnchors?
+
+        init(
+            tabID: EditorTabID,
+            sourceIndex: Int,
+            sourceItemView: EditorTabItemView,
+            pointerDownLocation: NSPoint,
+            sourceFrame: NSRect,
+            latestWindowLocation: NSPoint
+        ) {
+            self.tabID = tabID
+            self.sourceIndex = sourceIndex
+            self.sourceItemView = sourceItemView
+            self.pointerDownLocation = pointerDownLocation
+            self.sourceFrame = sourceFrame
+            targetIndex = sourceIndex
+            draggedFrame = sourceFrame
+            self.latestWindowLocation = latestWindowLocation
+        }
+    }
 
     private let railBackgroundView = NSView()
-    private let collectionView = NSCollectionView()
+    private let collectionView = EditorTabCollectionView()
+    private let reorderLayout = EditorTabReorderLayout()
+    private let clipView = EditorTabClipView()
     private var tabs: [EditorTab] = []
     private var selectedTabID: EditorTabID?
     private var onSelect: (EditorTabID) -> Void = { _ in }
@@ -1135,53 +1285,65 @@ private final class EditorTabBarView: NSView {
     private var onMove: (EditorTabID, Int) -> Void = { _, _ in }
     private var isApplyingSelection = false
     private var lastLayoutWidth: CGFloat = 0
+    private var dragSession: DragSession?
+    private var dragCancellationMonitor: LocalEventMonitor?
+    var isActive = true {
+        didSet {
+            guard oldValue != isActive else {
+                return
+            }
+            updateBarAppearance()
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
 
         railBackgroundView.wantsLayer = true
+        railBackgroundView.identifier = NSUserInterfaceItemIdentifier("editorGroup.tabRail")
         railBackgroundView.layer?.cornerRadius = 16
+        railBackgroundView.layer?.cornerCurve = .continuous
         railBackgroundView.layer?.masksToBounds = true
         railBackgroundView.translatesAutoresizingMaskIntoConstraints = false
         updateBarAppearance()
 
-        let layout = NSCollectionViewFlowLayout()
-        layout.scrollDirection = .horizontal
-        layout.itemSize = NSSize(width: 168, height: 32)
-        layout.minimumInteritemSpacing = 0
-        layout.minimumLineSpacing = 0
-        layout.sectionInset = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
-
-        collectionView.collectionViewLayout = layout
+        collectionView.collectionViewLayout = reorderLayout
+        collectionView.identifier = NSUserInterfaceItemIdentifier("editorGroup.tabCollection")
         collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.isSelectable = true
         collectionView.allowsMultipleSelection = false
         collectionView.backgroundColors = [.clear]
+        collectionView.wantsLayer = true
+        collectionView.layer?.cornerRadius = 16
+        collectionView.layer?.cornerCurve = .continuous
+        collectionView.layer?.masksToBounds = true
+        collectionView.autoresizingMask = [.width, .height]
         collectionView.register(
             EditorTabCollectionItem.self,
             forItemWithIdentifier: Self.itemIdentifier
         )
-        collectionView.registerForDraggedTypes([tabPasteboardType])
 
-        let scrollView = NSScrollView()
-        scrollView.documentView = collectionView
-        scrollView.drawsBackground = false
-        scrollView.hasHorizontalScroller = false
-        scrollView.hasVerticalScroller = false
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        clipView.identifier = NSUserInterfaceItemIdentifier("editorGroup.tabClip")
+        clipView.drawsBackground = false
+        clipView.wantsLayer = true
+        clipView.layer?.cornerRadius = 16
+        clipView.layer?.cornerCurve = .continuous
+        clipView.layer?.masksToBounds = true
+        clipView.documentView = collectionView
+        clipView.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(railBackgroundView)
-        addSubview(scrollView)
+        addSubview(clipView)
         NSLayoutConstraint.activate([
             railBackgroundView.topAnchor.constraint(equalTo: topAnchor),
             railBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             railBackgroundView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             railBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            clipView.topAnchor.constraint(equalTo: topAnchor),
+            clipView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            clipView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            clipView.bottomAnchor.constraint(equalTo: bottomAnchor),
             heightAnchor.constraint(equalToConstant: 32),
             widthAnchor.constraint(greaterThanOrEqualToConstant: 80)
         ])
@@ -1194,22 +1356,37 @@ private final class EditorTabBarView: NSView {
 
     override func layout() {
         super.layout()
-        guard abs(bounds.width - lastLayoutWidth) > 0.5 else {
+        let layoutWidth = clipView.bounds.width
+        guard abs(layoutWidth - lastLayoutWidth) > 0.5 else {
             return
         }
-        lastLayoutWidth = bounds.width
-        collectionView.collectionViewLayout?.invalidateLayout()
+        cancelCurrentDrag(animated: false)
+        lastLayoutWidth = layoutWidth
+        updateCollectionLayout()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            cancelCurrentDrag(animated: false)
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        cancelCurrentDrag(animated: false)
         updateBarAppearance()
         collectionView.reloadData()
     }
 
     private func updateBarAppearance() {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let component: CGFloat = isDark ? 0.20 : 237 / 255
+        let component: CGFloat
+        if isDark {
+            component = isActive ? 0.20 : 0.16
+        } else {
+            component = isActive ? 237 / 255 : 244 / 255
+        }
         railBackgroundView.layer?.backgroundColor = NSColor(
             srgbRed: component,
             green: component,
@@ -1226,48 +1403,357 @@ private final class EditorTabBarView: NSView {
         onPin: @escaping (EditorTabID) -> Void,
         onMove: @escaping (EditorTabID, Int) -> Void
     ) {
+        if cancelCurrentDrag(animated: false, resolvingAgainst: tabs) {
+            return
+        }
         self.tabs = tabs
         self.selectedTabID = selectedTabID
         self.onSelect = onSelect
         self.onClose = onClose
         self.onPin = onPin
         self.onMove = onMove
-        collectionView.collectionViewLayout?.invalidateLayout()
         collectionView.reloadData()
+        updateCollectionLayout()
 
         isApplyingSelection = true
         defer { isApplyingSelection = false }
         if let selectedTabID,
            let index = tabs.firstIndex(where: { $0.id == selectedTabID }) {
             collectionView.selectionIndexPaths = [IndexPath(item: index, section: 0)]
-            collectionView.scrollToItems(
-                at: [IndexPath(item: index, section: 0)],
-                scrollPosition: .nearestHorizontalEdge
-            )
         } else {
             collectionView.selectionIndexPaths = []
+        }
+    }
+
+    private func updateCollectionLayout() {
+        reorderLayout.invalidateLayout()
+        collectionView.needsLayout = true
+        collectionView.layoutSubtreeIfNeeded()
+    }
+
+    private func handleMouseDown(on tabID: EditorTabID, event: NSEvent) {
+        cancelCurrentDrag(animated: false)
+
+        if selectedTabID != tabID {
+            onSelect(tabID)
+        }
+        window?.layoutIfNeeded()
+        layoutSubtreeIfNeeded()
+        collectionView.layoutSubtreeIfNeeded()
+
+        guard tabs.count > 1,
+              let sourceIndex = tabs.firstIndex(where: { $0.id == tabID }),
+              let sourceItemView = currentItemView(at: sourceIndex),
+              let sourceFrame = reorderLayout.restingFrame(at: sourceIndex) else {
+            return
+        }
+        let pointerLocation = collectionView.convert(event.locationInWindow, from: nil)
+        dragSession = DragSession(
+            tabID: tabID,
+            sourceIndex: sourceIndex,
+            sourceItemView: sourceItemView,
+            pointerDownLocation: pointerLocation,
+            sourceFrame: sourceFrame,
+            latestWindowLocation: event.locationInWindow
+        )
+    }
+
+    private func handleMouseDragged(on tabID: EditorTabID, event: NSEvent) {
+        guard let session = dragSession,
+              session.tabID == tabID,
+              !session.isSettling else {
+            return
+        }
+
+        session.latestWindowLocation = event.locationInWindow
+        let pointerLocation = collectionView.convert(event.locationInWindow, from: nil)
+        if !session.isDragging {
+            guard EditorTabDragGeometry.hasExceededActivationDistance(
+                from: session.pointerDownLocation,
+                to: pointerLocation
+            ) else {
+                return
+            }
+            beginDrag(session)
+        }
+        updateActiveDrag(session, windowLocation: event.locationInWindow)
+    }
+
+    private func handleMouseUp(on tabID: EditorTabID, event: NSEvent) {
+        guard let session = dragSession,
+              session.tabID == tabID,
+              !session.isSettling else {
+            return
+        }
+        guard session.isDragging else {
+            dragSession = nil
+            return
+        }
+
+        session.latestWindowLocation = event.locationInWindow
+        updateActiveDrag(session, windowLocation: event.locationInWindow)
+        settleDrag(session, at: session.targetIndex, commit: true, animated: true)
+    }
+
+    private func beginDrag(_ session: DragSession) {
+        session.isDragging = true
+        reorderLayout.beginReordering(
+            sourceIndex: session.sourceIndex,
+            frame: session.sourceFrame
+        )
+        setSourceDraggingAppearance(true, for: session)
+
+        dragCancellationMonitor = LocalEventMonitor(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53, self?.dragSession?.isDragging == true else {
+                return event
+            }
+            self?.cancelCurrentDrag(animated: true)
+            return nil
+        }
+    }
+
+    private func updateActiveDrag(_ session: DragSession, windowLocation: NSPoint) {
+        guard dragSession === session, session.isDragging, !session.isSettling else {
+            return
+        }
+
+        let pointerLocation = collectionView.convert(windowLocation, from: nil)
+        let proposedOriginX = session.sourceFrame.minX
+            + pointerLocation.x
+            - session.pointerDownLocation.x
+        let originX = EditorTabDragGeometry.clampedOriginX(
+            proposedOriginX,
+            itemWidth: session.sourceFrame.width,
+            visibleBounds: collectionView.visibleRect,
+            horizontalInset: Self.horizontalRailInset
+        )
+        let draggedFrame = NSRect(
+            x: originX,
+            y: session.sourceFrame.minY,
+            width: session.sourceFrame.width,
+            height: session.sourceFrame.height
+        )
+        session.draggedFrame = draggedFrame
+        reorderLayout.updateDraggedFrame(draggedFrame)
+
+        let slotCenters = tabs.indices.map {
+            session.sourceFrame.midX
+                + CGFloat($0 - session.sourceIndex) * session.sourceFrame.width
+        }
+        var targetIndex = EditorTabDragGeometry.updatedTargetIndex(
+            currentTargetIndex: session.targetIndex,
+            draggedCenterX: draggedFrame.midX,
+            slotCenters: slotCenters
+        )
+        if draggedFrame.minX <= collectionView.visibleRect.minX + Self.horizontalRailInset + 0.5 {
+            targetIndex = 0
+        } else if draggedFrame.maxX >= collectionView.visibleRect.maxX - Self.horizontalRailInset - 0.5 {
+            targetIndex = tabs.count - 1
+        }
+        if targetIndex != session.targetIndex {
+            animateGapTransition(session, to: targetIndex)
+        }
+
+        setSourceFrame(draggedFrame, for: session)
+    }
+
+    private func animateGapTransition(_ session: DragSession, to targetIndex: Int) {
+        session.targetIndex = targetIndex
+        reorderLayout.update(targetIndex: targetIndex, draggedFrame: session.draggedFrame)
+        for itemIndex in tabs.indices where itemIndex != session.sourceIndex {
+            let visualSlot = EditorTabDragGeometry.visualSlot(
+                forItemAt: itemIndex,
+                sourceIndex: session.sourceIndex,
+                targetIndex: targetIndex
+            )
+            guard let item = currentItemView(at: itemIndex) else {
+                continue
+            }
+            item.setDisplacement(
+                x: CGFloat(visualSlot - itemIndex) * session.sourceFrame.width,
+                duration: Self.reorderAnimationDuration
+            )
+        }
+        setSourceFrame(session.draggedFrame, for: session)
+    }
+
+    private func settleDrag(
+        _ session: DragSession,
+        at destinationIndex: Int,
+        commit: Bool,
+        animated: Bool
+    ) {
+        guard dragSession === session, !session.isSettling else {
+            return
+        }
+        session.isSettling = true
+        session.pendingCommit = commit && destinationIndex != session.sourceIndex
+            ? EditorTabDropAnchors(
+                tabIDs: tabs.map(\.id),
+                sourceTabID: session.tabID,
+                destination: destinationIndex
+            )
+            : nil
+        stopDragInfrastructure()
+
+        let destinationFrame = session.sourceFrame.offsetBy(
+            dx: CGFloat(destinationIndex - session.sourceIndex) * session.sourceFrame.width,
+            dy: 0
+        )
+        reorderLayout.update(
+            targetIndex: destinationIndex,
+            draggedFrame: destinationFrame
+        )
+        for itemIndex in tabs.indices where itemIndex != session.sourceIndex {
+            let visualSlot = EditorTabDragGeometry.visualSlot(
+                forItemAt: itemIndex,
+                sourceIndex: session.sourceIndex,
+                targetIndex: destinationIndex
+            )
+            guard let item = currentItemView(at: itemIndex) else {
+                continue
+            }
+            item.setDisplacement(
+                x: CGFloat(visualSlot - itemIndex) * session.sourceFrame.width,
+                duration: Self.reorderAnimationDuration
+            )
+        }
+
+        let completion: @MainActor @Sendable () -> Void = { [weak self, weak session] in
+            if let self, let session {
+                self.finishDrag(session)
+            }
+        }
+
+        guard animated else {
+            setSourceFrame(destinationFrame, for: session)
+            completion()
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.reorderAnimationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            let sourceItem = displayedSourceItemView(for: session)
+            sourceItem.frame = session.draggedFrame
+            sourceItem.animator().frame = destinationFrame
+        } completionHandler: {
+            MainActor.assumeIsolated {
+                completion()
+            }
+        }
+    }
+
+    @discardableResult
+    private func cancelCurrentDrag(
+        animated: Bool,
+        resolvingAgainst latestTabs: [EditorTab]? = nil
+    ) -> Bool {
+        guard let session = dragSession else {
+            return false
+        }
+        if session.isSettling {
+            return finishDrag(session, resolvingAgainst: latestTabs)
+        }
+        guard session.isDragging, animated else {
+            return finishDrag(session, resolvingAgainst: latestTabs)
+        }
+        settleDrag(session, at: session.sourceIndex, commit: false, animated: true)
+        return false
+    }
+
+    @discardableResult
+    private func finishDrag(
+        _ session: DragSession,
+        resolvingAgainst latestTabs: [EditorTab]? = nil
+    ) -> Bool {
+        guard dragSession === session else {
+            return false
+        }
+        let currentTabs = latestTabs ?? tabs
+        let destinationIndex = session.pendingCommit?.destination(
+            in: currentTabs.map(\.id)
+        )
+        stopDragInfrastructure()
+        session.sourceItemView.layer?.removeAllAnimations()
+        displayedSourceItemView(for: session).layer?.removeAllAnimations()
+        setSourceDraggingAppearance(false, for: session)
+        resetVisibleItemTranslations()
+        reorderLayout.endReordering()
+        dragSession = nil
+
+        if let destinationIndex {
+            onMove(session.tabID, destinationIndex)
+            return true
+        }
+        collectionView.layoutSubtreeIfNeeded()
+        return false
+    }
+
+    private func stopDragInfrastructure() {
+        dragCancellationMonitor = nil
+    }
+
+    private func currentItemView(at index: Int) -> EditorTabItemView? {
+        guard tabs.indices.contains(index) else {
+            return nil
+        }
+        return findItemView(for: tabs[index].id, in: collectionView)
+    }
+
+    private func displayedSourceItemView(for session: DragSession) -> EditorTabItemView {
+        currentItemView(at: session.sourceIndex) ?? session.sourceItemView
+    }
+
+    private func setSourceFrame(_ frame: NSRect, for session: DragSession) {
+        session.sourceItemView.frame = frame
+        let displayedItemView = displayedSourceItemView(for: session)
+        if displayedItemView !== session.sourceItemView {
+            displayedItemView.frame = frame
+        }
+    }
+
+    private func setSourceDraggingAppearance(
+        _ isDragging: Bool,
+        for session: DragSession
+    ) {
+        session.sourceItemView.setDraggingAppearance(isDragging)
+        let displayedItemView = displayedSourceItemView(for: session)
+        if displayedItemView !== session.sourceItemView {
+            displayedItemView.setDraggingAppearance(isDragging)
+        }
+    }
+
+    private func findItemView(
+        for tabID: EditorTabID,
+        in view: NSView
+    ) -> EditorTabItemView? {
+        if let itemView = view as? EditorTabItemView,
+           itemView.tabID == tabID {
+            return itemView
+        }
+        for subview in view.subviews {
+            if let match = findItemView(for: tabID, in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func resetVisibleItemTranslations() {
+        for itemIndex in tabs.indices {
+            guard let item = currentItemView(at: itemIndex) else {
+                continue
+            }
+            item.resetDisplacement()
         }
     }
 }
 
 @MainActor
-extension EditorTabBarView: NSCollectionViewDataSource, @preconcurrency NSCollectionViewDelegateFlowLayout {
+extension EditorTabBarView: NSCollectionViewDataSource, NSCollectionViewDelegate {
     func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
         tabs.count
-    }
-
-    func collectionView(
-        _ collectionView: NSCollectionView,
-        layout collectionViewLayout: NSCollectionViewLayout,
-        sizeForItemAt indexPath: IndexPath
-    ) -> NSSize {
-        guard !tabs.isEmpty,
-              let scrollView = collectionView.enclosingScrollView else {
-            return NSSize(width: 168, height: 32)
-        }
-        let availableWidth = max(0, scrollView.contentSize.width - 16)
-        let tabWidth = max(Self.minimumTabWidth, availableWidth / CGFloat(tabs.count))
-        return NSSize(width: tabWidth, height: 32)
     }
 
     func collectionView(
@@ -1292,8 +1778,32 @@ extension EditorTabBarView: NSCollectionViewDataSource, @preconcurrency NSCollec
                 && !nextTabIsSelected,
             onSelect: { [weak self] in self?.onSelect(tab.id) },
             onClose: { [weak self] in self?.onClose(tab.id) },
-            onPin: { [weak self] in self?.onPin(tab.id) }
+            onPin: { [weak self] in self?.onPin(tab.id) },
+            onMouseDown: { [weak self] event in
+                self?.handleMouseDown(on: tab.id, event: event)
+            },
+            onMouseDragged: { [weak self] event in
+                self?.handleMouseDragged(on: tab.id, event: event)
+            },
+            onMouseUp: { [weak self] event in
+                self?.handleMouseUp(on: tab.id, event: event)
+            }
         )
+        if let session = dragSession, session.isDragging {
+            if indexPath.item == session.sourceIndex {
+                item.setDraggingAppearance(true)
+            } else {
+                let visualSlot = EditorTabDragGeometry.visualSlot(
+                    forItemAt: indexPath.item,
+                    sourceIndex: session.sourceIndex,
+                    targetIndex: session.targetIndex
+                )
+                item.setDisplacement(
+                    x: CGFloat(visualSlot - indexPath.item) * session.sourceFrame.width,
+                    duration: 0
+                )
+            }
+        }
         return item
     }
 
@@ -1310,55 +1820,60 @@ extension EditorTabBarView: NSCollectionViewDataSource, @preconcurrency NSCollec
         onSelect(tabs[index].id)
     }
 
-    func collectionView(
-        _ collectionView: NSCollectionView,
-        canDragItemsAt indexPaths: Set<IndexPath>,
-        with event: NSEvent
-    ) -> Bool {
-        indexPaths.count == 1
+}
+
+@MainActor
+private final class EditorTabItemView: NSView {
+    var tabID: EditorTabID?
+    var onMouseDown: ((NSEvent) -> Void)?
+    var onMouseDragged: ((NSEvent) -> Void)?
+    var onMouseUp: ((NSEvent) -> Void)?
+    var onSetDraggingAppearance: ((Bool) -> Void)?
+    var onSetDisplacement: ((CGFloat, TimeInterval) -> Void)?
+    var onResetDisplacement: (() -> Void)?
+    private var trackedMouseDragged: ((NSEvent) -> Void)?
+    private var trackedMouseUp: ((NSEvent) -> Void)?
+
+    func setDraggingAppearance(_ isDragging: Bool) {
+        onSetDraggingAppearance?(isDragging)
     }
 
-    func collectionView(
-        _ collectionView: NSCollectionView,
-        writeItemsAt indexPaths: Set<IndexPath>,
-        to pasteboard: NSPasteboard
-    ) -> Bool {
-        guard let index = indexPaths.first?.item, tabs.indices.contains(index) else {
-            return false
-        }
-        pasteboard.clearContents()
-        return pasteboard.setString(tabs[index].id.rawValue, forType: tabPasteboardType)
+    func setDisplacement(x: CGFloat, duration: TimeInterval) {
+        onSetDisplacement?(x, duration)
     }
 
-    func collectionView(
-        _ collectionView: NSCollectionView,
-        validateDrop draggingInfo: NSDraggingInfo,
-        proposedIndexPath proposedDropIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
-        dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>
-    ) -> NSDragOperation {
-        guard draggingInfo.draggingPasteboard.string(forType: tabPasteboardType) != nil else {
-            return []
-        }
-        proposedDropOperation.pointee = .before
-        return .move
+    func resetDisplacement() {
+        onResetDisplacement?()
     }
 
-    func collectionView(
-        _ collectionView: NSCollectionView,
-        acceptDrop draggingInfo: NSDraggingInfo,
-        indexPath: IndexPath,
-        dropOperation: NSCollectionView.DropOperation
-    ) -> Bool {
-        guard let rawValue = draggingInfo.draggingPasteboard.string(forType: tabPasteboardType),
-              let sourceIndex = tabs.firstIndex(where: { $0.id.rawValue == rawValue }) else {
-            return false
+    override func mouseDown(with event: NSEvent) {
+        guard let onMouseDown else {
+            trackedMouseDragged = nil
+            trackedMouseUp = nil
+            super.mouseDown(with: event)
+            return
         }
-        var destination = min(indexPath.item, tabs.count)
-        if sourceIndex < destination {
-            destination -= 1
+        trackedMouseDragged = onMouseDragged
+        trackedMouseUp = onMouseUp
+        onMouseDown(event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let handler = trackedMouseDragged ?? onMouseDragged else {
+            super.mouseDragged(with: event)
+            return
         }
-        onMove(tabs[sourceIndex].id, max(0, destination))
-        return true
+        handler(event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let handler = trackedMouseUp ?? onMouseUp else {
+            super.mouseUp(with: event)
+            return
+        }
+        trackedMouseDragged = nil
+        trackedMouseUp = nil
+        handler(event)
     }
 }
 
@@ -1394,9 +1909,19 @@ private final class EditorTabBackgroundView: NSView {
 }
 
 @MainActor
+private final class EditorTabVisualView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hitView = super.hitTest(point)
+        return hitView is NSButton ? hitView : nil
+    }
+}
+
+@MainActor
 private final class EditorTabCollectionItem: NSCollectionViewItem {
     private static var fileIcons: [String: NSImage] = [:]
 
+    private let itemView = EditorTabItemView()
+    private let visualView = EditorTabVisualView()
     private let titleButton = EditorTabTitleButton(title: "", target: nil, action: nil)
     private let fileIconView = EditorTabIconView()
     private let contentView = EditorTabContentView()
@@ -1428,14 +1953,27 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
     private var configuredSelection = false
     private var showsTrailingSeparator = false
     private var isHovered = false
+    private var isBeingDragged = false
     private var hoverTrackingArea: NSTrackingArea?
     private var onSelect: () -> Void = {}
     private var onClose: () -> Void = {}
     private var onPin: () -> Void = {}
 
     override func loadView() {
-        let container = NSView()
+        let container = itemView
         container.wantsLayer = true
+        container.onSetDraggingAppearance = { [weak self] in
+            self?.setDraggingAppearance($0)
+        }
+        container.onSetDisplacement = { [weak self] x, duration in
+            self?.setDisplacement(x: x, duration: duration)
+        }
+        container.onResetDisplacement = { [weak self] in
+            self?.resetDisplacement()
+        }
+        visualView.wantsLayer = true
+        visualView.frame = container.bounds
+        visualView.autoresizingMask = [.width, .height]
 
         selectionBackgroundView.wantsLayer = true
         selectionBackgroundView.layer?.cornerRadius = 13
@@ -1484,11 +2022,12 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
         trailingSeparator.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.122).cgColor
         trailingSeparator.translatesAutoresizingMaskIntoConstraints = false
 
-        container.addSubview(selectionBackgroundView)
-        container.addSubview(contentView)
-        container.addSubview(closeButton)
-        container.addSubview(pinButton)
-        container.addSubview(trailingSeparator)
+        container.addSubview(visualView)
+        visualView.addSubview(selectionBackgroundView)
+        visualView.addSubview(contentView)
+        visualView.addSubview(closeButton)
+        visualView.addSubview(pinButton)
+        visualView.addSubview(trailingSeparator)
         let trackingArea = NSTrackingArea(
             rect: .zero,
             options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
@@ -1497,28 +2036,28 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
         container.addTrackingArea(trackingArea)
         hoverTrackingArea = trackingArea
         NSLayoutConstraint.activate([
-            selectionBackgroundView.topAnchor.constraint(equalTo: container.topAnchor, constant: 3),
-            selectionBackgroundView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 3),
-            selectionBackgroundView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -3),
-            selectionBackgroundView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -3),
+            selectionBackgroundView.topAnchor.constraint(equalTo: visualView.topAnchor, constant: 3),
+            selectionBackgroundView.leadingAnchor.constraint(equalTo: visualView.leadingAnchor, constant: 3),
+            selectionBackgroundView.trailingAnchor.constraint(equalTo: visualView.trailingAnchor, constant: -3),
+            selectionBackgroundView.bottomAnchor.constraint(equalTo: visualView.bottomAnchor, constant: -3),
             closeButton.widthAnchor.constraint(equalToConstant: 18),
             closeButton.heightAnchor.constraint(equalToConstant: 18),
-            closeButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 7),
-            closeButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            closeButton.leadingAnchor.constraint(equalTo: visualView.leadingAnchor, constant: 7),
+            closeButton.centerYAnchor.constraint(equalTo: visualView.centerYAnchor),
             fileIconView.widthAnchor.constraint(equalToConstant: 18),
             fileIconView.heightAnchor.constraint(equalToConstant: 18),
-            contentView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            contentView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            contentView.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 28),
-            contentView.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -28),
+            contentView.centerXAnchor.constraint(equalTo: visualView.centerXAnchor),
+            contentView.centerYAnchor.constraint(equalTo: visualView.centerYAnchor),
+            contentView.leadingAnchor.constraint(greaterThanOrEqualTo: visualView.leadingAnchor, constant: 28),
+            contentView.trailingAnchor.constraint(lessThanOrEqualTo: visualView.trailingAnchor, constant: -28),
             pinButton.widthAnchor.constraint(equalToConstant: 18),
             pinButton.heightAnchor.constraint(equalToConstant: 18),
-            pinButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -7),
-            pinButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            pinButton.trailingAnchor.constraint(equalTo: visualView.trailingAnchor, constant: -7),
+            pinButton.centerYAnchor.constraint(equalTo: visualView.centerYAnchor),
             trailingSeparator.widthAnchor.constraint(equalToConstant: 1),
-            trailingSeparator.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
-            trailingSeparator.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            trailingSeparator.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8)
+            trailingSeparator.topAnchor.constraint(equalTo: visualView.topAnchor, constant: 8),
+            trailingSeparator.trailingAnchor.constraint(equalTo: visualView.trailingAnchor),
+            trailingSeparator.bottomAnchor.constraint(equalTo: visualView.bottomAnchor, constant: -8)
         ])
         view = container
     }
@@ -1545,15 +2084,26 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
         showsTrailingSeparator: Bool,
         onSelect: @escaping () -> Void,
         onClose: @escaping () -> Void,
-        onPin: @escaping () -> Void
+        onPin: @escaping () -> Void,
+        onMouseDown: @escaping (NSEvent) -> Void,
+        onMouseDragged: @escaping (NSEvent) -> Void,
+        onMouseUp: @escaping (NSEvent) -> Void
     ) {
         _ = view
         self.tab = tab
         self.configuredSelection = isSelected
         self.showsTrailingSeparator = showsTrailingSeparator
+        isBeingDragged = false
+        itemView.layer?.removeAllAnimations()
+        itemView.layer?.zPosition = 0
+        resetDisplacement()
         self.onSelect = onSelect
         self.onClose = onClose
         self.onPin = onPin
+        itemView.tabID = tab.id
+        itemView.onMouseDown = onMouseDown
+        itemView.onMouseDragged = onMouseDragged
+        itemView.onMouseUp = onMouseUp
 
         let displayName = (tab.relativePath as NSString).lastPathComponent
         let titleFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize + 2)
@@ -1571,6 +2121,7 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
         fileIconView.image = Self.fileIcon(for: tab.relativePath)
         fileIconView.identifier = NSUserInterfaceItemIdentifier("tab.icon.\(tab.relativePath)")
         contentView.identifier = NSUserInterfaceItemIdentifier("tab.content.\(tab.relativePath)")
+        visualView.identifier = NSUserInterfaceItemIdentifier("tab.visual.\(tab.relativePath)")
         pinButton.isHidden = tab.isPinned || !isHovered
         pinButton.identifier = NSUserInterfaceItemIdentifier("tab.pin.\(tab.relativePath)")
         pinButton.setAccessibilityLabel(
@@ -1590,6 +2141,38 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
         closeButton.toolTip = closeButton.accessibilityLabel()
         view.identifier = NSUserInterfaceItemIdentifier("tab.\(tab.relativePath)")
         applySelectionAppearance()
+    }
+
+    func setDraggingAppearance(_ isDragging: Bool) {
+        isBeingDragged = isDragging
+        view.layer?.zPosition = isDragging ? 1_000 : 0
+        applySelectionAppearance()
+    }
+
+    func setDisplacement(x: CGFloat, duration: TimeInterval) {
+        let targetFrame = NSRect(
+            x: x,
+            y: 0,
+            width: itemView.bounds.width,
+            height: itemView.bounds.height
+        )
+        guard visualView.frame != targetFrame else {
+            return
+        }
+        guard duration > 0 else {
+            visualView.frame = targetFrame
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            visualView.animator().frame = targetFrame
+        }
+    }
+
+    func resetDisplacement() {
+        visualView.layer?.removeAllAnimations()
+        visualView.frame = itemView.bounds
     }
 
     private static func fileIcon(for relativePath: String) -> NSImage {
@@ -1646,9 +2229,12 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
                 alpha: 1
             ).cgColor
             selectionBackgroundView.layer?.shadowColor = NSColor.shadowColor.cgColor
-            selectionBackgroundView.layer?.shadowOpacity = 0.12
-            selectionBackgroundView.layer?.shadowRadius = 1
-            selectionBackgroundView.layer?.shadowOffset = NSSize(width: 0, height: -0.5)
+            selectionBackgroundView.layer?.shadowOpacity = isBeingDragged ? 0.24 : 0.12
+            selectionBackgroundView.layer?.shadowRadius = isBeingDragged ? 4 : 1
+            selectionBackgroundView.layer?.shadowOffset = NSSize(
+                width: 0,
+                height: isBeingDragged ? -1 : -0.5
+            )
         } else {
             selectionBackgroundView.layer?.backgroundColor = isHovered
                 ? NSColor.labelColor.withAlphaComponent(0.06).cgColor

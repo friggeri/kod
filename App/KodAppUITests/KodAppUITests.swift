@@ -119,6 +119,9 @@ final class KodAppUITests: XCTestCase {
         XCTAssertTrue(app.outlines["workspace.explorer"].waitForExistence(timeout: 5))
         let firstFile = app.staticTexts["First.swift"]
         firstFile.click()
+        let firstTabTitle = app.buttons["tab.title.First.swift"]
+        XCTAssertTrue(firstTabTitle.waitForExistence(timeout: 5))
+        firstTabTitle.hover()
         let firstCloseButton = app.buttons["tab.close.First.swift"]
         XCTAssertTrue(firstCloseButton.waitForExistence(timeout: 5))
 
@@ -136,11 +139,14 @@ final class KodAppUITests: XCTestCase {
             .completed
         )
         firstFile.click()
-        XCTAssertTrue(firstCloseButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(firstTabTitle.waitForExistence(timeout: 5))
 
         app.staticTexts["Second.swift"].click()
+        let secondTabTitle = app.buttons["tab.title.Second.swift"]
+        XCTAssertTrue(secondTabTitle.waitForExistence(timeout: 5))
+        XCTAssertTrue(firstTabTitle.exists)
+        secondTabTitle.hover()
         XCTAssertTrue(app.buttons["tab.close.Second.swift"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["tab.close.First.swift"].exists)
         XCTAssertFalse(app.buttons["tab.pin.First.swift"].exists)
         XCTAssertFalse(app.buttons["tab.pin.Second.swift"].exists)
 
@@ -167,7 +173,7 @@ final class KodAppUITests: XCTestCase {
 
         func waitForGroupCount(_ expectedCount: Int) {
             let predicate = NSPredicate { _, _ in
-                app.buttons.matching(identifier: "editorGroup.back").count == expectedCount
+                app.groups.matching(identifier: "editorGroup.container").count == expectedCount
             }
             XCTAssertEqual(
                 XCTWaiter().wait(
@@ -185,12 +191,17 @@ final class KodAppUITests: XCTestCase {
         search.typeText("Pane")
         search.typeKey(.return, modifierFlags: [])
 
+        let tabTitle = app.buttons["tab.title.Sources/Pane.swift"]
+        XCTAssertTrue(tabTitle.waitForExistence(timeout: 5))
+        tabTitle.hover()
         let tabCloseButton = app.buttons["tab.close.Sources/Pane.swift"]
         XCTAssertTrue(tabCloseButton.waitForExistence(timeout: 5))
 
-        app.buttons["editorGroup.splitRight"].firstMatch.click()
+        app.buttons["Split Right"].click()
         waitForGroupCount(2)
 
+        tabTitle.hover()
+        XCTAssertTrue(tabCloseButton.waitForExistence(timeout: 5))
         tabCloseButton.click()
         XCTAssertEqual(
             XCTWaiter().wait(
@@ -205,19 +216,121 @@ final class KodAppUITests: XCTestCase {
             .completed
         )
 
-        let splitDownButtons = app.buttons.matching(identifier: "editorGroup.splitDown")
-        splitDownButtons.element(boundBy: splitDownButtons.count - 1).click()
+        app.buttons["Split Down"].click()
         waitForGroupCount(3)
 
-        let closeGroupButtons = app.buttons.matching(identifier: "editorGroup.closeGroup")
-        closeGroupButtons.element(boundBy: closeGroupButtons.count - 1).click()
+        app.menuItems["Close Editor Group"].click()
         waitForGroupCount(2)
 
-        closeGroupButtons.element(boundBy: closeGroupButtons.count - 1).click()
+        app.menuItems["Close Editor Group"].click()
         waitForGroupCount(1)
 
         app.terminate()
         XCTAssertEqual(try Data(contentsOf: sourceURL), originalData)
+    }
+
+    func testTabDragReordersFromTheTitleAcrossTheRail() throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        for name in ["First.swift", "Second.swift", "Third.swift"] {
+            try Data("struct \(name.dropLast(6)) {}\n".utf8).write(
+                to: workspace.appendingPathComponent(name)
+            )
+        }
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: workspace)
+        }
+
+        let app = XCUIApplication()
+        app.launchArguments = ["--open-folder", workspace.path]
+        app.launch()
+        XCTAssertTrue(app.outlines["workspace.explorer"].waitForExistence(timeout: 5))
+
+        for name in ["First", "Second", "Third"] {
+            app.typeKey("p", modifierFlags: .command)
+            let search = app.searchFields["quickOpen.search"]
+            XCTAssertTrue(search.waitForExistence(timeout: 5))
+            search.typeText(name)
+            search.typeKey(.return, modifierFlags: [])
+        }
+
+        let first = app.buttons["tab.title.First.swift"]
+        let second = app.buttons["tab.title.Second.swift"]
+        let third = app.buttons["tab.title.Third.swift"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        XCTAssertTrue(second.exists)
+        XCTAssertTrue(third.exists)
+        XCTAssertLessThan(first.frame.minX, second.frame.minX)
+        XCTAssertLessThan(second.frame.minX, third.frame.minX)
+
+        first.click(forDuration: 0.1, thenDragTo: third)
+        let reordered = NSPredicate { _, _ in
+            second.frame.minX < third.frame.minX && third.frame.minX < first.frame.minX
+        }
+        XCTAssertEqual(
+            XCTWaiter().wait(
+                for: [XCTNSPredicateExpectation(predicate: reordered, object: nil)],
+                timeout: 5
+            ),
+            .completed
+        )
+        XCTAssertEqual(first.frame.midY, second.frame.midY, accuracy: 1)
+        XCTAssertEqual(second.frame.midY, third.frame.midY, accuracy: 1)
+
+        app.terminate()
+    }
+
+    func testWorkspaceWindowChromeAndSidebarToggle() throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Chrome-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try Data("struct Chrome {}\n".utf8).write(
+            to: workspace.appendingPathComponent("Chrome.swift")
+        )
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: workspace)
+        }
+
+        let app = XCUIApplication()
+        app.launchArguments = ["--open-folder", workspace.path]
+        app.launch()
+
+        let outline = app.outlines["workspace.explorer"]
+        let directoryName = app.staticTexts["workspace.directoryName"]
+        let sidebarToggle = app.buttons["Toggle Sidebar"]
+        let splitRightButton = app.buttons["Split Right"]
+        let splitDownButton = app.buttons["Split Down"]
+        let window = app.windows.firstMatch
+        XCTAssertTrue(outline.waitForExistence(timeout: 5))
+        XCTAssertTrue(directoryName.waitForExistence(timeout: 5))
+        XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 5))
+        XCTAssertTrue(splitRightButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(splitDownButton.waitForExistence(timeout: 5))
+        XCTAssertEqual(directoryName.label, workspace.lastPathComponent)
+        XCTAssertEqual(directoryName.frame.midX, window.frame.midX, accuracy: 3)
+        XCTAssertGreaterThan(splitRightButton.frame.minX, directoryName.frame.maxX)
+        XCTAssertEqual(splitRightButton.frame.midY, splitDownButton.frame.midY, accuracy: 1)
+
+        sidebarToggle.click()
+        XCTAssertEqual(
+            XCTWaiter().wait(
+                for: [
+                    XCTNSPredicateExpectation(
+                        predicate: NSPredicate(format: "exists == false"),
+                        object: outline
+                    )
+                ],
+                timeout: 5
+            ),
+            .completed
+        )
+        XCTAssertTrue(directoryName.exists)
+        XCTAssertEqual(directoryName.frame.midX, window.frame.midX, accuracy: 3)
+
+        sidebarToggle.click()
+        XCTAssertTrue(outline.waitForExistence(timeout: 5))
+        app.terminate()
     }
 
     /// End-to-end Phase 3 vertical slice: opening two files as tabs, Back/
@@ -313,16 +426,12 @@ final class KodAppUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Beta.swift"].waitForExistence(timeout: 5))
         waitForDocumentPath(containing: "Beta.swift")
 
-        // Back should return to Alpha, Forward should return to Beta.
-        let backButton = app.buttons["editorGroup.back"].firstMatch
-        XCTAssertTrue(backButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(backButton.isEnabled)
-        backButton.click()
+        // Navigation remains available from its standard keyboard commands
+        // even though the redundant header buttons are intentionally absent.
+        app.typeKey(.leftArrow, modifierFlags: [.command, .option])
         waitForDocumentPath(containing: "Alpha.swift")
 
-        let forwardButton = app.buttons["editorGroup.forward"].firstMatch
-        XCTAssertTrue(forwardButton.isEnabled)
-        forwardButton.click()
+        app.typeKey(.rightArrow, modifierFlags: [.command, .option])
         waitForDocumentPath(containing: "Beta.swift")
 
         // Find in File on Beta.swift: default (case-insensitive) plain-text
@@ -355,10 +464,10 @@ final class KodAppUITests: XCTestCase {
         XCTAssertFalse(app.textFields["goToLine.field"].exists)
 
         // Split Right: a second, independently navigable editor group appears.
-        let splitRightButton = app.buttons["editorGroup.splitRight"].firstMatch
+        let splitRightButton = app.buttons["Split Right"]
         XCTAssertTrue(splitRightButton.waitForExistence(timeout: 5))
         splitRightButton.click()
-        XCTAssertEqual(app.buttons.matching(identifier: "editorGroup.back").count, 2)
+        XCTAssertEqual(app.groups.matching(identifier: "editorGroup.container").count, 2)
 
         // The new group starts empty; open Alpha into it too, so both groups
         // have live tabs to restore across relaunch.
@@ -379,7 +488,7 @@ final class KodAppUITests: XCTestCase {
         relaunched.launch()
 
         XCTAssertTrue(relaunched.outlines["workspace.explorer"].waitForExistence(timeout: 5))
-        XCTAssertEqual(relaunched.buttons.matching(identifier: "editorGroup.back").count, 2)
+        XCTAssertEqual(relaunched.groups.matching(identifier: "editorGroup.container").count, 2)
         XCTAssertTrue(
             relaunched.buttons["Beta.swift"].waitForExistence(timeout: 5)
         )

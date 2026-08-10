@@ -101,11 +101,13 @@ final class SourceControlSidebarViewController: NSViewController {
         outlineView.target = self
         outlineView.action = #selector(handleSelection)
         outlineView.rowSizeStyle = .default
+        outlineView.backgroundColor = .clear
 
         let scrollView = NSScrollView()
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         container.addSubview(statusLabel)
