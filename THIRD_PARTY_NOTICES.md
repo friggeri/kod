@@ -66,6 +66,19 @@ their grammar.
   VS Code; it is original Kod code implementing an open, documented file
   format.
 
+## Material Icon Theme
+
+- **Project:** [material-extensions/vscode-material-icon-theme](https://github.com/material-extensions/vscode-material-icon-theme)
+- **Pinned version:** `5.37.0` (commit
+  `957d82b494e5737ef7b3c63e4d01f756d73a9936`)
+- **License:** MIT (Copyright 2025 Material Extensions) — full text at
+  `Vendor/Licenses/material-icon-theme-LICENSE.txt`.
+- **Vendored at:** `App/KodApp/MaterialIcons/`. Kod ships the upstream SVGs
+  referenced by its file-name, compound-extension, and light-appearance
+  mappings. Folder mappings and unused SVGs are omitted.
+- **Source integrity:** npm tarball SHA-512
+  `/F5llOVU0DZ88V+wmPlEbBqi8FochPg5XaJ7zqVzGCTTygeFnpIpdVQQTRElEnHyxSWRMfF0wBbOqwFKnujFLA==`.
+
 ## ripgrep search engine
 
 - **Project:** [BurntSushi/ripgrep](https://github.com/BurntSushi/ripgrep)

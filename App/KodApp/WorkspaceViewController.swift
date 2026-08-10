@@ -2131,7 +2131,9 @@ extension WorkspaceViewController: NSOutlineViewDataSource, NSOutlineViewDelegat
             cell = NSTableCellView()
             cell.identifier = identifier
 
-            let imageView = NSImageView()
+            let imageView = MaterialFileIconView()
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.setAccessibilityElement(false)
             imageView.translatesAutoresizingMaskIntoConstraints = false
             cell.imageView = imageView
             cell.addSubview(imageView)
@@ -2162,30 +2164,43 @@ extension WorkspaceViewController: NSOutlineViewDataSource, NSOutlineViewDelegat
             cell.textField?.textColor = badgeColor(for: badge)
             badgeDescription = badge.accessibilityDescription
         }
-        let symbolName: String
+        let displayName = node.entry.url.lastPathComponent
+        let materialIconView = cell.imageView as? MaterialFileIconView
+        var symbolName: String?
         let kindDescription: String
         switch node.entry.kind {
         case .directory:
+            materialIconView?.fileName = nil
             symbolName = "folder"
             kindDescription = Localized.string("folder", comment: "Accessibility kind description for a directory row in the workspace Explorer")
         case .file:
-            symbolName = "doc.text"
+            materialIconView?.fileName = node.entry.relativePath
+            if materialIconView == nil {
+                cell.imageView?.image = MaterialFileIconProvider.shared.image(
+                    forFileName: node.entry.relativePath,
+                    appearance: outlineView.effectiveAppearance
+                )
+            }
+            symbolName = nil
             kindDescription = Localized.string("file", comment: "Accessibility kind description for a file row in the workspace Explorer")
         case .symbolicLink:
+            materialIconView?.fileName = nil
             symbolName = "link"
             kindDescription = Localized.string("symbolic link", comment: "Accessibility kind description for a symbolic-link row in the workspace Explorer")
         }
-        cell.imageView?.image = NSImage(
-            systemSymbolName: symbolName,
-            accessibilityDescription: nil
-        )
+        if let symbolName {
+            cell.imageView?.image = NSImage(
+                systemSymbolName: symbolName,
+                accessibilityDescription: nil
+            )
+        }
         // A dedicated accessibility label — distinct from the visually
         // displayed `stringValue`, which appends a terse single-letter
         // badge — so VoiceOver reads the file/folder's name, its kind,
         // and (when present) its full-word Git status rather than a
         // color-only or letter-only cue (SPEC 14).
         cell.textField?.setAccessibilityLabel(
-            [node.entry.url.lastPathComponent, kindDescription, badgeDescription]
+            [displayName, kindDescription, badgeDescription]
                 .compactMap { $0 }
                 .joined(separator: ", ")
         )

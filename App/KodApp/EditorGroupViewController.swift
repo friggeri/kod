@@ -1887,7 +1887,7 @@ private final class EditorTabTitleButton: NSButton {
 }
 
 @MainActor
-private final class EditorTabIconView: NSImageView {
+private final class EditorTabIconView: MaterialFileIconView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
@@ -1918,8 +1918,6 @@ private final class EditorTabVisualView: NSView {
 
 @MainActor
 private final class EditorTabCollectionItem: NSCollectionViewItem {
-    private static var fileIcons: [String: NSImage] = [:]
-
     private let itemView = EditorTabItemView()
     private let visualView = EditorTabVisualView()
     private let titleButton = EditorTabTitleButton(title: "", target: nil, action: nil)
@@ -2118,7 +2116,7 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
         titleButton.setAccessibilityValue(
             editorTabAccessibilityValue(tab: tab, isSelected: isSelected)
         )
-        fileIconView.image = Self.fileIcon(for: tab.relativePath)
+        fileIconView.fileName = tab.relativePath
         fileIconView.identifier = NSUserInterfaceItemIdentifier("tab.icon.\(tab.relativePath)")
         contentView.identifier = NSUserInterfaceItemIdentifier("tab.content.\(tab.relativePath)")
         visualView.identifier = NSUserInterfaceItemIdentifier("tab.visual.\(tab.relativePath)")
@@ -2173,48 +2171,6 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
     func resetDisplacement() {
         visualView.layer?.removeAllAnimations()
         visualView.frame = itemView.bounds
-    }
-
-    private static func fileIcon(for relativePath: String) -> NSImage {
-        let pathExtension = (relativePath as NSString).pathExtension.lowercased()
-        let cacheKey = pathExtension.isEmpty ? "file" : pathExtension
-        if let cached = fileIcons[cacheKey] {
-            return cached
-        }
-
-        let colors: [NSColor] = [
-            .systemOrange, .systemBlue, .systemPurple,
-            .systemGreen, .systemRed, .systemIndigo
-        ]
-        let colorIndex = cacheKey.unicodeScalars.reduce(0) { result, scalar in
-            result + Int(scalar.value)
-        } % colors.count
-        let glyph = String((pathExtension.first ?? "F").uppercased())
-        let icon = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
-            colors[colorIndex].setFill()
-            NSBezierPath(
-                roundedRect: rect.insetBy(dx: 0.25, dy: 0.25),
-                xRadius: 2.5,
-                yRadius: 2.5
-            ).fill()
-
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 7, weight: .bold),
-                .foregroundColor: NSColor.white
-            ]
-            let textSize = glyph.size(withAttributes: attributes)
-            glyph.draw(
-                at: NSPoint(
-                    x: (rect.width - textSize.width) / 2,
-                    y: (rect.height - textSize.height) / 2
-                ),
-                withAttributes: attributes
-            )
-            return true
-        }
-        icon.isTemplate = false
-        fileIcons[cacheKey] = icon
-        return icon
     }
 
     private func applySelectionAppearance() {

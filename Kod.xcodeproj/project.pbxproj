@@ -100,6 +100,9 @@
 		B00000000000000000000067 /* UserFacingStringAuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000004F /* UserFacingStringAuditTests.swift */; };
 		B00000000000000000000068 /* LanguageHoverController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000050 /* LanguageHoverController.swift */; };
 		B00000000000000000000069 /* LanguageHoverControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000051 /* LanguageHoverControllerTests.swift */; };
+		B0000000000000000000006A /* MaterialFileIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000052 /* MaterialFileIcons.swift */; };
+		B0000000000000000000006B /* MaterialIcons in Resources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000053 /* MaterialIcons */; };
+		B0000000000000000000006C /* MaterialFileIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000054 /* MaterialFileIconTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -188,6 +191,9 @@
 		C0000000000000000000004F /* UserFacingStringAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserFacingStringAuditTests.swift; sourceTree = "<group>"; };
 		C00000000000000000000050 /* LanguageHoverController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageHoverController.swift; sourceTree = "<group>"; };
 		C00000000000000000000051 /* LanguageHoverControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageHoverControllerTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000052 /* MaterialFileIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaterialFileIcons.swift; sourceTree = "<group>"; };
+		C00000000000000000000053 /* MaterialIcons */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MaterialIcons; sourceTree = "<group>"; };
+		C00000000000000000000054 /* MaterialFileIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaterialFileIconTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -311,6 +317,8 @@
 				C00000000000000000000048 /* Localized.swift */,
 				C00000000000000000000049 /* Localizable.xcstrings */,
 				C00000000000000000000050 /* LanguageHoverController.swift */,
+				C00000000000000000000052 /* MaterialFileIcons.swift */,
+				C00000000000000000000053 /* MaterialIcons */,
 			);
 			path = KodApp;
 			sourceTree = "<group>";
@@ -345,6 +353,7 @@
 				C0000000000000000000004E /* PseudolocalizationTests.swift */,
 				C0000000000000000000004F /* UserFacingStringAuditTests.swift */,
 				C00000000000000000000051 /* LanguageHoverControllerTests.swift */,
+				C00000000000000000000054 /* MaterialFileIconTests.swift */,
 			);
 			path = KodAppTests;
 			sourceTree = "<group>";
@@ -497,6 +506,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B00000000000000000000061 /* Localizable.xcstrings in Resources */,
+				B0000000000000000000006B /* MaterialIcons in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -557,6 +567,7 @@
 				B0000000000000000000005F /* KeyboardCommandRegistry.swift in Sources */,
 				B00000000000000000000060 /* Localized.swift in Sources */,
 				B00000000000000000000068 /* LanguageHoverController.swift in Sources */,
+				B0000000000000000000006A /* MaterialFileIcons.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -591,6 +602,7 @@
 				B00000000000000000000066 /* PseudolocalizationTests.swift in Sources */,
 				B00000000000000000000067 /* UserFacingStringAuditTests.swift in Sources */,
 				B00000000000000000000069 /* LanguageHoverControllerTests.swift in Sources */,
+				B0000000000000000000006C /* MaterialFileIconTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
