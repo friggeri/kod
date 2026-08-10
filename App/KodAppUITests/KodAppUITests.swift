@@ -199,28 +199,35 @@ final class KodAppUITests: XCTestCase {
 
         app.buttons["Split Right"].click()
         waitForGroupCount(2)
-
-        tabTitle.hover()
-        XCTAssertTrue(tabCloseButton.waitForExistence(timeout: 5))
-        tabCloseButton.click()
         XCTAssertEqual(
-            XCTWaiter().wait(
-                for: [
-                    XCTNSPredicateExpectation(
-                        predicate: NSPredicate(format: "exists == false"),
-                        object: tabCloseButton
-                    )
-                ],
-                timeout: 5
-            ),
-            .completed
+            app.buttons.matching(identifier: "tab.title.Sources/Pane.swift").count,
+            2,
+            "Splitting should open the current file in both panes"
         )
 
-        app.buttons["Split Down"].click()
-        waitForGroupCount(3)
+        let duplicatedTitles = app.buttons.matching(
+            identifier: "tab.title.Sources/Pane.swift"
+        ).allElementsBoundByIndex
+        let rightTabTitle = try XCTUnwrap(
+            duplicatedTitles.max { $0.frame.minX < $1.frame.minX }
+        )
+        rightTabTitle.hover()
+        let closeButtons = app.buttons.matching(
+            identifier: "tab.close.Sources/Pane.swift"
+        )
+        XCTAssertTrue(closeButtons.firstMatch.waitForExistence(timeout: 5))
+        let rightCloseButton = try XCTUnwrap(
+            closeButtons.allElementsBoundByIndex.max { $0.frame.minX < $1.frame.minX }
+        )
+        rightCloseButton.click()
+        waitForGroupCount(1)
 
-        app.menuItems["Close Editor Group"].click()
+        app.buttons["Split Down"].click()
         waitForGroupCount(2)
+        XCTAssertEqual(
+            app.buttons.matching(identifier: "tab.title.Sources/Pane.swift").count,
+            2
+        )
 
         app.menuItems["Close Editor Group"].click()
         waitForGroupCount(1)
@@ -264,7 +271,14 @@ final class KodAppUITests: XCTestCase {
         XCTAssertLessThan(first.frame.minX, second.frame.minX)
         XCTAssertLessThan(second.frame.minX, third.frame.minX)
 
-        first.click(forDuration: 0.1, thenDragTo: third)
+        first.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        ).press(
+            forDuration: 0.1,
+            thenDragTo: third.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5)
+            )
+        )
         let reordered = NSPredicate { _, _ in
             second.frame.minX < third.frame.minX && third.frame.minX < first.frame.minX
         }
@@ -273,10 +287,135 @@ final class KodAppUITests: XCTestCase {
                 for: [XCTNSPredicateExpectation(predicate: reordered, object: nil)],
                 timeout: 5
             ),
-            .completed
+            .completed,
+            "Expected First to settle after Third; frames: \(first.frame), \(second.frame), \(third.frame)"
         )
         XCTAssertEqual(first.frame.midY, second.frame.midY, accuracy: 1)
         XCTAssertEqual(second.frame.midY, third.frame.midY, accuracy: 1)
+
+        app.terminate()
+    }
+
+    func testTabDragMovesBetweenPanesAndEmptyPanesCollapse() throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        for name in ["First.swift", "Second.swift"] {
+            try Data("struct \(name.dropLast(6)) {}\n".utf8).write(
+                to: workspace.appendingPathComponent(name)
+            )
+        }
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: workspace)
+        }
+
+        let app = XCUIApplication()
+        app.launchArguments = ["--open-folder", workspace.path]
+        app.launch()
+        XCTAssertTrue(app.outlines["workspace.explorer"].waitForExistence(timeout: 5))
+
+        func openViaQuickOpen(_ query: String) {
+            app.typeKey("p", modifierFlags: .command)
+            let search = app.searchFields["quickOpen.search"]
+            XCTAssertTrue(search.waitForExistence(timeout: 5))
+            search.typeText(query)
+            search.typeKey(.return, modifierFlags: [])
+        }
+
+        func waitForGroupCount(_ expectedCount: Int) {
+            let predicate = NSPredicate { _, _ in
+                app.groups.matching(identifier: "editorGroup.container").count == expectedCount
+            }
+            XCTAssertEqual(
+                XCTWaiter().wait(
+                    for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)],
+                    timeout: 5
+                ),
+                .completed
+            )
+        }
+
+        func groupFrames() -> [CGRect] {
+            app.groups.matching(identifier: "editorGroup.container")
+                .allElementsBoundByIndex
+                .map(\.frame)
+                .sorted { $0.minX < $1.minX }
+        }
+
+        func assertGroupFrames(
+            _ actual: [CGRect],
+            equal expected: [CGRect],
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            XCTAssertEqual(actual.count, expected.count, file: file, line: line)
+            for (actualFrame, expectedFrame) in zip(actual, expected) {
+                XCTAssertEqual(actualFrame.minX, expectedFrame.minX, accuracy: 1, file: file, line: line)
+                XCTAssertEqual(actualFrame.width, expectedFrame.width, accuracy: 1, file: file, line: line)
+            }
+        }
+
+        openViaQuickOpen("First")
+        XCTAssertTrue(app.buttons["tab.title.First.swift"].waitForExistence(timeout: 5))
+        app.buttons["Split Right"].click()
+        waitForGroupCount(2)
+        let splitFrames = groupFrames()
+
+        let firstTabs = app.buttons.matching(identifier: "tab.title.First.swift")
+        XCTAssertEqual(firstTabs.count, 2)
+        let leftFirst = try XCTUnwrap(
+            firstTabs.allElementsBoundByIndex.min { $0.frame.minX < $1.frame.minX }
+        )
+        leftFirst.click()
+        openViaQuickOpen("Second")
+
+        let second = app.buttons["tab.title.Second.swift"]
+        XCTAssertTrue(second.waitForExistence(timeout: 5))
+        assertGroupFrames(groupFrames(), equal: splitFrames)
+        let rightFirst = try XCTUnwrap(
+            firstTabs.allElementsBoundByIndex.max { $0.frame.minX < $1.frame.minX }
+        )
+        second.click(forDuration: 0.1, thenDragTo: rightFirst)
+
+        let movedToRight = NSPredicate { _, _ in
+            second.exists && second.frame.midX > app.windows.firstMatch.frame.midX
+        }
+        XCTAssertEqual(
+            XCTWaiter().wait(
+                for: [XCTNSPredicateExpectation(predicate: movedToRight, object: nil)],
+                timeout: 5
+            ),
+            .completed
+        )
+        waitForGroupCount(2)
+        assertGroupFrames(groupFrames(), equal: splitFrames)
+
+        second.hover()
+        let secondClose = app.buttons["tab.close.Second.swift"]
+        XCTAssertTrue(secondClose.waitForExistence(timeout: 5))
+        secondClose.click()
+
+        let currentFirstTabs = app.buttons.matching(identifier: "tab.title.First.swift")
+        let rightRemainingFirst = try XCTUnwrap(
+            currentFirstTabs.allElementsBoundByIndex.max { $0.frame.minX < $1.frame.minX }
+        )
+        rightRemainingFirst.hover()
+        let firstCloseButtons = app.buttons.matching(identifier: "tab.close.First.swift")
+        XCTAssertTrue(firstCloseButtons.firstMatch.waitForExistence(timeout: 5))
+        let rightClose = try XCTUnwrap(
+            firstCloseButtons.allElementsBoundByIndex.max { $0.frame.minX < $1.frame.minX }
+        )
+        rightClose.click()
+        waitForGroupCount(1)
+
+        let lastFirst = app.buttons["tab.title.First.swift"]
+        XCTAssertTrue(lastFirst.waitForExistence(timeout: 5))
+        lastFirst.hover()
+        let lastClose = app.buttons["tab.close.First.swift"]
+        XCTAssertTrue(lastClose.waitForExistence(timeout: 5))
+        lastClose.click()
+        waitForGroupCount(1)
+        XCTAssertFalse(app.buttons["tab.title.First.swift"].exists)
 
         app.terminate()
     }
@@ -287,6 +426,9 @@ final class KodAppUITests: XCTestCase {
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         try Data("struct Chrome {}\n".utf8).write(
             to: workspace.appendingPathComponent("Chrome.swift")
+        )
+        try Data("# Chrome\n".utf8).write(
+            to: workspace.appendingPathComponent("README.md")
         )
         addTeardownBlock {
             try? FileManager.default.removeItem(at: workspace)
@@ -311,6 +453,21 @@ final class KodAppUITests: XCTestCase {
         XCTAssertEqual(directoryName.frame.midX, window.frame.midX, accuracy: 3)
         XCTAssertGreaterThan(splitRightButton.frame.minX, directoryName.frame.maxX)
         XCTAssertEqual(splitRightButton.frame.midY, splitDownButton.frame.midY, accuracy: 1)
+        XCTAssertFalse(app.buttons["editorGroup.previewSourceToggle"].exists)
+
+        let readme = outline.staticTexts["README.md"]
+        XCTAssertTrue(readme.waitForExistence(timeout: 5))
+        readme.doubleClick()
+        let previewSourceToggle = app.buttons["View Source"]
+        XCTAssertTrue(
+            previewSourceToggle.waitForExistence(timeout: 5),
+            app.toolbars.debugDescription
+        )
+        XCTAssertEqual(previewSourceToggle.label, "View Source")
+        XCTAssertLessThan(previewSourceToggle.frame.minX, splitRightButton.frame.minX)
+        XCTAssertEqual(previewSourceToggle.frame.midY, splitRightButton.frame.midY, accuracy: 1)
+        previewSourceToggle.click()
+        XCTAssertTrue(app.buttons["View Preview"].waitForExistence(timeout: 5))
 
         sidebarToggle.click()
         XCTAssertEqual(
@@ -469,8 +626,8 @@ final class KodAppUITests: XCTestCase {
         splitRightButton.click()
         XCTAssertEqual(app.groups.matching(identifier: "editorGroup.container").count, 2)
 
-        // The new group starts empty; open Alpha into it too, so both groups
-        // have live tabs to restore across relaunch.
+        // The new group starts with Beta, the current file. Open Alpha there
+        // too, so both groups have that tab to restore across relaunch.
         openViaQuickOpen("Alpha")
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "title == 'Alpha.swift'")).count, 2)
 

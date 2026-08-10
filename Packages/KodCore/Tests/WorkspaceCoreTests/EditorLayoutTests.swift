@@ -65,6 +65,26 @@ final class EditorLayoutTests: XCTestCase {
         XCTAssertEqual(group.tabs.map(\.id), [b, c, a])
     }
 
+    func testTransferredTabMovesBetweenGroupsWithoutDuplicatingPaths() throws {
+        var source = EditorGroupState()
+        let movedID = source.openTab(relativePath: "Moved.swift", pinned: true)
+        var destination = EditorGroupState()
+        _ = destination.openTab(relativePath: "Existing.swift", pinned: true)
+
+        let movedTab = try XCTUnwrap(source.removeTabForTransfer(movedID))
+        let insertedID = destination.insertTransferredTab(movedTab, at: 1)
+
+        XCTAssertTrue(source.tabs.isEmpty)
+        XCTAssertEqual(insertedID, movedID)
+        XCTAssertEqual(destination.tabs.map(\.relativePath), ["Existing.swift", "Moved.swift"])
+        XCTAssertEqual(destination.selectedTabID, movedID)
+
+        let duplicate = EditorTab(relativePath: "Existing.swift", isPinned: true)
+        let existingID = try XCTUnwrap(destination.tabs.first?.id)
+        XCTAssertEqual(destination.insertTransferredTab(duplicate, at: 0), existingID)
+        XCTAssertEqual(destination.tabs.count, 2)
+    }
+
     func testNavigationBackForwardRestoresSelectionAndAnchor() {
         var group = EditorGroupState()
 
@@ -141,6 +161,31 @@ final class EditorLayoutTests: XCTestCase {
         XCTAssertEqual(state.groups.count, 3)
         XCTAssertTrue(state.root.contains(bottomGroupID))
         XCTAssertEqual(Set(state.root.groupIDs), [rootGroupID, rightGroupID, bottomGroupID])
+    }
+
+    func testSplitCopiesSelectedFileIntoNewGroupWithIndependentTabIdentity() throws {
+        var state = WorkspaceLayoutState.singleGroup()
+        let sourceGroupID = state.activeGroupID
+        let sourceTabID = state.activeGroup?.openTab(
+            relativePath: "Sources/Current.swift",
+            pinned: false
+        )
+        state.activeGroup?.recordNavigation(
+            EditorNavigationEntry(
+                relativePath: "Sources/Current.swift",
+                selection: EditorSelection(4..<8),
+                viewportAnchorLine: 12
+            )
+        )
+
+        let newGroupID = state.split(orientation: .horizontal)
+        let copiedTab = try XCTUnwrap(state.groups[newGroupID]?.selectedTab)
+
+        XCTAssertEqual(copiedTab.relativePath, "Sources/Current.swift")
+        XCTAssertTrue(copiedTab.isPinned)
+        XCTAssertNotEqual(copiedTab.id, sourceTabID)
+        XCTAssertEqual(state.groups[newGroupID]?.current?.selection, EditorSelection(4..<8))
+        XCTAssertEqual(state.groups[sourceGroupID]?.tabs.count, 1)
     }
 
     func testCloseGroupCollapsesSplitAndKeepsAtLeastOneGroup() {

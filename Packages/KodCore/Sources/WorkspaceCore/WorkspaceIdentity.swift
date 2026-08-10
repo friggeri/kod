@@ -41,6 +41,7 @@ public struct WorkspaceIdentity: Hashable, Sendable {
 public final class WorkspaceTrustStore {
     private let defaults: UserDefaults
     private let keyPrefix = "trusted-workspace."
+    private let trustBannerShownKeyPrefix = "workspace-trust-banner-shown."
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -56,6 +57,17 @@ public final class WorkspaceTrustStore {
 
     public func revoke(_ identity: WorkspaceIdentity) {
         defaults.removeObject(forKey: keyPrefix + identity.persistenceKey)
+    }
+
+    /// Returns `true` once for each persisted workspace identity, then
+    /// records that the initial trust banner has been presented.
+    public func claimInitialTrustBannerPresentation(for identity: WorkspaceIdentity) -> Bool {
+        let key = trustBannerShownKeyPrefix + identity.persistenceKey
+        guard !defaults.bool(forKey: key) else {
+            return false
+        }
+        defaults.set(true, forKey: key)
+        return true
     }
 }
 

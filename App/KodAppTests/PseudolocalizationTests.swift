@@ -62,7 +62,7 @@ final class PseudolocalizationTests: XCTestCase {
     /// per-entry comment for their source call site) rather than a
     /// synthetic corpus, so the test reflects the actual migrated UI.
     private static let clippingProneModelStrings: [(label: String, text: String)] = [
-        ("EditorGroupViewController toggle button accessibility label", "Toggle Source and Preview"),
+        ("WorkspaceViewController toolbar toggle accessibility label", "Toggle Source and Preview"),
         ("KeyboardCommandRegistry menu title", "Show Problems"),
         ("SearchSidebarViewController status label", "No results"),
         ("SymbolsViewController status label", "Searching…"),

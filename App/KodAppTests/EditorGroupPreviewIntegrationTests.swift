@@ -33,6 +33,15 @@ final class EditorGroupPreviewIntegrationTests: XCTestCase {
         windows.append(window)
     }
 
+    private func findView(identifier: String, in view: NSView) -> NSView? {
+        if view.identifier?.rawValue == identifier {
+            return view
+        }
+        return view.subviews.lazy.compactMap {
+            self.findView(identifier: identifier, in: $0)
+        }.first
+    }
+
     func testMarkdownTabDefaultsToPreviewModeAndCanToggleToSource() async throws {
         let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
         host(controller)
@@ -50,15 +59,22 @@ final class EditorGroupPreviewIntegrationTests: XCTestCase {
         try await waitUntil { controller.previewController(forTabID: tabID) != nil }
 
         XCTAssertEqual(controller.displayedContentKind(forTabID: tabID), .preview)
+        XCTAssertEqual(controller.previewSourceControlState, .showingPreview)
+        XCTAssertNil(
+            findView(identifier: "editorGroup.previewSourceToggle", in: controller.view),
+            "The source/preview control belongs to the window toolbar, not a pane header"
+        )
 
         controller.togglePreviewSourceForTesting()
         XCTAssertEqual(controller.displayedContentKind(forTabID: tabID), .source)
+        XCTAssertEqual(controller.previewSourceControlState, .showingSource)
         // The source `CodeDocumentViewController` must still exist and be
         // fully functional — toggling to Preview never tore it down.
         XCTAssertNotNil(controller.currentDocumentController)
 
         controller.togglePreviewSourceForTesting()
         XCTAssertEqual(controller.displayedContentKind(forTabID: tabID), .preview)
+        XCTAssertEqual(controller.previewSourceControlState, .showingPreview)
     }
 
     func testJSONTabGetsStructuredDataPreview() async throws {
@@ -84,6 +100,7 @@ final class EditorGroupPreviewIntegrationTests: XCTestCase {
         XCTAssertEqual(controller.previewKind(forTabID: tabID), PreviewKind.none)
         XCTAssertEqual(controller.displayedContentKind(forTabID: tabID), .source)
         XCTAssertNil(controller.previewController(forTabID: tabID))
+        XCTAssertEqual(controller.previewSourceControlState, .unavailable)
     }
 
     func testReplacingPreviewTabCannotShowThePreviousFilesAsyncPreview() async throws {

@@ -93,6 +93,13 @@ final class SplitContainerViewController: NSViewController {
 
             let firstView = buildView(for: first)
             let secondView = buildView(for: second)
+            let splitAxis: NSLayoutConstraint.Orientation = splitView.isVertical
+                ? .horizontal
+                : .vertical
+            for paneView in [firstView, secondView] {
+                paneView.setContentHuggingPriority(.defaultLow, for: splitAxis)
+                paneView.setContentCompressionResistancePriority(.defaultLow, for: splitAxis)
+            }
             splitView.addArrangedSubview(firstView)
             splitView.addArrangedSubview(secondView)
             splitView.setHoldingPriority(.defaultLow - 1, forSubviewAt: 0)

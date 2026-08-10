@@ -73,9 +73,9 @@ actually complete Kod's primary workflows end to end.
       (not just shown visually).
 - [ ] Source Control panel: confirm each entry's change kind is announced
       as text.
-- [ ] Trust banner: open an untrusted workspace, confirm the banner and
-      its "Trust"/"Revoke Trust" controls are reachable and clearly
-      labeled by VoiceOver.
+- [ ] Workspace trust: confirm the banner is announced only on the first
+      open, its dismiss button is last, and the status-bar trust indicator
+      announces the current state and opens a labeled confirmation prompt.
 - [ ] Settings window: tab through every control (Theme, Font, Diagnostics/
       Privacy tabs) with VoiceOver and confirm every control has a
       meaningful label, not a bare identifier or "button".
@@ -83,7 +83,7 @@ actually complete Kod's primary workflows end to end.
       announced as text, and blame annotations announce author/date/
       commit summary.
 - [ ] Previews: open a Markdown, image, and JSON/plist file; confirm the
-      Source/Preview toggle, zoom controls, transparency toggle, and
+      window-toolbar Source/Preview toggle, zoom controls, transparency toggle, and
       remote-image opt-in are all announced with their current state.
 
 ## 3. Keyboard-only workflow

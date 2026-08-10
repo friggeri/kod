@@ -14,11 +14,99 @@ private extension NSToolbarItem.Identifier {
     static let workspaceSplitControls = NSToolbarItem.Identifier(
         "workspace.splitControls"
     )
+    static let workspacePreviewSource = NSToolbarItem.Identifier(
+        "workspace.previewSource"
+    )
 }
 
 private final class WorkspaceTitleOverlayView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
+    }
+}
+
+@MainActor
+private final class WorkspacePreviewSourceControlView: NSButton {
+    private weak var toolbarItem: NSToolbarItem?
+
+    init(target: WorkspaceViewController, toolbarItem: NSToolbarItem) {
+        self.toolbarItem = toolbarItem
+        let label = Localized.string(
+            "Toggle Source and Preview",
+            comment: "Accessibility label for the titlebar preview/source toggle button"
+        )
+        super.init(frame: NSRect(x: 0, y: 0, width: 32, height: 28))
+
+        identifier = NSUserInterfaceItemIdentifier("workspace.previewSourceToggle")
+        image = NSImage(
+            systemSymbolName: "eye",
+            accessibilityDescription: label
+        )
+        self.target = target
+        action = #selector(WorkspaceViewController.togglePreviewSource(_:))
+        bezelStyle = .toolbar
+        isBordered = false
+        imageScaling = .scaleProportionallyDown
+        setAccessibilityRole(.button)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: 32),
+            heightAnchor.constraint(equalToConstant: 28)
+        ])
+        update(.unavailable)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func update(_ state: EditorPreviewSourceControlState) {
+        let actionTitle: String
+        let stateDescription: String
+        let symbolName: String
+
+        switch state {
+        case .unavailable, .previewOnly:
+            toolbarItem?.isEnabled = false
+            isEnabled = false
+            alphaValue = 0
+            setAccessibilityElement(false)
+            return
+        case .showingPreview:
+            actionTitle = Localized.string(
+                "View Source",
+                comment: "Titlebar button label when currently showing the preview, offering to switch to source"
+            )
+            stateDescription = Localized.string(
+                "Showing Preview",
+                comment: "Accessibility value for the titlebar preview/source toggle when a preview is shown"
+            )
+            symbolName = "chevron.left.forwardslash.chevron.right"
+        case .showingSource:
+            actionTitle = Localized.string(
+                "View Preview",
+                comment: "Titlebar button label when currently showing source, offering to switch to preview"
+            )
+            stateDescription = Localized.string(
+                "Showing Source",
+                comment: "Accessibility value for the titlebar preview/source toggle when source is shown"
+            )
+            symbolName = "eye"
+        }
+
+        image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: actionTitle
+        )
+        toolbarItem?.label = actionTitle
+        toolbarItem?.toolTip = actionTitle
+        toolbarItem?.isEnabled = true
+        toolTip = actionTitle
+        setAccessibilityLabel(actionTitle)
+        setAccessibilityValue(stateDescription)
+        setAccessibilityElement(true)
+        alphaValue = 1
+        isEnabled = true
     }
 }
 
@@ -143,6 +231,7 @@ private final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
         [
             .workspaceToggleSidebar,
             .sidebarTrackingSeparator,
+            .workspacePreviewSource,
             .workspaceSplitControls,
             .flexibleSpace
         ]
@@ -156,6 +245,7 @@ private final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
             .workspaceToggleSidebar,
             .sidebarTrackingSeparator,
             .flexibleSpace,
+            .workspacePreviewSource,
             .workspaceSplitControls
         ]
     }
@@ -167,6 +257,19 @@ private final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
     ) -> NSToolbarItem? {
         guard let target else {
             return nil
+        }
+
+        if itemIdentifier == .workspacePreviewSource {
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.target = target
+            item.action = #selector(WorkspaceViewController.togglePreviewSource(_:))
+            item.label = Localized.string(
+                "Toggle Source and Preview",
+                comment: "Label for the titlebar preview/source toolbar item"
+            )
+            item.view = target.makePreviewSourceControlView(toolbarItem: item)
+            item.visibilityPriority = .high
+            return item
         }
 
         if itemIdentifier == .workspaceSplitControls {
@@ -244,6 +347,7 @@ final class WorkspaceViewController: NSViewController {
     private let trustBanner = NSStackView()
     private let trustBannerLabel = NSTextField(labelWithString: "")
     private let trustActionButton = NSButton(title: "", target: nil, action: nil)
+    private let trustStatusButton = NSButton()
     private let trustDismissButton = NSButton(
         image: NSImage(
             systemSymbolName: "xmark",
@@ -257,6 +361,8 @@ final class WorkspaceViewController: NSViewController {
     )
     private var contentTopWithTrustBannerConstraint: NSLayoutConstraint?
     private var contentTopWithoutTrustBannerConstraint: NSLayoutConstraint?
+    private lazy var shouldShowInitialTrustBanner =
+        trustStore.claimInitialTrustBannerPresentation(for: identity)
     private var isTrustBannerDismissed = false
     private let sidebarModeControl = NSSegmentedControl(
         labels: [
@@ -273,6 +379,7 @@ final class WorkspaceViewController: NSViewController {
     private let workspaceTitleLabel = NSTextField(labelWithString: "")
     private var workspaceSplitViewController: NSSplitViewController!
     private var windowToolbarDelegate: WorkspaceToolbarDelegate?
+    private var previewSourceControlView: WorkspacePreviewSourceControlView?
     private var explorerContainer: NSView!
     private var searchSidebarController: SearchSidebarViewController!
     private var problemsViewController: ProblemsViewController!
@@ -373,6 +480,7 @@ final class WorkspaceViewController: NSViewController {
 
     override func loadView() {
         let container = NSView()
+        collapseEmptyGroupsKeepingOne()
 
         configureTrustBanner()
         trustBanner.translatesAutoresizingMaskIntoConstraints = false
@@ -487,6 +595,19 @@ final class WorkspaceViewController: NSViewController {
         workspaceSplitViewController.toggleSidebar(sender)
     }
 
+    fileprivate func makePreviewSourceControlView(toolbarItem: NSToolbarItem) -> NSView {
+        let control = WorkspacePreviewSourceControlView(target: self, toolbarItem: toolbarItem)
+        previewSourceControlView = control
+        refreshPreviewSourceToolbar()
+        return control
+    }
+
+    private func refreshPreviewSourceToolbar() {
+        previewSourceControlView?.update(
+            activeGroupController?.previewSourceControlState ?? .unavailable
+        )
+    }
+
     private func configureWindowChrome() {
         guard let window = view.window else {
             return
@@ -508,6 +629,7 @@ final class WorkspaceViewController: NSViewController {
         windowToolbarDelegate = delegate
         window.toolbar = toolbar
         window.layoutIfNeeded()
+        refreshPreviewSourceToolbar()
     }
 
     // MARK: - Git (SPEC 9)
@@ -542,10 +664,8 @@ final class WorkspaceViewController: NSViewController {
         sidebarModeChanged(nil)
     }
 
-    /// Toggles the active tab's Source/Preview mode from the main menu
-    /// or a keyboard shortcut, in addition to
-    /// `EditorGroupViewController`'s own toolbar button, so the preview
-    /// toggle is reachable without a mouse (SPEC 5.7).
+    /// Toggles the active tab's Source/Preview mode from the window toolbar,
+    /// main menu, or keyboard shortcut (SPEC 5.7).
     @objc
     func togglePreviewSource(_ sender: Any?) {
         activeGroupController?.togglePreviewSource(sender)
@@ -1153,9 +1273,17 @@ final class WorkspaceViewController: NSViewController {
         for controller in splitContainer.allGroupControllers {
             controller.isActive = (controller.groupID == layoutState.activeGroupID)
         }
+        refreshPreviewSourceToolbar()
     }
 
     private func handleSplit(groupID: EditorGroupID, orientation: SplitOrientation) {
+        guard layoutState.groups[groupID]?.selectedTab != nil else {
+            return
+        }
+        if let sourceController = splitContainer.controller(for: groupID) {
+            sourceController.captureLatestAnchorIntoState()
+            layoutState.groups[groupID] = sourceController.state
+        }
         layoutState.split(groupID, orientation: orientation)
         splitContainer.rebuild(root: layoutState.root)
         refreshActiveGroupHighlighting()
@@ -1167,6 +1295,76 @@ final class WorkspaceViewController: NSViewController {
         splitContainer.rebuild(root: layoutState.root)
         refreshActiveGroupHighlighting()
         persistLayout()
+    }
+
+    private func collapseEmptyGroupsKeepingOne() {
+        let groupIDs = layoutState.root.groupIDs
+        let nonEmptyGroupIDs = groupIDs.filter {
+            layoutState.groups[$0]?.tabs.isEmpty == false
+        }
+        let preservedEmptyGroupID = nonEmptyGroupIDs.isEmpty
+            ? (groupIDs.contains(layoutState.activeGroupID) ? layoutState.activeGroupID : groupIDs.first)
+            : nil
+        for groupID in groupIDs where layoutState.groups.count > 1 {
+            guard layoutState.groups[groupID]?.tabs.isEmpty == true,
+                  groupID != preservedEmptyGroupID else {
+                continue
+            }
+            layoutState.closeGroup(groupID)
+        }
+    }
+
+    private func updateTabDrag(
+        from sourceGroupID: EditorGroupID,
+        tabID _: EditorTabID,
+        windowLocation: NSPoint
+    ) -> EditorTabDropPreview? {
+        var targetPreview: EditorTabDropPreview?
+        for controller in splitContainer.allGroupControllers {
+            guard controller.groupID != sourceGroupID else {
+                controller.clearTabDropPreview()
+                continue
+            }
+            if targetPreview == nil,
+               let preview = controller.showTabDropPreview(at: windowLocation) {
+                targetPreview = preview
+            } else {
+                controller.clearTabDropPreview()
+            }
+        }
+        return targetPreview
+    }
+
+    private func completeTabDrop(
+        from sourceGroupID: EditorGroupID,
+        tabID: EditorTabID,
+        preview: EditorTabDropPreview
+    ) -> Bool {
+        guard let sourceController = splitContainer.controller(for: sourceGroupID),
+              preview.groupID != sourceGroupID,
+              let targetController = splitContainer.controller(for: preview.groupID) else {
+            clearTabDropPreviews()
+            return false
+        }
+        guard let payload = sourceController.detachTabForTransfer(tabID) else {
+            clearTabDropPreviews()
+            return false
+        }
+        splitContainer.allGroupControllers
+            .filter { $0.groupID != preview.groupID }
+            .forEach { $0.clearTabDropPreview() }
+        targetController.consumeTabDropPreview()
+        targetController.insertTransferredTab(payload, at: preview.insertionIndex)
+        layoutState.activeGroupID = targetController.groupID
+        refreshActiveGroupHighlighting()
+        cancelHover()
+        refreshLanguageServerStateUI()
+        persistLayout()
+        return true
+    }
+
+    private func clearTabDropPreviews() {
+        splitContainer.allGroupControllers.forEach { $0.clearTabDropPreview() }
     }
 
     private func makeGroupController(for id: EditorGroupID) -> EditorGroupViewController {
@@ -1215,8 +1413,15 @@ final class WorkspaceViewController: NSViewController {
             }
         }
         controller.onStateChange = { [weak self] groupID, state in
-            self?.layoutState.groups[groupID] = state
-            self?.persistLayout()
+            guard let self else {
+                return
+            }
+            self.layoutState.groups[groupID] = state
+            if state.tabs.isEmpty, self.layoutState.groups.count > 1 {
+                self.handleCloseGroup(groupID: groupID)
+            } else {
+                self.persistLayout()
+            }
         }
         controller.onActivate = { [weak self] groupID in
             self?.layoutState.activeGroupID = groupID
@@ -1224,6 +1429,29 @@ final class WorkspaceViewController: NSViewController {
             self?.cancelHover()
             self?.refreshLanguageServerStateUI()
             self?.persistLayout()
+        }
+        controller.onTabDragUpdate = { [weak self] sourceGroupID, tabID, windowLocation in
+            self?.updateTabDrag(
+                from: sourceGroupID,
+                tabID: tabID,
+                windowLocation: windowLocation
+            )
+        }
+        controller.onTabDrop = { [weak self] sourceGroupID, tabID, preview in
+            self?.completeTabDrop(
+                from: sourceGroupID,
+                tabID: tabID,
+                preview: preview
+            ) ?? false
+        }
+        controller.onTabDragEnd = { [weak self] _ in
+            self?.clearTabDropPreviews()
+        }
+        controller.onPreviewSourceControlChange = { [weak self] groupID, state in
+            guard let self, self.layoutState.activeGroupID == groupID else {
+                return
+            }
+            self.previewSourceControlView?.update(state)
         }
         controller.onDocumentReady = { [weak self] relativePath, documentController in
             self?.configureLanguageInteractions(for: documentController)
@@ -1376,8 +1604,52 @@ final class WorkspaceViewController: NSViewController {
         updateTrustBannerVisibility()
     }
 
+    private func refreshTrustStatusButton() {
+        let trusted = trustStore.isTrusted(identity)
+        let stateDescription: String
+        let actionDescription: String
+        let symbolName: String
+
+        if trusted {
+            stateDescription = Localized.string(
+                "This workspace is trusted: language servers and repository tools are enabled.",
+                comment: "Trust status description shown for a trusted workspace"
+            )
+            actionDescription = Localized.string(
+                "Revoke trust for this workspace, disabling language servers",
+                comment: "Accessibility help for the status-bar workspace trust control"
+            )
+            symbolName = "checkmark.shield.fill"
+            trustStatusButton.contentTintColor = .systemGreen
+        } else {
+            stateDescription = Localized.string(
+                "Restricted mode: language servers and repository tools are disabled.",
+                comment: "Trust status description shown for an untrusted workspace"
+            )
+            actionDescription = Localized.string(
+                "Trust this workspace, enabling language servers and repository tools",
+                comment: "Accessibility help for the status-bar workspace trust control"
+            )
+            symbolName = "exclamationmark.shield.fill"
+            trustStatusButton.contentTintColor = .systemOrange
+        }
+
+        trustStatusButton.image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: stateDescription
+        )
+        trustStatusButton.toolTip = stateDescription
+        trustStatusButton.setAccessibilityLabel(stateDescription)
+        trustStatusButton.setAccessibilityHelp(actionDescription)
+    }
+
+    private func refreshWorkspaceTrustUI() {
+        refreshTrustBanner()
+        refreshTrustStatusButton()
+    }
+
     private func updateTrustBannerVisibility() {
-        let isVisible = !isTrustBannerDismissed
+        let isVisible = shouldShowInitialTrustBanner && !isTrustBannerDismissed
         trustBanner.isHidden = !isVisible
         contentTopWithTrustBannerConstraint?.isActive = isVisible
         contentTopWithoutTrustBannerConstraint?.isActive = !isVisible
@@ -1391,11 +1663,8 @@ final class WorkspaceViewController: NSViewController {
 
 
     private func makeSidebar() -> NSView {
-        let container = NSVisualEffectView()
+        let container = NSView()
         container.identifier = NSUserInterfaceItemIdentifier("workspace.sidebar")
-        container.material = .sidebar
-        container.blendingMode = .behindWindow
-        container.state = .active
 
         sidebarModeControl.segmentStyle = .texturedRounded
         sidebarModeControl.selectedSegment = 0
@@ -1524,9 +1793,19 @@ final class WorkspaceViewController: NSViewController {
         languageServerRestartButton.isEnabled = false
         languageServerRestartButton.translatesAutoresizingMaskIntoConstraints = false
 
+        trustStatusButton.identifier = NSUserInterfaceItemIdentifier("workspace.trustStatus")
+        trustStatusButton.bezelStyle = .inline
+        trustStatusButton.isBordered = false
+        trustStatusButton.imagePosition = .imageOnly
+        trustStatusButton.target = self
+        trustStatusButton.action = #selector(promptToToggleWorkspaceTrust(_:))
+        trustStatusButton.translatesAutoresizingMaskIntoConstraints = false
+        refreshTrustStatusButton()
+
         container.addSubview(separator)
         container.addSubview(languageServerStateLabel)
         container.addSubview(languageServerRestartButton)
+        container.addSubview(trustStatusButton)
         NSLayoutConstraint.activate([
             separator.topAnchor.constraint(equalTo: container.topAnchor),
             separator.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -1536,7 +1815,11 @@ final class WorkspaceViewController: NSViewController {
             languageServerStateLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
             languageServerRestartButton.leadingAnchor.constraint(equalTo: languageServerStateLabel.trailingAnchor, constant: 8),
             languageServerRestartButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            languageServerRestartButton.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -10)
+            languageServerRestartButton.trailingAnchor.constraint(lessThanOrEqualTo: trustStatusButton.leadingAnchor, constant: -8),
+            trustStatusButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -6),
+            trustStatusButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            trustStatusButton.widthAnchor.constraint(equalToConstant: 24),
+            trustStatusButton.heightAnchor.constraint(equalToConstant: 24)
         ])
         return container
     }
@@ -2015,7 +2298,7 @@ final class WorkspaceViewController: NSViewController {
     @objc
     func trustWorkspace(_ sender: Any?) {
         trustStore.trust(identity)
-        refreshTrustBanner()
+        refreshWorkspaceTrustUI()
         languageServicesCoordinator.handleTrustGranted()
         multiLanguageServicesCoordinator.handleTrustGranted()
         refreshLanguageServerStateUI()
@@ -2040,7 +2323,7 @@ final class WorkspaceViewController: NSViewController {
     @objc
     func revokeTrust(_ sender: Any?) {
         trustStore.revoke(identity)
-        refreshTrustBanner()
+        refreshWorkspaceTrustUI()
         languageServicesCoordinator.handleTrustRevoked()
         multiLanguageServicesCoordinator.handleTrustRevoked()
         languageHoverController.invalidateCache()
@@ -2054,6 +2337,64 @@ final class WorkspaceViewController: NSViewController {
                     DiagnosticContextField(name: "workspaceRoot", category: .fullPath, value: identity.root.path)
                 ]
             )
+        }
+    }
+
+    @objc
+    private func promptToToggleWorkspaceTrust(_ sender: Any?) {
+        guard let window = view.window else {
+            return
+        }
+
+        let shouldTrust = !trustStore.isTrusted(identity)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        if shouldTrust {
+            alert.messageText = Localized.string(
+                "Trust Workspace",
+                comment: "Title of the confirmation alert for trusting a workspace"
+            )
+            alert.informativeText = Localized.string(
+                "Trusting this workspace enables language servers and repository tools, which may execute code from this directory.",
+                comment: "Explanation in the confirmation alert for trusting a workspace"
+            )
+            alert.addButton(
+                withTitle: Localized.string(
+                    "Trust Workspace",
+                    comment: "Confirmation button title for trusting a workspace"
+                )
+            )
+        } else {
+            alert.messageText = Localized.string(
+                "Revoke Trust",
+                comment: "Title of the confirmation alert for revoking workspace trust"
+            )
+            alert.informativeText = Localized.string(
+                "Revoking trust disables repository tools and stops running language servers for this workspace.",
+                comment: "Explanation in the confirmation alert for revoking workspace trust"
+            )
+            alert.addButton(
+                withTitle: Localized.string(
+                    "Revoke Trust",
+                    comment: "Confirmation button title for revoking workspace trust"
+                )
+            )
+        }
+        alert.addButton(
+            withTitle: Localized.string(
+                "Cancel",
+                comment: "Button title canceling a workspace trust change"
+            )
+        )
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self else {
+                return
+            }
+            if shouldTrust {
+                self.trustWorkspace(nil)
+            } else {
+                self.revokeTrust(nil)
+            }
         }
     }
 }

@@ -23,8 +23,39 @@ private final class LocalEventMonitor: @unchecked Sendable {
     }
 }
 
+private final class EditorGroupRootView: NSView {
+    override var fittingSize: NSSize {
+        .zero
+    }
+}
+
+@MainActor
+struct EditorTabTransferPayload {
+    let tab: EditorTab
+    let documentController: CodeDocumentViewController?
+    let previewController: PreviewViewController?
+    let diffController: GitDiffViewController?
+    let previewKind: PreviewKind?
+    let usesPreviewMode: Bool
+    let isImageOnly: Bool
+}
+
+struct EditorTabDropPreview: Equatable {
+    let groupID: EditorGroupID
+    let insertionIndex: Int
+    let gapFrameInWindow: NSRect
+    let railFrameInWindow: NSRect
+}
+
+enum EditorPreviewSourceControlState: Equatable {
+    case unavailable
+    case previewOnly
+    case showingPreview
+    case showingSource
+}
+
 /// One editor pane: a tab bar (preview vs. pinned tabs, close buttons, drag
-/// reordering), split affordances, and a content host that swaps in the
+/// reordering), and a content host that swaps in the
 /// `CodeDocumentViewController` for the selected tab. Owns one
 /// `EditorGroupState` and reports every state change upward so the workspace
 /// can persist it.
@@ -53,6 +84,10 @@ final class EditorGroupViewController: NSViewController {
     var onOpenLocalRelativePath: ((String) -> Void)?
     var onStateChange: ((EditorGroupID, EditorGroupState) -> Void)?
     var onActivate: ((EditorGroupID) -> Void)?
+    var onTabDragUpdate: ((EditorGroupID, EditorTabID, NSPoint) -> EditorTabDropPreview?)?
+    var onTabDrop: ((EditorGroupID, EditorTabID, EditorTabDropPreview) -> Bool)?
+    var onTabDragEnd: ((EditorGroupID) -> Void)?
+    var onPreviewSourceControlChange: ((EditorGroupID, EditorPreviewSourceControlState) -> Void)?
     /// Fired whenever a `CodeDocumentViewController` becomes available for
     /// `relativePath` — on first open and again after every reload — so
     /// the owning `WorkspaceViewController` can wire language-service
@@ -92,7 +127,6 @@ final class EditorGroupViewController: NSViewController {
 
     private let tabBarView = EditorTabBarView(frame: .zero)
     private let headerRow = NSStackView()
-    private let previewSourceToggleButton: NSButton
     private let contentHost = NSView()
     private let placeholderLabel = NSTextField(
         labelWithString: Localized.string(
@@ -134,11 +168,6 @@ final class EditorGroupViewController: NSViewController {
     init(groupID: EditorGroupID, state: EditorGroupState) {
         self.groupID = groupID
         self.state = state
-        previewSourceToggleButton = NSButton(
-            title: Localized.string("Preview", comment: "Initial title of the editor group's preview/source toggle button"),
-            target: nil,
-            action: nil
-        )
         super.init(nibName: nil, bundle: nil)
         NotificationCenter.default.addObserver(
             self,
@@ -169,27 +198,24 @@ final class EditorGroupViewController: NSViewController {
         }
     }
     override func loadView() {
-        let container = NSView()
+        let container = EditorGroupRootView()
         container.identifier = NSUserInterfaceItemIdentifier("editorGroup.container")
+        container.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        container.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         container.setAccessibilityElement(true)
         container.setAccessibilityRole(.group)
         container.setAccessibilityIdentifier("editorGroup.container")
 
         tabBarView.identifier = NSUserInterfaceItemIdentifier("editorGroup.tabBar")
 
-        previewSourceToggleButton.identifier = NSUserInterfaceItemIdentifier("editorGroup.previewSourceToggle")
-        previewSourceToggleButton.bezelStyle = .rounded
-        previewSourceToggleButton.target = self
-        previewSourceToggleButton.action = #selector(handleTogglePreviewSource)
-        previewSourceToggleButton.isHidden = true
-        previewSourceToggleButton.setAccessibilityLabel(Localized.string("Toggle Source and Preview", comment: "Accessibility label for the preview/source toggle button"))
-
-        headerRow.setViews([tabBarView, previewSourceToggleButton], in: .leading)
+        headerRow.setViews([tabBarView], in: .leading)
         headerRow.identifier = NSUserInterfaceItemIdentifier("editorGroup.header")
         headerRow.orientation = .horizontal
         headerRow.distribution = .fill
-        headerRow.spacing = 8
+        headerRow.spacing = 0
         headerRow.translatesAutoresizingMaskIntoConstraints = false
+        headerRow.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        headerRow.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         tabBarView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         tabBarView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -198,6 +224,8 @@ final class EditorGroupViewController: NSViewController {
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
 
         contentHost.translatesAutoresizingMaskIntoConstraints = false
+        contentHost.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        contentHost.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         contentHost.addSubview(placeholderLabel)
         NSLayoutConstraint.activate([
             placeholderLabel.centerXAnchor.constraint(equalTo: contentHost.centerXAnchor),
@@ -263,7 +291,7 @@ final class EditorGroupViewController: NSViewController {
         showContent(contentController(forTabID: tabID))
         recordCurrentNavigation()
         refreshTabBar()
-        refreshPreviewToggleButton()
+        notifyPreviewSourceControlChange()
         notifyStateChange()
         onDocumentReady?(relativePath, controller)
     }
@@ -277,7 +305,7 @@ final class EditorGroupViewController: NSViewController {
         diffControllers[tabID] = controller
         showContent(controller)
         refreshTabBar()
-        refreshPreviewToggleButton()
+        notifyPreviewSourceControlChange()
         notifyStateChange()
     }
 
@@ -412,7 +440,7 @@ final class EditorGroupViewController: NSViewController {
         state.selectedTabID = tabID
         loadAndShow(tabID: tabID, restoring: nil)
         refreshTabBar()
-        refreshPreviewToggleButton()
+        notifyPreviewSourceControlChange()
         notifyStateChange()
     }
 
@@ -425,7 +453,7 @@ final class EditorGroupViewController: NSViewController {
             showContent(nil)
         }
         refreshTabBar()
-        refreshPreviewToggleButton()
+        notifyPreviewSourceControlChange()
         notifyStateChange()
     }
 
@@ -439,6 +467,106 @@ final class EditorGroupViewController: NSViewController {
         state.moveTab(tabID, toIndex: index)
         refreshTabBar()
         notifyStateChange()
+    }
+
+    func detachTabForTransfer(_ tabID: EditorTabID) -> EditorTabTransferPayload? {
+        guard let tab = state.tabs.first(where: { $0.id == tabID }) else {
+            return nil
+        }
+        recordCurrentNavigation()
+        if state.selectedTabID == tabID {
+            loadTask?.cancel()
+            loadTask = nil
+        }
+        cancelPreviewBuild(for: tabID)
+        let payload = EditorTabTransferPayload(
+            tab: tab,
+            documentController: documentControllers.removeValue(forKey: tabID),
+            previewController: previewControllers.removeValue(forKey: tabID),
+            diffController: diffControllers.removeValue(forKey: tabID),
+            previewKind: previewKinds.removeValue(forKey: tabID),
+            usesPreviewMode: previewModeTabIDs.remove(tabID) != nil,
+            isImageOnly: imageOnlyTabIDs.remove(tabID) != nil
+        )
+        _ = state.removeTabForTransfer(tabID)
+        if let selectedID = state.selectedTabID {
+            loadAndShow(tabID: selectedID, restoring: nil)
+        } else {
+            showContent(nil)
+        }
+        refreshTabBar()
+        notifyPreviewSourceControlChange()
+        notifyStateChange()
+        return payload
+    }
+
+    @discardableResult
+    func insertTransferredTab(
+        _ payload: EditorTabTransferPayload,
+        at index: Int
+    ) -> EditorTabID {
+        let insertedID = state.insertTransferredTab(payload.tab, at: index)
+        if insertedID == payload.tab.id {
+            if let documentController = payload.documentController {
+                documentController.wordWrapEnabled = wordWrapEnabled
+                documentControllers[insertedID] = documentController
+            }
+            if let previewController = payload.previewController {
+                previewControllers[insertedID] = previewController
+            }
+            if let diffController = payload.diffController {
+                diffControllers[insertedID] = diffController
+            }
+            if let previewKind = payload.previewKind {
+                previewKinds[insertedID] = previewKind
+            }
+            if payload.usesPreviewMode {
+                previewModeTabIDs.insert(insertedID)
+            }
+            if payload.isImageOnly {
+                imageOnlyTabIDs.insert(insertedID)
+            }
+            if payload.previewController == nil,
+               let documentController = payload.documentController {
+                preparePreviewIfNeeded(
+                    tabID: insertedID,
+                    relativePath: payload.tab.relativePath,
+                    snapshot: documentController.snapshot
+                )
+            }
+        }
+
+        loadAndShow(tabID: insertedID, restoring: nil)
+        recordCurrentNavigation()
+        refreshTabBar()
+        notifyPreviewSourceControlChange()
+        notifyStateChange()
+        return insertedID
+    }
+
+    func tabDropInsertionIndex(at windowLocation: NSPoint) -> Int? {
+        tabBarView.insertionIndex(at: windowLocation)
+    }
+
+    @discardableResult
+    func showTabDropPreview(at windowLocation: NSPoint) -> EditorTabDropPreview? {
+        guard let geometry = tabBarView.showExternalDropPreview(at: windowLocation) else {
+            return nil
+        }
+        return EditorTabDropPreview(
+            groupID: groupID,
+            insertionIndex: geometry.insertionIndex,
+            gapFrameInWindow: geometry.gapFrameInWindow,
+            railFrameInWindow: geometry.railFrameInWindow
+        )
+    }
+
+    func clearTabDropPreview() {
+        tabBarView.clearExternalDropPreview()
+    }
+
+    func consumeTabDropPreview() {
+        tabBarView.consumeExternalDropPreview()
     }
 
     var currentDocumentController: CodeDocumentViewController? {
@@ -607,17 +735,17 @@ final class EditorGroupViewController: NSViewController {
         }
         if let diffController = diffControllers[tabID] {
             showContent(diffController)
-            refreshPreviewToggleButton()
+            notifyPreviewSourceControlChange()
             return
         }
         if imageOnlyTabIDs.contains(tabID) {
             showContent(previewControllers[tabID])
-            refreshPreviewToggleButton()
+            notifyPreviewSourceControlChange()
             return
         }
         if let controller = documentControllers[tabID] {
             showContent(contentController(forTabID: tabID))
-            refreshPreviewToggleButton()
+            notifyPreviewSourceControlChange()
             if let entry {
                 controller.restoreNavigationAnchor(
                     selection: entry.selection?.range,
@@ -641,7 +769,7 @@ final class EditorGroupViewController: NSViewController {
                 preparePreviewIfNeeded(tabID: tabID, relativePath: tab.relativePath, snapshot: snapshot)
                 showContent(contentController(forTabID: tabID))
                 onDocumentReady?(tab.relativePath, controller)
-                refreshPreviewToggleButton()
+                notifyPreviewSourceControlChange()
                 if let entry {
                     controller.restoreNavigationAnchor(
                         selection: entry.selection?.range,
@@ -705,7 +833,7 @@ final class EditorGroupViewController: NSViewController {
         previewModeTabIDs.insert(tabID)
         if state.selectedTabID == tabID {
             showContent(preview)
-            refreshPreviewToggleButton()
+            notifyPreviewSourceControlChange()
         }
     }
 
@@ -760,7 +888,7 @@ final class EditorGroupViewController: NSViewController {
             self.previewControllers[tabID] = preview
             if self.state.selectedTabID == tabID {
                 self.showContent(self.contentController(forTabID: tabID))
-                self.refreshPreviewToggleButton()
+                self.notifyPreviewSourceControlChange()
             }
         }
         previewBuildTasks[tabID] = task
@@ -785,48 +913,30 @@ final class EditorGroupViewController: NSViewController {
         return documentControllers[tabID]
     }
 
-    /// Shows or hides the Source/Preview toggle for the currently
-    /// selected tab and keeps its title in sync with which side is
-    /// currently displayed. Hidden entirely for tabs with no detected
-    /// preview kind, and disabled (but still visible, reading "Preview")
-    /// for image-only tabs, where there is no Source side to toggle to.
-    private func refreshPreviewToggleButton() {
+    var previewSourceControlState: EditorPreviewSourceControlState {
         guard let tabID = state.selectedTabID,
               diffControllers[tabID] == nil,
               let kind = previewKinds[tabID],
               kind != .none else {
-            previewSourceToggleButton.isHidden = true
-            return
+            return .unavailable
         }
-        previewSourceToggleButton.isHidden = false
         if imageOnlyTabIDs.contains(tabID) {
-            previewSourceToggleButton.title = Localized.string("Preview", comment: "Preview/source toggle button title when only a preview is available (image-only tab)")
-            previewSourceToggleButton.isEnabled = false
-            return
+            return .previewOnly
         }
-        previewSourceToggleButton.isEnabled = previewControllers[tabID] != nil
-        previewSourceToggleButton.title = previewModeTabIDs.contains(tabID)
-            ? Localized.string("View Source", comment: "Preview/source toggle button title when currently showing the preview, offering to switch to source")
-            : Localized.string("View Preview", comment: "Preview/source toggle button title when currently showing the source, offering to switch to preview")
-        previewSourceToggleButton.setAccessibilityValue(
-            previewModeTabIDs.contains(tabID)
-                ? Localized.string("Showing Preview", comment: "Accessibility value for the preview/source toggle button when a preview is currently shown")
-                : Localized.string("Showing Source", comment: "Accessibility value for the preview/source toggle button when source is currently shown")
-        )
+        guard previewControllers[tabID] != nil else {
+            return .unavailable
+        }
+        return previewModeTabIDs.contains(tabID) ? .showingPreview : .showingSource
     }
 
-    @objc
-    private func handleTogglePreviewSource(_ sender: Any?) {
-        onActivate?(groupID)
-        togglePreviewSource(sender)
+    private func notifyPreviewSourceControlChange() {
+        onPreviewSourceControlChange?(groupID, previewSourceControlState)
     }
 
     /// The real Source/Preview toggle entry point (SPEC 5.7's preview
     /// toggle in the primary open → search → navigate → diagnose → diff
-    /// → preview workflow) — shared by the toolbar button's action and
-    /// `WorkspaceViewController.togglePreviewSource(_:)`'s main-menu/
-    /// keyboard-shortcut wiring, so both paths stay identical by
-    /// construction.
+    /// → preview workflow), routed here by the window toolbar, main menu,
+    /// and keyboard shortcut.
     func togglePreviewSource(_ sender: Any?) {
         guard let tabID = state.selectedTabID, !imageOnlyTabIDs.contains(tabID) else {
             return
@@ -837,7 +947,7 @@ final class EditorGroupViewController: NSViewController {
             previewModeTabIDs.insert(tabID)
         }
         showContent(contentController(forTabID: tabID))
-        refreshPreviewToggleButton()
+        notifyPreviewSourceControlChange()
     }
 
     /// Test-facing wrapper for the Source/Preview toggle action, since
@@ -906,7 +1016,7 @@ final class EditorGroupViewController: NSViewController {
         showContent(preview)
         recordCurrentNavigation()
         refreshTabBar()
-        refreshPreviewToggleButton()
+        notifyPreviewSourceControlChange()
         notifyStateChange()
     }
 
@@ -930,6 +1040,7 @@ final class EditorGroupViewController: NSViewController {
         addChild(controller)
         let contentView = controller.view
         contentView.translatesAutoresizingMaskIntoConstraints = false
+        makePaneContentFlexible(contentView)
         contentHost.addSubview(contentView)
         NSLayoutConstraint.activate([
             contentView.topAnchor.constraint(equalTo: contentHost.topAnchor),
@@ -938,6 +1049,14 @@ final class EditorGroupViewController: NSViewController {
             contentView.bottomAnchor.constraint(equalTo: contentHost.bottomAnchor)
         ])
         onActiveDocumentChange?(currentDocumentController)
+    }
+
+    private func makePaneContentFlexible(_ view: NSView) {
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        view.subviews.forEach { self.makePaneContentFlexible($0) }
     }
 
     private func notifyStateChange() {
@@ -968,6 +1087,18 @@ final class EditorGroupViewController: NSViewController {
             onMove: { [weak self] tabID, index in
                 guard let self else { return }
                 self.moveTab(tabID, toIndex: index)
+            },
+            onExternalDragUpdate: { [weak self] tabID, windowLocation in
+                guard let self else { return nil }
+                return self.onTabDragUpdate?(self.groupID, tabID, windowLocation)
+            },
+            onExternalDrop: { [weak self] tabID, preview in
+                guard let self else { return false }
+                return self.onTabDrop?(self.groupID, tabID, preview) ?? false
+            },
+            onDragEnd: { [weak self] in
+                guard let self else { return }
+                self.onTabDragEnd?(self.groupID)
             }
         )
     }
@@ -1057,6 +1188,12 @@ struct EditorTabDragGeometry {
         }
         return itemIndex
     }
+}
+
+private struct EditorTabExternalDropGeometry {
+    let insertionIndex: Int
+    let gapFrameInWindow: NSRect
+    let railFrameInWindow: NSRect
 }
 
 struct EditorTabDropAnchors {
@@ -1233,13 +1370,21 @@ private final class EditorTabCollectionView: NSCollectionView {
     }
 }
 
+private final class EditorTabDragProxyView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 /// A fixed-width AppKit collection view keeps every tab inside the rail while
 /// a custom flow layout provides in-rail, interactive reordering.
 @MainActor
 private final class EditorTabBarView: NSView {
     private static let itemIdentifier = NSUserInterfaceItemIdentifier("editorGroup.tabItem")
     private static let horizontalRailInset: CGFloat = 0
-    private static let reorderAnimationDuration: TimeInterval = 0.12
+    private static var reorderAnimationDuration: TimeInterval {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.12
+    }
 
     private final class DragSession {
         let tabID: EditorTabID
@@ -1252,6 +1397,8 @@ private final class EditorTabBarView: NSView {
         var latestWindowLocation: NSPoint
         var isDragging = false
         var isSettling = false
+        var externalTarget: EditorTabDropPreview?
+        var dragProxy: EditorTabDragProxyView?
         var pendingCommit: EditorTabDropAnchors?
 
         init(
@@ -1283,10 +1430,14 @@ private final class EditorTabBarView: NSView {
     private var onClose: (EditorTabID) -> Void = { _ in }
     private var onPin: (EditorTabID) -> Void = { _ in }
     private var onMove: (EditorTabID, Int) -> Void = { _, _ in }
+    private var onExternalDragUpdate: (EditorTabID, NSPoint) -> EditorTabDropPreview? = { _, _ in nil }
+    private var onExternalDrop: (EditorTabID, EditorTabDropPreview) -> Bool = { _, _ in false }
+    private var onDragEnd: () -> Void = {}
     private var isApplyingSelection = false
     private var lastLayoutWidth: CGFloat = 0
     private var dragSession: DragSession?
     private var dragCancellationMonitor: LocalEventMonitor?
+    private var externalInsertionIndex: Int?
     var isActive = true {
         didSet {
             guard oldValue != isActive else {
@@ -1344,8 +1495,7 @@ private final class EditorTabBarView: NSView {
             clipView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             clipView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             clipView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: 32),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: 80)
+            heightAnchor.constraint(equalToConstant: 32)
         ])
     }
 
@@ -1401,17 +1551,24 @@ private final class EditorTabBarView: NSView {
         onSelect: @escaping (EditorTabID) -> Void,
         onClose: @escaping (EditorTabID) -> Void,
         onPin: @escaping (EditorTabID) -> Void,
-        onMove: @escaping (EditorTabID, Int) -> Void
+        onMove: @escaping (EditorTabID, Int) -> Void,
+        onExternalDragUpdate: @escaping (EditorTabID, NSPoint) -> EditorTabDropPreview?,
+        onExternalDrop: @escaping (EditorTabID, EditorTabDropPreview) -> Bool,
+        onDragEnd: @escaping () -> Void
     ) {
         if cancelCurrentDrag(animated: false, resolvingAgainst: tabs) {
             return
         }
+        externalInsertionIndex = nil
         self.tabs = tabs
         self.selectedTabID = selectedTabID
         self.onSelect = onSelect
         self.onClose = onClose
         self.onPin = onPin
         self.onMove = onMove
+        self.onExternalDragUpdate = onExternalDragUpdate
+        self.onExternalDrop = onExternalDrop
+        self.onDragEnd = onDragEnd
         collectionView.reloadData()
         updateCollectionLayout()
 
@@ -1422,6 +1579,110 @@ private final class EditorTabBarView: NSView {
             collectionView.selectionIndexPaths = [IndexPath(item: index, section: 0)]
         } else {
             collectionView.selectionIndexPaths = []
+        }
+    }
+
+    func insertionIndex(at windowLocation: NSPoint) -> Int? {
+        guard window != nil else {
+            return nil
+        }
+        let localLocation = convert(windowLocation, from: nil)
+        let hitBounds = railBackgroundView.frame.insetBy(dx: 0, dy: -6)
+        guard hitBounds.contains(localLocation) else {
+            return nil
+        }
+        guard !tabs.isEmpty, clipView.bounds.width > 0 else {
+            return 0
+        }
+        let collectionLocation = collectionView.convert(windowLocation, from: nil)
+        let tabWidth = clipView.bounds.width / CGFloat(tabs.count + 1)
+        let rawIndex = Int(floor(collectionLocation.x / tabWidth))
+        return max(0, min(rawIndex, tabs.count))
+    }
+
+    @discardableResult
+    func showExternalDropPreview(at windowLocation: NSPoint) -> EditorTabExternalDropGeometry? {
+        guard let insertionIndex = insertionIndex(at: windowLocation) else {
+            clearExternalDropPreview()
+            return nil
+        }
+        if externalInsertionIndex != insertionIndex {
+            externalInsertionIndex = insertionIndex
+            applyExternalInsertionLayout(at: insertionIndex, animated: true)
+            refreshSeparatorSuppression()
+        }
+        let finalCount = tabs.count + 1
+        let tabWidth = clipView.bounds.width / CGFloat(finalCount)
+        let gapFrame = NSRect(
+            x: CGFloat(insertionIndex) * tabWidth,
+            y: 0,
+            width: tabWidth,
+            height: clipView.bounds.height
+        )
+        return EditorTabExternalDropGeometry(
+            insertionIndex: insertionIndex,
+            gapFrameInWindow: collectionView.convert(gapFrame, to: nil),
+            railFrameInWindow: collectionView.convert(collectionView.bounds, to: nil)
+        )
+    }
+
+    func clearExternalDropPreview() {
+        guard externalInsertionIndex != nil else {
+            return
+        }
+        externalInsertionIndex = nil
+        restoreExternalInsertionLayout(animated: true)
+        refreshSeparatorSuppression()
+    }
+
+    func consumeExternalDropPreview() {
+        externalInsertionIndex = nil
+        refreshSeparatorSuppression()
+    }
+
+    private func applyExternalInsertionLayout(at insertionIndex: Int, animated: Bool) {
+        collectionView.layoutSubtreeIfNeeded()
+        let finalCount = tabs.count + 1
+        guard finalCount > 0 else {
+            return
+        }
+        let tabWidth = clipView.bounds.width / CGFloat(finalCount)
+        animateItemFrames(animated: animated) {
+            tabs.indices.map { itemIndex in
+                let slot = itemIndex < insertionIndex ? itemIndex : itemIndex + 1
+                return NSRect(
+                    x: CGFloat(slot) * tabWidth,
+                    y: 0,
+                    width: tabWidth,
+                    height: clipView.bounds.height
+                )
+            }
+        }
+    }
+
+    private func restoreExternalInsertionLayout(animated: Bool) {
+        animateItemFrames(animated: animated) {
+            tabs.indices.map { itemIndex in
+                reorderLayout.restingFrame(at: itemIndex) ?? .zero
+            }
+        }
+    }
+
+    private func animateItemFrames(
+        animated: Bool,
+        frames: () -> [NSRect]
+    ) {
+        let targetFrames = frames()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animated ? Self.reorderAnimationDuration : 0
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            for itemIndex in tabs.indices {
+                guard targetFrames.indices.contains(itemIndex),
+                      let item = currentItemView(at: itemIndex) else {
+                    continue
+                }
+                item.animator().frame = targetFrames[itemIndex]
+            }
         }
     }
 
@@ -1441,8 +1702,7 @@ private final class EditorTabBarView: NSView {
         layoutSubtreeIfNeeded()
         collectionView.layoutSubtreeIfNeeded()
 
-        guard tabs.count > 1,
-              let sourceIndex = tabs.firstIndex(where: { $0.id == tabID }),
+        guard let sourceIndex = tabs.firstIndex(where: { $0.id == tabID }),
               let sourceItemView = currentItemView(at: sourceIndex),
               let sourceFrame = reorderLayout.restingFrame(at: sourceIndex) else {
             return
@@ -1476,7 +1736,7 @@ private final class EditorTabBarView: NSView {
             }
             beginDrag(session)
         }
-        updateActiveDrag(session, windowLocation: event.locationInWindow)
+        updateDragTracking(session, windowLocation: event.locationInWindow)
     }
 
     private func handleMouseUp(on tabID: EditorTabID, event: NSEvent) {
@@ -1491,7 +1751,11 @@ private final class EditorTabBarView: NSView {
         }
 
         session.latestWindowLocation = event.locationInWindow
-        updateActiveDrag(session, windowLocation: event.locationInWindow)
+        updateDragTracking(session, windowLocation: event.locationInWindow)
+        if let externalTarget = session.externalTarget {
+            settleExternalDrag(session, into: externalTarget)
+            return
+        }
         settleDrag(session, at: session.targetIndex, commit: true, animated: true)
     }
 
@@ -1502,6 +1766,7 @@ private final class EditorTabBarView: NSView {
             frame: session.sourceFrame
         )
         setSourceDraggingAppearance(true, for: session)
+        refreshSeparatorSuppression()
 
         dragCancellationMonitor = LocalEventMonitor(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53, self?.dragSession?.isDragging == true else {
@@ -1510,6 +1775,145 @@ private final class EditorTabBarView: NSView {
             self?.cancelCurrentDrag(animated: true)
             return nil
         }
+    }
+
+    private func updateDragTracking(_ session: DragSession, windowLocation: NSPoint) {
+        guard dragSession === session, session.isDragging, !session.isSettling else {
+            return
+        }
+        if let externalTarget = onExternalDragUpdate(session.tabID, windowLocation) {
+            let isBeginningExternalDrag = session.externalTarget == nil
+            session.externalTarget = externalTarget
+            if isBeginningExternalDrag {
+                beginExternalDrag(session)
+            }
+            updateExternalDragProxy(
+                session,
+                target: externalTarget,
+                windowLocation: windowLocation
+            )
+            return
+        }
+
+        if session.externalTarget != nil {
+            endExternalDragPreview(session)
+        }
+        updateActiveDrag(session, windowLocation: windowLocation)
+    }
+
+    private func beginExternalDrag(_ session: DragSession) {
+        guard session.dragProxy == nil,
+              let overlay = window?.contentView,
+              let image = dragSnapshot(of: displayedSourceItemView(for: session)) else {
+            return
+        }
+
+        session.targetIndex = session.sourceIndex
+        resetVisibleItemTranslations()
+        let sourceItem = displayedSourceItemView(for: session)
+        let proxy = EditorTabDragProxyView(frame: sourceItem.convert(sourceItem.bounds, to: overlay))
+        proxy.identifier = NSUserInterfaceItemIdentifier("editorGroup.tabDragProxy")
+        proxy.image = image
+        proxy.imageScaling = .scaleAxesIndependently
+        proxy.wantsLayer = true
+        proxy.layer?.zPosition = 10_000
+        overlay.addSubview(proxy, positioned: .above, relativeTo: nil)
+        session.dragProxy = proxy
+        sourceItem.alphaValue = 0
+        applyExternalRemovalLayout(session, animated: true)
+        refreshSeparatorSuppression()
+    }
+
+    private func updateExternalDragProxy(
+        _ session: DragSession,
+        target: EditorTabDropPreview,
+        windowLocation: NSPoint
+    ) {
+        guard let proxy = session.dragProxy,
+              let overlay = proxy.superview else {
+            return
+        }
+        let railFrame = overlay.convert(target.railFrameInWindow, from: nil)
+        let gapFrame = overlay.convert(target.gapFrameInWindow, from: nil)
+        let grabFraction = max(
+            0,
+            min(
+                (session.pointerDownLocation.x - session.sourceFrame.minX)
+                    / max(session.sourceFrame.width, 1),
+                1
+            )
+        )
+        let pointer = overlay.convert(windowLocation, from: nil)
+        let width = session.sourceFrame.width
+        let minimumX = railFrame.minX
+        let maximumX = max(minimumX, railFrame.maxX - width)
+        proxy.frame = NSRect(
+            x: min(max(pointer.x - grabFraction * width, minimumX), maximumX),
+            y: gapFrame.minY,
+            width: width,
+            height: gapFrame.height
+        )
+    }
+
+    private func endExternalDragPreview(_ session: DragSession) {
+        session.externalTarget = nil
+        session.dragProxy?.removeFromSuperview()
+        session.dragProxy = nil
+        restoreSourceLayout(session, animated: false)
+        displayedSourceItemView(for: session).alphaValue = 1
+        refreshSeparatorSuppression()
+    }
+
+    private func applyExternalRemovalLayout(_ session: DragSession, animated: Bool) {
+        let remainingCount = tabs.count - 1
+        guard remainingCount > 0 else {
+            return
+        }
+        let tabWidth = clipView.bounds.width / CGFloat(remainingCount)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animated ? Self.reorderAnimationDuration : 0
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            for itemIndex in tabs.indices where itemIndex != session.sourceIndex {
+                guard let item = currentItemView(at: itemIndex) else {
+                    continue
+                }
+                let slot = itemIndex < session.sourceIndex ? itemIndex : itemIndex - 1
+                item.animator().frame = NSRect(
+                    x: CGFloat(slot) * tabWidth,
+                    y: 0,
+                    width: tabWidth,
+                    height: clipView.bounds.height
+                )
+            }
+        }
+    }
+
+    private func restoreSourceLayout(_ session: DragSession, animated: Bool) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animated ? Self.reorderAnimationDuration : 0
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            for itemIndex in tabs.indices {
+                guard let item = currentItemView(at: itemIndex),
+                      let frame = reorderLayout.restingFrame(at: itemIndex) else {
+                    continue
+                }
+                item.animator().frame = frame
+            }
+        }
+        session.draggedFrame = session.sourceFrame
+        reorderLayout.update(targetIndex: session.sourceIndex, draggedFrame: session.sourceFrame)
+    }
+
+    private func dragSnapshot(of view: NSView) -> NSImage? {
+        guard view.bounds.width > 0,
+              view.bounds.height > 0,
+              let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            return nil
+        }
+        view.cacheDisplay(in: view.bounds, to: representation)
+        let image = NSImage(size: view.bounds.size)
+        image.addRepresentation(representation)
+        return image
     }
 
     private func updateActiveDrag(_ session: DragSession, windowLocation: NSPoint) {
@@ -1555,6 +1959,7 @@ private final class EditorTabBarView: NSView {
         }
 
         setSourceFrame(draggedFrame, for: session)
+        refreshSeparatorSuppression()
     }
 
     private func animateGapTransition(_ session: DragSession, to targetIndex: Int) {
@@ -1575,6 +1980,64 @@ private final class EditorTabBarView: NSView {
             )
         }
         setSourceFrame(session.draggedFrame, for: session)
+        refreshSeparatorSuppression()
+    }
+
+    private func settleExternalDrag(
+        _ session: DragSession,
+        into target: EditorTabDropPreview
+    ) {
+        guard dragSession === session, !session.isSettling else {
+            return
+        }
+        session.isSettling = true
+        stopDragInfrastructure()
+
+        let completion: @MainActor @Sendable () -> Void = { [weak self, weak session] in
+            guard let self, let session, self.dragSession === session else {
+                return
+            }
+            self.commitExternalDrag(session, into: target)
+        }
+        guard let proxy = session.dragProxy,
+              let overlay = proxy.superview else {
+            completion()
+            return
+        }
+        let destinationFrame = overlay.convert(target.gapFrameInWindow, from: nil)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.reorderAnimationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            proxy.animator().frame = destinationFrame
+        } completionHandler: {
+            MainActor.assumeIsolated {
+                completion()
+            }
+        }
+    }
+
+    private func commitExternalDrag(
+        _ session: DragSession,
+        into target: EditorTabDropPreview
+    ) {
+        guard dragSession === session else {
+            return
+        }
+        stopDragInfrastructure()
+        setSourceDraggingAppearance(false, for: session)
+        reorderLayout.endReordering()
+        dragSession = nil
+
+        let committed = onExternalDrop(session.tabID, target)
+        session.dragProxy?.removeFromSuperview()
+        session.dragProxy = nil
+        if !committed {
+            restoreSourceLayout(session, animated: false)
+            displayedSourceItemView(for: session).alphaValue = 1
+            collectionView.layoutSubtreeIfNeeded()
+        }
+        refreshSeparatorSuppression()
+        onDragEnd()
     }
 
     private func settleDrag(
@@ -1652,6 +2115,10 @@ private final class EditorTabBarView: NSView {
         guard let session = dragSession else {
             return false
         }
+        if session.externalTarget != nil {
+            cancelExternalDrag(session, animated: animated)
+            return false
+        }
         if session.isSettling {
             return finishDrag(session, resolvingAgainst: latestTabs)
         }
@@ -1660,6 +2127,49 @@ private final class EditorTabBarView: NSView {
         }
         settleDrag(session, at: session.sourceIndex, commit: false, animated: true)
         return false
+    }
+
+    private func cancelExternalDrag(_ session: DragSession, animated: Bool) {
+        guard dragSession === session else {
+            return
+        }
+        session.isSettling = true
+        stopDragInfrastructure()
+        onDragEnd()
+        restoreSourceLayout(session, animated: animated)
+
+        let completion: @MainActor @Sendable () -> Void = { [weak self, weak session] in
+            guard let self, let session, self.dragSession === session else {
+                return
+            }
+            session.dragProxy?.removeFromSuperview()
+            session.dragProxy = nil
+            self.setSourceDraggingAppearance(false, for: session)
+            self.displayedSourceItemView(for: session).alphaValue = 1
+            self.reorderLayout.endReordering()
+            self.dragSession = nil
+            self.refreshSeparatorSuppression()
+            self.collectionView.layoutSubtreeIfNeeded()
+        }
+        guard animated,
+              let proxy = session.dragProxy,
+              let overlay = proxy.superview else {
+            completion()
+            return
+        }
+        let sourceFrame = overlay.convert(
+            collectionView.convert(session.sourceFrame, to: nil),
+            from: nil
+        )
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.reorderAnimationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            proxy.animator().frame = sourceFrame
+        } completionHandler: {
+            MainActor.assumeIsolated {
+                completion()
+            }
+        }
     }
 
     @discardableResult
@@ -1681,6 +2191,8 @@ private final class EditorTabBarView: NSView {
         resetVisibleItemTranslations()
         reorderLayout.endReordering()
         dragSession = nil
+        refreshSeparatorSuppression()
+        onDragEnd()
 
         if let destinationIndex {
             onMove(session.tabID, destinationIndex)
@@ -1748,6 +2260,34 @@ private final class EditorTabBarView: NSView {
             item.resetDisplacement()
         }
     }
+
+    private func refreshSeparatorSuppression() {
+        for itemIndex in tabs.indices {
+            currentItemView(at: itemIndex)?.setSeparatorSuppressedForDrag(
+                shouldSuppressSeparator(at: itemIndex)
+            )
+        }
+    }
+
+    private func shouldSuppressSeparator(at itemIndex: Int) -> Bool {
+        if let session = dragSession, session.isDragging {
+            if itemIndex == session.sourceIndex {
+                return true
+            }
+            if session.externalTarget != nil {
+                return false
+            }
+            let visualSlot = EditorTabDragGeometry.visualSlot(
+                forItemAt: itemIndex,
+                sourceIndex: session.sourceIndex,
+                targetIndex: session.targetIndex
+            )
+            if visualSlot == session.targetIndex - 1 {
+                return true
+            }
+        }
+        return externalInsertionIndex.map { itemIndex == $0 - 1 } ?? false
+    }
 }
 
 @MainActor
@@ -1804,6 +2344,7 @@ extension EditorTabBarView: NSCollectionViewDataSource, NSCollectionViewDelegate
                 )
             }
         }
+        item.setSeparatorSuppressedForDrag(shouldSuppressSeparator(at: indexPath.item))
         return item
     }
 
@@ -1831,6 +2372,7 @@ private final class EditorTabItemView: NSView {
     var onSetDraggingAppearance: ((Bool) -> Void)?
     var onSetDisplacement: ((CGFloat, TimeInterval) -> Void)?
     var onResetDisplacement: (() -> Void)?
+    var onSetSeparatorSuppressedForDrag: ((Bool) -> Void)?
     private var trackedMouseDragged: ((NSEvent) -> Void)?
     private var trackedMouseUp: ((NSEvent) -> Void)?
 
@@ -1844,6 +2386,10 @@ private final class EditorTabItemView: NSView {
 
     func resetDisplacement() {
         onResetDisplacement?()
+    }
+
+    func setSeparatorSuppressedForDrag(_ isSuppressed: Bool) {
+        onSetSeparatorSuppressedForDrag?(isSuppressed)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -1950,6 +2496,7 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
     private var tab: EditorTab?
     private var configuredSelection = false
     private var showsTrailingSeparator = false
+    private var isSeparatorSuppressedForDrag = false
     private var isHovered = false
     private var isBeingDragged = false
     private var hoverTrackingArea: NSTrackingArea?
@@ -1968,6 +2515,9 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
         }
         container.onResetDisplacement = { [weak self] in
             self?.resetDisplacement()
+        }
+        container.onSetSeparatorSuppressedForDrag = { [weak self] in
+            self?.setSeparatorSuppressedForDrag($0)
         }
         visualView.wantsLayer = true
         visualView.frame = container.bounds
@@ -2017,6 +2567,7 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
         contentView.translatesAutoresizingMaskIntoConstraints = false
 
         trailingSeparator.wantsLayer = true
+        trailingSeparator.identifier = NSUserInterfaceItemIdentifier("tab.separator")
         trailingSeparator.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.122).cgColor
         trailingSeparator.translatesAutoresizingMaskIntoConstraints = false
 
@@ -2091,6 +2642,7 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
         self.tab = tab
         self.configuredSelection = isSelected
         self.showsTrailingSeparator = showsTrailingSeparator
+        isSeparatorSuppressedForDrag = false
         isBeingDragged = false
         itemView.layer?.removeAllAnimations()
         itemView.layer?.zPosition = 0
@@ -2120,6 +2672,7 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
         fileIconView.identifier = NSUserInterfaceItemIdentifier("tab.icon.\(tab.relativePath)")
         contentView.identifier = NSUserInterfaceItemIdentifier("tab.content.\(tab.relativePath)")
         visualView.identifier = NSUserInterfaceItemIdentifier("tab.visual.\(tab.relativePath)")
+        trailingSeparator.identifier = NSUserInterfaceItemIdentifier("tab.separator.\(tab.relativePath)")
         pinButton.isHidden = tab.isPinned || !isHovered
         pinButton.identifier = NSUserInterfaceItemIdentifier("tab.pin.\(tab.relativePath)")
         pinButton.setAccessibilityLabel(
@@ -2144,6 +2697,14 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
     func setDraggingAppearance(_ isDragging: Bool) {
         isBeingDragged = isDragging
         view.layer?.zPosition = isDragging ? 1_000 : 0
+        applySelectionAppearance()
+    }
+
+    func setSeparatorSuppressedForDrag(_ isSuppressed: Bool) {
+        guard isSeparatorSuppressedForDrag != isSuppressed else {
+            return
+        }
+        isSeparatorSuppressedForDrag = isSuppressed
         applySelectionAppearance()
     }
 
@@ -2197,7 +2758,9 @@ private final class EditorTabCollectionItem: NSCollectionViewItem {
                 : NSColor.clear.cgColor
             selectionBackgroundView.layer?.shadowOpacity = 0
         }
-        trailingSeparator.isHidden = selected || !showsTrailingSeparator
+        trailingSeparator.isHidden = selected
+            || !showsTrailingSeparator
+            || isSeparatorSuppressedForDrag
         titleButton.contentTintColor = selected
             ? .labelColor
             : NSColor.labelColor.withAlphaComponent(0.78)

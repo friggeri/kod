@@ -198,6 +198,44 @@ public struct EditorGroupState: Equatable, Codable, Sendable {
         tabs.insert(tab, at: clamped)
     }
 
+    /// Removes a tab while preserving its complete model so another editor
+    /// group can insert the same tab identity without reopening it as a new
+    /// preview.
+    @discardableResult
+    public mutating func removeTabForTransfer(_ id: EditorTabID) -> EditorTab? {
+        guard let tab = tabs.first(where: { $0.id == id }) else {
+            return nil
+        }
+        _ = closeTab(id)
+        return tab
+    }
+
+    /// Inserts a tab moved from another editor group and selects it. A group
+    /// never contains the same path twice; dropping onto a group that already
+    /// has the file simply selects that existing tab.
+    @discardableResult
+    public mutating func insertTransferredTab(
+        _ transferredTab: EditorTab,
+        at destination: Int
+    ) -> EditorTabID {
+        if let existing = tabs.first(where: { $0.relativePath == transferredTab.relativePath }) {
+            selectedTabID = existing.id
+            if transferredTab.isPinned {
+                pin(existing.id)
+            }
+            return existing.id
+        }
+
+        var tab = transferredTab
+        if !tab.isPinned, tabs.contains(where: { !$0.isPinned }) {
+            tab.isPinned = true
+        }
+        let clamped = max(0, min(destination, tabs.count))
+        tabs.insert(tab, at: clamped)
+        selectedTabID = tab.id
+        return tab.id
+    }
+
     public mutating func recordNavigation(_ entry: EditorNavigationEntry) {
         if let current, current != entry {
             backStack.append(current)
@@ -361,8 +399,9 @@ public struct WorkspaceLayoutState: Equatable, Codable, Sendable {
         }
     }
 
-    /// Splits `groupID` (defaulting to the active group), inserting a fresh
-    /// empty group as the new sibling and making it active.
+    /// Splits `groupID` (defaulting to the active group), inserting a new
+    /// sibling and making it active. When the source has a selected file, the
+    /// new group starts with an independently identified copy of that file.
     @discardableResult
     public mutating func split(
         _ groupID: EditorGroupID? = nil,
@@ -370,7 +409,20 @@ public struct WorkspaceLayoutState: Equatable, Codable, Sendable {
         ratio: Double = 0.5
     ) -> EditorGroupID {
         let source = groupID ?? activeGroupID
-        let newGroup = EditorGroupState()
+        let sourceGroup = groups[source]
+        var newGroup = EditorGroupState()
+        if let selectedTab = sourceGroup?.selectedTab {
+            let copiedTab = EditorTab(
+                relativePath: selectedTab.relativePath,
+                isPinned: true,
+                tombstoneReason: selectedTab.tombstoneReason
+            )
+            newGroup.tabs = [copiedTab]
+            newGroup.selectedTabID = copiedTab.id
+            newGroup.current = sourceGroup?.current?.relativePath == selectedTab.relativePath
+                ? sourceGroup?.current
+                : EditorNavigationEntry(relativePath: selectedTab.relativePath)
+        }
         let newNode = SplitLayoutNode.split(
             orientation: orientation,
             ratio: ratio,

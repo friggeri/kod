@@ -26,10 +26,21 @@ final class WorkspaceCoreTests: XCTestCase {
 
         let store = WorkspaceTrustStore(defaults: defaults)
         XCTAssertFalse(store.isTrusted(identity))
+        XCTAssertTrue(store.claimInitialTrustBannerPresentation(for: identity))
+        XCTAssertFalse(store.claimInitialTrustBannerPresentation(for: identity))
+        XCTAssertFalse(
+            WorkspaceTrustStore(defaults: defaults)
+                .claimInitialTrustBannerPresentation(for: identity),
+            "The initial trust banner presentation must persist across store instances"
+        )
         store.trust(identity)
         XCTAssertTrue(store.isTrusted(identity))
         store.revoke(identity)
         XCTAssertFalse(store.isTrusted(identity))
+        XCTAssertFalse(
+            store.claimInitialTrustBannerPresentation(for: identity),
+            "Changing trust must not make the one-time banner reappear"
+        )
     }
 
     func testScannerRespectsIgnoreHiddenAndSymlinkRules() async throws {

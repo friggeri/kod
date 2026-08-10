@@ -115,7 +115,7 @@ The sidebar and status bar may be hidden. Layout changes must not reparse source
 2. Kod canonicalizes the root, detects a Git worktree, and checks workspace trust.
 3. The window becomes usable immediately in syntax/search-only mode.
 4. File discovery, quick-open indexing, Git status, and state restoration run concurrently.
-5. For an untrusted workspace, Kod shows a persistent but non-modal trust prompt. No language server or repository-discovered executable starts before approval.
+5. The first time an untrusted workspace is opened, Kod shows a non-modal trust banner. A persistent status-bar indicator shows the current trust state thereafter and opens a confirmation prompt before allowing or revoking trust. No language server or repository-discovered executable starts before approval.
 6. Once trusted, configured language servers start lazily when a matching source file is opened or a workspace-symbol operation requires one.
 
 Opening a workspace must not automatically fetch network content.
@@ -559,7 +559,7 @@ They may not start:
 - Toolchain commands that inspect project configuration
 - Remote Markdown resources
 
-Trust is recorded against canonical path and volume identity, is visible in the window, and can be revoked.
+Trust is recorded against canonical path and volume identity, is visible in the status bar, and can be revoked from that indicator after confirmation.
 
 ### 13.2 Process security
 

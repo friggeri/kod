@@ -29,6 +29,44 @@ final class EditorGroupTabAccessibilityTests: XCTestCase {
         windows.append(window)
     }
 
+    private func hostSideBySide(
+        _ first: EditorGroupViewController,
+        _ second: EditorGroupViewController
+    ) {
+        let root = NSViewController()
+        root.view = NSView()
+        let splitView = NSSplitView()
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        splitView.translatesAutoresizingMaskIntoConstraints = false
+        root.addChild(first)
+        root.addChild(second)
+        splitView.addArrangedSubview(first.view)
+        splitView.addArrangedSubview(second.view)
+        root.view.addSubview(splitView)
+        NSLayoutConstraint.activate([
+            splitView.topAnchor.constraint(equalTo: root.view.topAnchor),
+            splitView.leadingAnchor.constraint(equalTo: root.view.leadingAnchor),
+            splitView.trailingAnchor.constraint(equalTo: root.view.trailingAnchor),
+            splitView.bottomAnchor.constraint(equalTo: root.view.bottomAnchor)
+        ])
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = root
+        window.setContentSize(NSSize(width: 900, height: 600))
+        window.layoutIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        splitView.setPosition(450, ofDividerAt: 0)
+        window.layoutIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        windows.append(window)
+    }
+
     /// Depth-first search for a subview whose `identifier` exactly
     /// matches `identifier`, starting from `view` itself.
     private func findView(identifier: String, in view: NSView) -> NSView? {
@@ -451,6 +489,174 @@ final class EditorGroupTabAccessibilityTests: XCTestCase {
             XCTAssertEqual(tab.layer?.zPosition, 0)
             XCTAssertEqual(visual.frame.minX, 0, accuracy: 0.5)
         }
+    }
+
+    func testDraggingTabBetweenPanesAnimatesBothRailsAndTransfersItsLiveController() throws {
+        let source = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
+        let destination = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
+        hostSideBySide(source, destination)
+        let initialSourceWidth = source.view.frame.width
+        let initialDestinationWidth = destination.view.frame.width
+        source.openTab(
+            relativePath: "Stay.swift",
+            pinned: true,
+            snapshot: SourceSnapshot(text: "stay")
+        )
+        source.openTab(
+            relativePath: "Source.swift",
+            pinned: true,
+            snapshot: SourceSnapshot(text: "source")
+        )
+        destination.openTab(
+            relativePath: "Destination.swift",
+            pinned: true,
+            snapshot: SourceSnapshot(text: "destination")
+        )
+        source.view.window?.layoutIfNeeded()
+        XCTAssertEqual(source.view.frame.width, initialSourceWidth, accuracy: 0.5)
+        XCTAssertEqual(destination.view.frame.width, initialDestinationWidth, accuracy: 0.5)
+
+        source.onTabDragUpdate = { _, _, windowLocation in
+            destination.showTabDropPreview(at: windowLocation)
+        }
+        source.onTabDragEnd = { _ in
+            destination.clearTabDropPreview()
+        }
+        source.onTabDrop = { _, tabID, preview in
+            guard preview.groupID == destination.groupID,
+                  let payload = source.detachTabForTransfer(tabID) else {
+                return false
+            }
+            destination.consumeTabDropPreview()
+            destination.insertTransferredTab(payload, at: preview.insertionIndex)
+            return true
+        }
+
+        let sourceTab = try XCTUnwrap(findView(identifier: "tab.Source.swift", in: source.view))
+        let stayingSourceTab = try XCTUnwrap(
+            findView(identifier: "tab.Stay.swift", in: source.view)
+        )
+        let destinationTab = try XCTUnwrap(
+            findView(identifier: "tab.Destination.swift", in: destination.view)
+        )
+        let originalStayingSourceTabWidth = stayingSourceTab.frame.width
+        let originalDestinationTabWidth = destinationTab.frame.width
+        let window = try XCTUnwrap(source.view.window)
+        let downLocation = sourceTab.convert(
+            NSPoint(x: sourceTab.bounds.midX, y: sourceTab.bounds.midY),
+            to: nil
+        )
+        let destinationLocation = destinationTab.convert(
+            NSPoint(x: destinationTab.bounds.midX, y: destinationTab.bounds.midY),
+            to: nil
+        )
+
+        func event(_ type: NSEvent.EventType, at location: NSPoint) throws -> NSEvent {
+            try XCTUnwrap(
+                NSEvent.mouseEvent(
+                    with: type,
+                    location: location,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 0,
+                    clickCount: 1,
+                    pressure: 1
+                )
+            )
+        }
+
+        sourceTab.mouseDown(with: try event(.leftMouseDown, at: downLocation))
+        sourceTab.mouseDragged(with: try event(.leftMouseDragged, at: destinationLocation))
+        let dragProxy = try XCTUnwrap(
+            findView(identifier: "editorGroup.tabDragProxy", in: window.contentView!)
+        )
+        XCTAssertTrue(sourceTab.alphaValue == 0)
+        XCTAssertGreaterThan(stayingSourceTab.frame.width, originalStayingSourceTabWidth)
+        XCTAssertLessThan(destinationTab.frame.width, originalDestinationTabWidth)
+        let destinationFrameInWindow = destinationTab.convert(
+            destinationTab.bounds,
+            to: window.contentView
+        )
+        XCTAssertEqual(dragProxy.frame.midY, destinationFrameInWindow.midY, accuracy: 1)
+
+        sourceTab.mouseDragged(with: try event(.leftMouseDragged, at: downLocation))
+        XCTAssertNil(findView(identifier: "editorGroup.tabDragProxy", in: window.contentView!))
+        XCTAssertEqual(sourceTab.alphaValue, 1)
+        XCTAssertEqual(stayingSourceTab.frame.width, originalStayingSourceTabWidth, accuracy: 0.5)
+        XCTAssertEqual(destinationTab.frame.width, originalDestinationTabWidth, accuracy: 0.5)
+
+        sourceTab.mouseDragged(with: try event(.leftMouseDragged, at: destinationLocation))
+        XCTAssertNotNil(findView(identifier: "editorGroup.tabDragProxy", in: window.contentView!))
+        sourceTab.mouseUp(with: try event(.leftMouseUp, at: destinationLocation))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.25))
+
+        XCTAssertEqual(source.state.tabs.map(\.relativePath), ["Stay.swift"])
+        XCTAssertEqual(
+            destination.state.tabs.map(\.relativePath),
+            ["Destination.swift", "Source.swift"]
+        )
+        XCTAssertEqual(destination.currentDocumentController?.snapshot.text, "source")
+        XCTAssertNil(findView(identifier: "editorGroup.tabDragProxy", in: window.contentView!))
+        XCTAssertEqual(source.view.frame.width, initialSourceWidth, accuracy: 0.5)
+        XCTAssertEqual(destination.view.frame.width, initialDestinationWidth, accuracy: 0.5)
+    }
+
+    func testDraggingSuppressesSeparatorsImmediatelyBesideMovingTab() throws {
+        let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
+        host(controller)
+        var tabIDs: [String: EditorTabID] = [:]
+        for path in ["A.swift", "B.swift", "C.swift", "D.swift"] {
+            controller.openTab(relativePath: path, pinned: true, snapshot: SourceSnapshot(text: path))
+            tabIDs[path] = try XCTUnwrap(
+                controller.state.tabs.first(where: { $0.relativePath == path })?.id
+            )
+        }
+        controller.selectTab(try XCTUnwrap(tabIDs["C.swift"]))
+        controller.view.window?.layoutIfNeeded()
+
+        let draggedTab = try XCTUnwrap(findView(identifier: "tab.C.swift", in: controller.view))
+        let destinationTab = try XCTUnwrap(findView(identifier: "tab.B.swift", in: controller.view))
+        let leftSeparator = try XCTUnwrap(
+            findView(identifier: "tab.separator.A.swift", in: controller.view)
+        )
+        let sourceSeparator = try XCTUnwrap(
+            findView(identifier: "tab.separator.C.swift", in: controller.view)
+        )
+        XCTAssertFalse(leftSeparator.isHidden)
+
+        let window = try XCTUnwrap(controller.view.window)
+        let downLocation = draggedTab.convert(
+            NSPoint(x: draggedTab.bounds.midX, y: draggedTab.bounds.midY),
+            to: nil
+        )
+        let destinationLocation = destinationTab.convert(
+            NSPoint(x: destinationTab.bounds.midX - 1, y: destinationTab.bounds.midY),
+            to: nil
+        )
+        func event(_ type: NSEvent.EventType, at location: NSPoint) throws -> NSEvent {
+            try XCTUnwrap(
+                NSEvent.mouseEvent(
+                    with: type,
+                    location: location,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 0,
+                    clickCount: 1,
+                    pressure: 1
+                )
+            )
+        }
+
+        draggedTab.mouseDown(with: try event(.leftMouseDown, at: downLocation))
+        draggedTab.mouseDragged(with: try event(.leftMouseDragged, at: destinationLocation))
+
+        XCTAssertTrue(leftSeparator.isHidden)
+        XCTAssertTrue(sourceSeparator.isHidden)
+        draggedTab.mouseUp(with: try event(.leftMouseUp, at: destinationLocation))
     }
 
     func testPaneActivationMonitorReturnsRemainingControlClicksUnchanged() throws {

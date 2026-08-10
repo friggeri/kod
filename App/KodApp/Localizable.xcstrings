@@ -146,7 +146,7 @@
       }
     },
     "Cancel": {
-      "comment": "Cancel button title in the Go to Line panel",
+      "comment": "Cancel button title in panels and workspace trust confirmation alerts",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1586,7 +1586,7 @@
       }
     },
     "Revoke Trust": {
-      "comment": "Trust banner button title to revoke trust for the current workspace",
+      "comment": "Trust banner and confirmation alert title/button for revoking trust for the current workspace",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1598,13 +1598,25 @@
       }
     },
     "Revoke trust for this workspace, disabling language servers": {
-      "comment": "Accessibility label for the trust banner's revoke-trust button",
+      "comment": "Accessibility label/help for controls that revoke workspace trust",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Revoke trust for this workspace, disabling language servers"
+          }
+        }
+      }
+    },
+    "Revoking trust disables repository tools and stops running language servers for this workspace.": {
+      "comment": "Explanation in the confirmation alert for revoking workspace trust",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoking trust disables repository tools and stops running language servers for this workspace."
           }
         }
       }
@@ -2042,7 +2054,7 @@
       }
     },
     "Trust Workspace": {
-      "comment": "Trust banner button title to trust the current workspace",
+      "comment": "Trust banner and confirmation alert title/button for trusting the current workspace",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2054,13 +2066,25 @@
       }
     },
     "Trust this workspace, enabling language servers and repository tools": {
-      "comment": "Accessibility label for the trust banner's trust-workspace button",
+      "comment": "Accessibility label/help for controls that grant workspace trust",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Trust this workspace, enabling language servers and repository tools"
+          }
+        }
+      }
+    },
+    "Trusting this workspace enables language servers and repository tools, which may execute code from this directory.": {
+      "comment": "Explanation in the confirmation alert for trusting a workspace",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trusting this workspace enables language servers and repository tools, which may execute code from this directory."
           }
         }
       }
