@@ -10,7 +10,6 @@ public enum DiagnosticSubsystem: String, Sendable, Equatable, Codable, CaseItera
     case search
     case git
     case languageServer
-    case managedInstall
     case preview
     case theme
     case font
@@ -76,7 +75,7 @@ public struct DiagnosticContextField: Sendable, Equatable, Codable {
 
 /// A single structured, bounded diagnostic record. `DiagnosticEvent`s are
 /// produced by background subsystems (language servers, Git, search,
-/// managed installs, previews, theme/font loading) whenever they hit an
+/// previews, theme/font loading) whenever they hit an
 /// explicit failure, degraded, or recovered state, per SPEC 15. They are
 /// never raw `print`/`NSLog` output: every event carries a subsystem, a
 /// level, a human-readable (pre-redaction) message, and zero or more

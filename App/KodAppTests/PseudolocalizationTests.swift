@@ -67,6 +67,7 @@ final class PseudolocalizationTests: XCTestCase {
         ("SearchSidebarViewController status label", "No results"),
         ("SymbolsViewController status label", "Searching…"),
         ("WorkspaceViewController trust banner text", "Workspace trust granted"),
+        ("Language Support settings title", "Language Support"),
         ("GitBlamePanelController accessibility label", "Commit details"),
         ("SourceControlSidebarViewController section title", "Merge Conflicts"),
         ("GitDiffViewController segmented control label", "Side by Side"),

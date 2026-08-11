@@ -1,0 +1,7 @@
+application:
+  name: Kod
+  features:
+    syntaxHighlighting: true
+    languageServers:
+      - shell
+      - markdown

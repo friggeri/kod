@@ -3,8 +3,7 @@ import SwiftUI
 
 /// The Diagnostics settings tab (SPEC 15): shows a live, always-redacted
 /// view of the shared `BoundedEventLog`'s `redactedSnapshot()`, the
-/// managed-server provenance section (SPEC 6.5/13), the opt-in
-/// crash-reporting toggle (SPEC 13.3), and the support-bundle export
+/// opt-in crash-reporting toggle (SPEC 13.3), and the support-bundle export
 /// action. A plain SwiftUI `View` driven by an `@ObservedObject`
 /// view-model plus a couple of closures for the file-panel-backed export
 /// action — no app-wide singleton is referenced directly from the view
@@ -17,8 +16,6 @@ struct DiagnosticsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             eventLogSection
-            Divider()
-            managedServerSection
             Divider()
             privacySection
             Spacer()
@@ -91,20 +88,6 @@ struct DiagnosticsView: View {
         case .info: return .primary
         case .warning: return .orange
         case .error: return .red
-        }
-    }
-
-    private var managedServerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Managed Language Servers", comment: "Section header for the managed language server provenance list in Settings").font(.headline)
-            ForEach(model.managedServerStatuses, id: \.serverID) { status in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(status.serverID).font(.body.bold())
-                    Text(status.provenanceDescription)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
         }
     }
 

@@ -250,23 +250,36 @@ public actor LanguageWorkspaceService {
 
     public struct Configuration: Sendable {
         public var languageId: String
+        public var languageIdForURL: @Sendable (URL) -> String?
         public var arguments: [String]
         public var environment: [String: String]?
         public var semanticTokenTypes: [String]
         public var semanticTokenModifiers: [String]
+        public var initializationOptions: JSONValue?
+        public var workspaceConfiguration: [String: JSONValue]
 
         public init(
             languageId: String,
+            languageIdForURL: @escaping @Sendable (URL) -> String? = { _ in nil },
             arguments: [String] = [],
             environment: [String: String]? = nil,
             semanticTokenTypes: [String] = [],
-            semanticTokenModifiers: [String] = []
+            semanticTokenModifiers: [String] = [],
+            initializationOptions: JSONValue? = nil,
+            workspaceConfiguration: [String: JSONValue] = [:]
         ) {
             self.languageId = languageId
+            self.languageIdForURL = languageIdForURL
             self.arguments = arguments
             self.environment = environment
             self.semanticTokenTypes = semanticTokenTypes
             self.semanticTokenModifiers = semanticTokenModifiers
+            self.initializationOptions = initializationOptions
+            self.workspaceConfiguration = workspaceConfiguration
+        }
+
+        func resolvedLanguageId(for url: URL) -> String {
+            languageIdForURL(url) ?? languageId
         }
     }
 
@@ -329,7 +342,9 @@ public actor LanguageWorkspaceService {
             environment: configuration.environment,
             rootURL: identity.root,
             semanticTokenTypes: configuration.semanticTokenTypes,
-            semanticTokenModifiers: configuration.semanticTokenModifiers
+            semanticTokenModifiers: configuration.semanticTokenModifiers,
+            initializationOptions: configuration.initializationOptions,
+            workspaceConfiguration: configuration.workspaceConfiguration
         )
         connectionGeneration += 1
         let generation = connectionGeneration
@@ -390,7 +405,7 @@ public actor LanguageWorkspaceService {
             let params = DidOpenTextDocumentParams(
                 textDocument: TextDocumentItem(
                     uri: DocumentURI(fileURL: snapshot.url),
-                    languageId: configuration.languageId,
+                    languageId: configuration.resolvedLanguageId(for: snapshot.url),
                     version: snapshot.version,
                     text: snapshot.text
                 )
@@ -456,7 +471,7 @@ public actor LanguageWorkspaceService {
         let params = DidOpenTextDocumentParams(
             textDocument: TextDocumentItem(
                 uri: DocumentURI(fileURL: snapshot.url),
-                languageId: configuration.languageId,
+                languageId: configuration.resolvedLanguageId(for: snapshot.url),
                 version: snapshot.version,
                 text: snapshot.text
             )
@@ -623,7 +638,7 @@ public actor LanguageWorkspaceService {
         let encoding = await resolvedPositionEncoding()
         let position = try snapshot.position(forUTF8Offset: utf8Offset, encoding: encoding)
 
-        let locations: [LSPLocation] = try await connection.sendRequest(
+        let locations: ReferenceResult = try await connection.sendRequest(
             .references,
             params: ReferenceParams(
                 textDocument: TextDocumentIdentifier(uri: DocumentURI(fileURL: snapshot.url)),
@@ -631,7 +646,7 @@ public actor LanguageWorkspaceService {
                 context: ReferenceContext(includeDeclaration: includeDeclaration)
             )
         )
-        return locations.compactMap(validatedNavigationTarget)
+        return (locations ?? []).compactMap(validatedNavigationTarget)
     }
 
     public func documentHighlights(snapshot: SourceSnapshot, utf8Offset: Int) async throws -> [ValidatedDocumentHighlight] {
@@ -814,11 +829,11 @@ public actor LanguageWorkspaceService {
         try requireOpenAndCurrent(snapshot)
         let encoding = await resolvedPositionEncoding()
 
-        let links: DocumentLinkResult = try await connection.sendRequest(
+        let links: DocumentLinkResult? = try await connection.sendRequest(
             .documentLink,
             params: DocumentLinkParams(textDocument: TextDocumentIdentifier(uri: DocumentURI(fileURL: snapshot.url)))
         )
-        return links.compactMap { link -> ValidatedDocumentLink? in
+        return (links ?? []).compactMap { link -> ValidatedDocumentLink? in
             guard let safeLink = SafeDocumentLink.validating(link),
                   let range = utf8Range(link.range, snapshot: snapshot, encoding: encoding) else {
                 return nil

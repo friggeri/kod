@@ -43,8 +43,7 @@ final class DiagnosticsViewModelTests: XCTestCase {
         let model = DiagnosticsViewModel(
             diagnosticsLog: log,
             crashReportingSettingsStore: CrashReportingSettingsStore(defaults: makeIsolatedDefaults()),
-            quarantineLedgers: { [] },
-            managedInstallCoordinator: nil
+            quarantineLedgers: { [] }
         )
         await model.refresh()
 
@@ -75,8 +74,7 @@ final class DiagnosticsViewModelTests: XCTestCase {
         let model = DiagnosticsViewModel(
             diagnosticsLog: log,
             crashReportingSettingsStore: CrashReportingSettingsStore(defaults: makeIsolatedDefaults()),
-            quarantineLedgers: { [] },
-            managedInstallCoordinator: nil
+            quarantineLedgers: { [] }
         )
         await model.refresh()
         XCTAssertGreaterThan(model.droppedCount, 0)
@@ -94,7 +92,6 @@ final class DiagnosticsViewModelTests: XCTestCase {
             diagnosticsLog: log,
             crashReportingSettingsStore: CrashReportingSettingsStore(defaults: makeIsolatedDefaults()),
             quarantineLedgers: { [quarantineRecord] },
-            managedInstallCoordinator: nil,
             appVersion: "1.0 (test)",
             osVersion: "Test OS 1.0",
             architecture: "test-arch"
@@ -132,8 +129,7 @@ final class DiagnosticsViewModelTests: XCTestCase {
         let firstModel = DiagnosticsViewModel(
             diagnosticsLog: log,
             crashReportingSettingsStore: CrashReportingSettingsStore(defaults: defaults),
-            quarantineLedgers: { [] },
-            managedInstallCoordinator: nil
+            quarantineLedgers: { [] }
         )
         XCTAssertFalse(firstModel.crashReportingEnabled, "Crash reporting must default to off")
 
@@ -144,8 +140,7 @@ final class DiagnosticsViewModelTests: XCTestCase {
         let reloadedModel = DiagnosticsViewModel(
             diagnosticsLog: log,
             crashReportingSettingsStore: CrashReportingSettingsStore(defaults: defaults),
-            quarantineLedgers: { [] },
-            managedInstallCoordinator: nil
+            quarantineLedgers: { [] }
         )
         XCTAssertTrue(reloadedModel.crashReportingEnabled, "The opt-in must persist across a store reload")
     }

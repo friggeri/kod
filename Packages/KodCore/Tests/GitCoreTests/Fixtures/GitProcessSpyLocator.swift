@@ -1,8 +1,8 @@
 import Foundation
 
 /// Locates the `GitProcessSpy` executable SwiftPM builds as a sibling
-/// product of this test target — same technique as
-/// `ManagedFakeLanguageServerLocator`/`FakeLanguageServerLocator`.
+/// product of this test target — the same technique used by the language
+/// client fixture executable locator.
 enum GitProcessSpyLocator {
     enum LocatorError: Error {
         case notFound

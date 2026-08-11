@@ -1,0 +1,9 @@
+keyword 0..<5
+variable 6..<14
+variable 16..<20
+variable 22..<28
+type 22..<29
+variable 35..<43
+variable 44..<48
+variable 51..<55
+variable 63..<70

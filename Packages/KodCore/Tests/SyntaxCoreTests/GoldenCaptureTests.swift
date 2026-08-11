@@ -21,7 +21,19 @@ final class GoldenCaptureTests: XCTestCase {
         (.html, "html"),
         (.css, "css"),
         (.python, "py"),
-        (.rust, "rs")
+        (.rust, "rs"),
+        (.shell, "sh"),
+        (.markdown, "md"),
+        (.json, "json"),
+        (.yaml, "yaml"),
+        (.toml, "toml"),
+        (.c, "c"),
+        (.go, "go"),
+        (.java, "java"),
+        (.ruby, "rb"),
+        (.lua, "lua"),
+        (.graphql, "graphql"),
+        (.xml, "xml")
     ]
 
     func testGoldenCapturesForEveryLaunchLanguage() async throws {

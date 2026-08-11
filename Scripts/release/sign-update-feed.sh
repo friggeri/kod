@@ -1,7 +1,5 @@
 #!/bin/sh
-# Signs Kod's update feed (Scripts/release's update-distribution
-# analog of Scripts/managed-install-signing's catalog signing process)
-# using UpdateFeedTool. This is release/test tooling only — the
+# Signs Kod's update feed using UpdateFeedTool. This is release/test tooling only — the
 # production signing key seed must come from an offline, protected
 # source (a hardware key/secrets manager), never a file committed to
 # this repository, and never an environment variable left set outside

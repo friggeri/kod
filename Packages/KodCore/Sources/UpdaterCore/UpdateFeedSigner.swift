@@ -16,9 +16,7 @@ import Foundation
 ///   key.
 ///
 /// See `Scripts/release/README.md` for the full key-handling process
-/// this type is one piece of — the same pattern
-/// `Scripts/managed-install-signing` already documents for the managed
-/// language-server catalog.
+/// this type is one piece of.
 public enum UpdateFeedSigner {
     public static func sign(
         _ feed: UpdateFeed,

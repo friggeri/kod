@@ -6,8 +6,7 @@ alongside its SHA-256 digest.
 
 This is a *record*, not a cryptographic attestation: it is not signed
 by this script, because no production signing key exists in this
-environment (the same constraint documented throughout
-Scripts/release/README.md and Scripts/managed-install-signing/README.md).
+environment (the same constraint documented in Scripts/release/README.md).
 A real release process would sign this JSON document (e.g. with the
 same Ed25519 release key used for the update feed, or via Apple's own
 notarization ticket, which already attests the binary was submitted by
@@ -104,8 +103,8 @@ def main() -> int:
         "signed": False,
         "signingNote": (
             "This provenance statement is not signed: no production signing key exists in this environment. "
-            "A real release process signs this JSON (e.g. with the Ed25519 key documented in "
-            "Scripts/managed-install-signing/README.md's process, or by relying on Apple notarization's own "
+            "A real release process signs this JSON (e.g. with the Ed25519 update-feed release key, "
+            "or by relying on Apple notarization's own "
             "attestation of the submitting Developer ID account) before publishing it."
         ),
     }

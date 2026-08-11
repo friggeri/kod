@@ -1,6 +1,6 @@
 import Foundation
 
-/// Locates the pinned, real (non-Kod-managed) language server
+/// Locates the pinned, real test language server
 /// executables provisioned by `Scripts/vendor-test-language-servers/setup.sh`
 /// under `Packages/KodCore/.build/test-language-servers/` — used only by
 /// `LanguageAdaptersTests`'s real integration tests, never by the Kod
@@ -48,6 +48,47 @@ enum PinnedTestLanguageServerLocator {
         try requireExecutable(
             at: installDirectory.appendingPathComponent("node_modules/.bin/vscode-css-language-server"),
             setupHint: "Run Scripts/vendor-test-language-servers/setup.sh to install the pinned vscode-css-language-server."
+        )
+    }
+
+    static func jsonLanguageServer() throws -> URL {
+        try requireExecutable(
+            at: installDirectory.appendingPathComponent(
+                "node_modules/.bin/vscode-json-language-server"
+            ),
+            setupHint: "Run Scripts/vendor-test-language-servers/setup.sh to install the pinned vscode-json-language-server."
+        )
+    }
+
+    static func bashLanguageServer() throws -> URL {
+        try requireExecutable(
+            at: installDirectory.appendingPathComponent(
+                "node_modules/.bin/bash-language-server"
+            ),
+            setupHint: "Run Scripts/vendor-test-language-servers/setup.sh to install the pinned bash-language-server."
+        )
+    }
+
+    static func yamlLanguageServer() throws -> URL {
+        try requireExecutable(
+            at: installDirectory.appendingPathComponent(
+                "node_modules/.bin/yaml-language-server"
+            ),
+            setupHint: "Run Scripts/vendor-test-language-servers/setup.sh to install the pinned yaml-language-server."
+        )
+    }
+
+    static func marksman() throws -> URL {
+        try requireExecutable(
+            at: installDirectory.appendingPathComponent("native/marksman"),
+            setupHint: "Run Scripts/vendor-test-language-servers/setup.sh to install pinned Marksman."
+        )
+    }
+
+    static func tombi() throws -> URL {
+        try requireExecutable(
+            at: installDirectory.appendingPathComponent("native/tombi"),
+            setupHint: "Run Scripts/vendor-test-language-servers/setup.sh to install pinned Tombi."
         )
     }
 

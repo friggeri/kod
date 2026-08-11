@@ -26,7 +26,20 @@ final class SyntaxEngineTests: XCTestCase {
             .html: "<html><body><p>hi</p></body></html>\n",
             .css: "body { color: red; }\n",
             .python: "def f(x):\n    return x + 1\n",
-            .rust: "fn f(x: i32) -> i32 { x + 1 }\n"
+            .rust: "fn f(x: i32) -> i32 { x + 1 }\n",
+            .shell: "if true; then echo \"ready\"; fi\n",
+            .markdown: "# Heading\n",
+            .markdownInline: "**strong** and `code`\n",
+            .json: "{\"ready\": true}\n",
+            .yaml: "ready: true\n",
+            .toml: "ready = true\n",
+            .c: "int main(void) { return 0; }\n",
+            .go: "package main\nfunc main() {}\n",
+            .java: "class Main { static void main(String[] args) {} }\n",
+            .ruby: "def greet(name)\n  \"Hello, #{name}\"\nend\n",
+            .lua: "local function greet(name) return name end\n",
+            .graphql: "query Greeting { greeting { message } }\n",
+            .xml: "<greeting language=\"en\">Hello</greeting>\n"
         ]
 
         for language in SyntaxLanguage.allCases {
@@ -34,10 +47,84 @@ final class SyntaxEngineTests: XCTestCase {
                 XCTFail("missing sample for \(language)")
                 continue
             }
+
             let snapshot = SourceSnapshot(text: source)
             let tree = try await engine.parse(snapshot: snapshot, language: language)
             let captures = tree.captures(inByteRange: 0..<snapshot.utf8Count)
             XCTAssertFalse(captures.isEmpty, "\(language) produced no captures")
+        }
+    }
+
+    func testDetectsShellAliasesAndShebangs() {
+        XCTAssertEqual(
+            SyntaxLanguage.detect(forURL: URL(fileURLWithPath: "/tmp/script.sh")),
+            .shell
+        )
+        XCTAssertEqual(
+            SyntaxLanguage.detect(forURL: URL(fileURLWithPath: "/tmp/.bashrc")),
+            .shell
+        )
+        let snapshot = SourceSnapshot(
+            text: "#!/usr/bin/env bash\necho ready\n",
+            url: URL(fileURLWithPath: "/tmp/script")
+        )
+        XCTAssertEqual(SyntaxLanguage.detect(for: snapshot), .shell)
+    }
+
+    func testMarkdownCombinesBlockInlineAndFencedCodeCaptures() async throws {
+        let engine = SyntaxEngine()
+        let source = """
+        # Heading
+
+        **strong**
+
+        ```swift
+        let answer = 42
+        ```
+        """
+        let snapshot = SourceSnapshot(
+            text: source,
+            url: URL(fileURLWithPath: "/tmp/README.md")
+        )
+        let tree = try await engine.parse(snapshot: snapshot, language: .markdown)
+        let captures = tree.captures(inByteRange: 0..<snapshot.utf8Count)
+
+        XCTAssertTrue(captures.contains { $0.name == "text.title" })
+        XCTAssertTrue(captures.contains { $0.name == "text.strong" })
+        XCTAssertTrue(
+            captures.contains {
+                $0.name.hasPrefix("keyword") && capturedText($0, in: snapshot) == "let"
+            }
+        )
+    }
+
+    func testDetectsXMLAliasesAndExactFileNames() {
+        for ext in ["xml", "svg", "xsd", "xsl", "xslt", "plist"] {
+            XCTAssertEqual(SyntaxLanguage.detect(forPathExtension: ext), .xml)
+        }
+        for name in ["Info.plist", "Contents.xml", "AndroidManifest.xml", "web.config"] {
+            XCTAssertEqual(
+                SyntaxLanguage.detect(forURL: URL(fileURLWithPath: "/project/\(name)")),
+                .xml
+            )
+        }
+    }
+
+    func testMalformedExpandedLanguageInputsRemainParseable() async throws {
+        let engine = SyntaxEngine()
+        let malformed: [SyntaxLanguage: String] = [
+            .c: "int main( { return ;",
+            .go: "package main\nfunc ( {",
+            .java: "class { void main(",
+            .ruby: "def greet(\n  puts \"hi\"",
+            .lua: "local function greet(",
+            .graphql: "query { greeting(",
+            .xml: "<root><child></root>"
+        ]
+        for (language, source) in malformed {
+            let snapshot = SourceSnapshot(text: source)
+            let tree = try await engine.parse(snapshot: snapshot, language: language)
+            XCTAssertEqual(tree.snapshotVersion, snapshot.version, "\(language) did not return a tree")
         }
     }
 

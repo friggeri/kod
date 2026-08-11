@@ -1,0 +1,10 @@
+{
+  "editor": {
+    "fontSize": 14,
+    "wordWrap": true
+  },
+  "languages": [
+    "shell",
+    "markdown"
+  ]
+}

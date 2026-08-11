@@ -1,6 +1,5 @@
 import CryptoKit
 import Foundation
-import ManagedLanguageServers
 import XCTest
 @testable import UpdaterCore
 
@@ -15,7 +14,7 @@ import XCTest
 final class UpdaterCoreTests: XCTestCase {
     private func makeEntry(
         version: SemanticVersion,
-        architecture: ManagedInstallArchitecture? = nil,
+        architecture: ReleaseArchitecture? = nil,
         minimumSystemVersion: SemanticVersion = SemanticVersion(major: 14, minor: 0, patch: 0),
         isRollbackTarget: Bool = false,
         isCriticalSecurityUpdate: Bool = false
@@ -35,6 +34,28 @@ final class UpdaterCoreTests: XCTestCase {
 
     private func sign(_ feed: UpdateFeed) throws -> SignedUpdateFeedDocument {
         try UpdateFeedSigner.sign(feed, privateKey: FixtureUpdateSigningKey.privateKey, signingKeyID: FixtureUpdateSigningKey.keyID)
+    }
+
+    // MARK: - Updater-owned value types
+
+    func testSemanticVersionPreservesParsingDescriptionComparisonAndCoding() throws {
+        let version = try XCTUnwrap(SemanticVersion(parsing: "12.34.56"))
+
+        XCTAssertEqual(version.description, "12.34.56")
+        XCTAssertLessThan(version, SemanticVersion(major: 12, minor: 35, patch: 0))
+        XCTAssertEqual(String(decoding: try JSONEncoder().encode(version), as: UTF8.self), #""12.34.56""#)
+        XCTAssertEqual(try JSONDecoder().decode(SemanticVersion.self, from: Data(#""12.34.56""#.utf8)), version)
+        XCTAssertNil(SemanticVersion(parsing: "12.34"))
+    }
+
+    func testReleaseArchitecturePreservesSerializedRawValues() throws {
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+
+        XCTAssertEqual(String(decoding: try encoder.encode(ReleaseArchitecture.arm64), as: UTF8.self), #""arm64""#)
+        XCTAssertEqual(String(decoding: try encoder.encode(ReleaseArchitecture.x86_64), as: UTF8.self), #""x86_64""#)
+        XCTAssertEqual(try decoder.decode(ReleaseArchitecture.self, from: Data(#""arm64""#.utf8)), .arm64)
+        XCTAssertEqual(try decoder.decode(ReleaseArchitecture.self, from: Data(#""x86_64""#.utf8)), .x86_64)
     }
 
     // MARK: - Round trip
@@ -252,7 +273,7 @@ final class UpdaterCoreTests: XCTestCase {
         let feed = UpdateFeed(generatedAt: Date(), entries: [
             makeEntry(version: SemanticVersion(major: 2, minor: 0, patch: 0), architecture: nil)
         ])
-        for architecture in ManagedInstallArchitecture.allCases {
+        for architecture in ReleaseArchitecture.allCases {
             let update = UpdateFeedVerifier.availableUpdate(
                 in: feed,
                 currentVersion: SemanticVersion(major: 1, minor: 0, patch: 0),

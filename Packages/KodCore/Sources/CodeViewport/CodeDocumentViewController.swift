@@ -44,14 +44,35 @@ public final class CodeDocumentViewController: NSViewController {
         set { viewport.fontSettings = newValue }
     }
 
-    public init(
+    public convenience init(
         snapshot: SourceSnapshot,
         theme: KodTheme = BundledThemes.dark,
         fontSettings: FontSettings = .default,
         syntaxEngine: SyntaxEngine = SyntaxEngine()
     ) {
+        self.init(
+            snapshot: snapshot,
+            syntaxLanguage: SyntaxLanguage.detect(for: snapshot),
+            theme: theme,
+            fontSettings: fontSettings,
+            syntaxEngine: syntaxEngine
+        )
+    }
+
+    public init(
+        snapshot: SourceSnapshot,
+        syntaxLanguage: SyntaxLanguage?,
+        theme: KodTheme = BundledThemes.dark,
+        fontSettings: FontSettings = .default,
+        syntaxEngine: SyntaxEngine = SyntaxEngine()
+    ) {
         self.snapshot = snapshot
-        self.viewport = CodeViewport(snapshot: snapshot, theme: theme, fontSettings: fontSettings)
+        self.viewport = CodeViewport(
+            snapshot: snapshot,
+            syntaxLanguage: syntaxLanguage,
+            theme: theme,
+            fontSettings: fontSettings
+        )
         self.syntaxEngine = syntaxEngine
         super.init(nibName: nil, bundle: nil)
         startSyntaxHighlighting()
@@ -243,8 +264,46 @@ public final class CodeDocumentViewController: NSViewController {
 
     // MARK: - Find in File
 
+    public struct FindState: Equatable, Sendable {
+        public let query: String
+        public let options: FindOptions
+        public let currentMatchIndex: Int?
+        public let isVisible: Bool
+        fileprivate let hadKeyboardFocus: Bool
+    }
+
     public var isFindBarShown: Bool {
         isFindBarVisible
+    }
+
+    public func captureFindState() -> FindState {
+        FindState(
+            query: findField.stringValue,
+            options: currentFindOptions(),
+            currentMatchIndex: currentMatchIndex,
+            isVisible: isFindBarVisible,
+            hadKeyboardFocus: isViewLoaded
+                && view.window?.firstResponder === findField
+        )
+    }
+
+    public func restoreFindState(_ state: FindState) {
+        loadViewIfNeeded()
+        findField.stringValue = state.query
+        matchCaseButton.state = state.options.matchCase ? .on : .off
+        wholeWordButton.state = state.options.wholeWord ? .on : .off
+        regexButton.state = state.options.useRegex ? .on : .off
+        isFindBarVisible = state.isVisible
+        findBar.isHidden = !state.isVisible
+        runFind()
+        if let currentMatchIndex = state.currentMatchIndex,
+           matches.indices.contains(currentMatchIndex) {
+            self.currentMatchIndex = currentMatchIndex
+            applyCurrentMatch()
+        }
+        if state.hadKeyboardFocus {
+            view.window?.makeFirstResponder(findField)
+        }
     }
 
     /// Shows the inline find bar (compiling/highlighting the current query,

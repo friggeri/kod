@@ -76,8 +76,8 @@ import XCTest
 /// synthetic fixture file (containing one deliberate, unwrapped
 /// `.accessibilityLabel("...")` literal) to a scratch directory under
 /// `FileManager.default.temporaryDirectory` — the same idiom already
-/// used elsewhere in this test target (see `GitWorkspaceCoordinatorTests`,
-/// `ManagedInstallCoordinatorTests`) — runs the exact same scanner
+/// used elsewhere in this test target (see `GitWorkspaceCoordinatorTests`) —
+/// runs the exact same scanner
 /// against it, and asserts the violation is caught. This is in addition
 /// to (not a replacement for) actually reintroducing a violation into
 /// real `App/KodApp` source, confirming this test fails, then removing

@@ -10,8 +10,7 @@ import XCTest
 /// launch the actual pinned executable installed by
 /// `Scripts/vendor-test-language-servers/setup.sh` — never
 /// `FakeLanguageServer` — through the exact same
-/// `LanguageAdapterRegistry.makeService`/`TypeScriptLanguageAdapter`
-/// path the app itself uses (with a workspace-scoped executable
+/// profile-driven service path the app itself uses (with a workspace-scoped executable
 /// override standing in for "the user configured/has installed this
 /// server", since Kod itself never bundles or manages this
 /// installation in this phase). Skips explicitly (never fakes success)
@@ -35,8 +34,8 @@ final class TypeScriptLanguageAdapterIntegrationTests: XCTestCase {
             languageKey: TypeScriptLanguageAdapter.languageKey,
             identity: identity
         )
-        return LanguageAdapterRegistry.makeService(
-            for: TypeScriptLanguageAdapter.self,
+        return try LanguageProfileServiceFactory.makeService(
+            for: DefaultLanguageProfiles.typeScript,
             identity: identity,
             trustStore: trustStore,
             overrideStore: overrideStore

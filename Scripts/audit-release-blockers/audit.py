@@ -79,15 +79,16 @@ def relative(path: Path) -> str:
 # read — kept here, rather than silently excluded, so the audit's "0
 # unreviewed force unwraps" claim is itself checkable against an
 # explicit, small, auditable list rather than an invisible exception.
-REVIEWED_FORCE_UNWRAPS: set[tuple[str, int]] = {
-    ("App/KodApp/PeekViewController.swift", 159),  # local `controller`, assigned immediately after declaration
-    ("App/KodApp/WorkspaceViewController.swift", 43),  # `explorerContainer`, assigned in viewDidLoad before use
-    ("App/KodApp/WorkspaceViewController.swift", 44),  # `searchSidebarController`, assigned in viewDidLoad before use
-    ("App/KodApp/WorkspaceViewController.swift", 45),  # `problemsViewController`, assigned in viewDidLoad before use
-    ("App/KodApp/WorkspaceViewController.swift", 46),  # `symbolsViewController`, assigned in viewDidLoad before use
-    ("App/KodApp/WorkspaceViewController.swift", 47),  # `sourceControlSidebarController`, assigned in viewDidLoad before use
-    ("App/KodApp/WorkspaceViewController.swift", 51),  # `gitCoordinator`, assigned in viewDidLoad before use
-    ("App/KodApp/WorkspaceViewController.swift", 85),  # `splitContainer`, assigned in viewDidLoad before use
+REVIEWED_FORCE_UNWRAPS: set[tuple[str, str]] = {
+    ("App/KodApp/PeekViewController.swift", "var controller: PeekViewController!"),
+    ("App/KodApp/WorkspaceViewController.swift", "private var workspaceSplitViewController: NSSplitViewController!"),
+    ("App/KodApp/WorkspaceViewController.swift", "private var explorerContainer: NSView!"),
+    ("App/KodApp/WorkspaceViewController.swift", "private var searchSidebarController: SearchSidebarViewController!"),
+    ("App/KodApp/WorkspaceViewController.swift", "private var problemsViewController: ProblemsViewController!"),
+    ("App/KodApp/WorkspaceViewController.swift", "private var symbolsViewController: SymbolsViewController!"),
+    ("App/KodApp/WorkspaceViewController.swift", "private var sourceControlSidebarController: SourceControlSidebarViewController!"),
+    ("App/KodApp/WorkspaceViewController.swift", "private var gitCoordinator: GitWorkspaceCoordinator!"),
+    ("App/KodApp/WorkspaceViewController.swift", "var splitContainer: SplitContainerViewController!"),
 }
 
 
@@ -106,7 +107,7 @@ def check_force_unwraps() -> CheckResult:
                     preceding = line[idx - 1]
                     if not (preceding.isalnum() or preceding in "_])"):
                         continue
-                    key = (relative(path), line_number)
+                    key = (relative(path), stripped)
                     if key in REVIEWED_FORCE_UNWRAPS:
                         findings.append(Finding("force_unwrap", "reviewed", relative(path), line_number, stripped))
                     else:
@@ -181,10 +182,10 @@ def check_hardcoded_secrets() -> CheckResult:
     status = "clean" if not findings else "blocker"
     notes = (
         "No literal API keys, private key material, or passwords are embedded in production source. "
-        "Ed25519 signing keys (managed-install catalog, update feed) are release/test tooling that only ever "
+        "Ed25519 update-feed signing keys are release/test tooling that only ever "
         "accepts a key as a runtime argument or a small, clearly-labeled non-secret fixture seed in Tests/ "
-        "(never Sources/); production trust roots (CatalogTrustRoot.production, UpdateFeedTrustRoot.production) "
-        "ship with an intentionally empty pinned-key list until a real release key exists."
+        "(never Sources/); the production update-feed trust root "
+        "ships with an intentionally empty pinned-key list until a real release key exists."
     )
     return CheckResult("hardcoded_secrets", status, findings, notes)
 

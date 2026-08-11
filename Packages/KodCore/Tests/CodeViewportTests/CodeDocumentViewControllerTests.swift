@@ -1,6 +1,7 @@
 import AppKit
 @testable import CodeViewport
 import SourceModel
+import SyntaxCore
 import XCTest
 
 private extension NSView {
@@ -37,6 +38,36 @@ final class CodeDocumentViewControllerTests: XCTestCase {
         window.layoutIfNeeded()
         windows.append(window)
         return controller
+    }
+
+    func testExplicitPlainTextOverridesFilenameDetection() {
+        let snapshot = SourceSnapshot(
+            text: "{\"value\": true}\n",
+            url: URL(fileURLWithPath: "/tmp/example.json")
+        )
+
+        let controller = CodeDocumentViewController(
+            snapshot: snapshot,
+            syntaxLanguage: nil
+        )
+
+        XCTAssertNil(controller.viewport.language)
+        XCTAssertNil(controller.highlightingTask)
+    }
+
+    func testExplicitGrammarAppliesToUnknownExtension() {
+        let snapshot = SourceSnapshot(
+            text: "{\"value\": true}\n",
+            url: URL(fileURLWithPath: "/tmp/example.widget")
+        )
+
+        let controller = CodeDocumentViewController(
+            snapshot: snapshot,
+            syntaxLanguage: .json
+        )
+
+        XCTAssertEqual(controller.viewport.language, .json)
+        XCTAssertNotNil(controller.highlightingTask)
     }
 
     func testFindBarStartsHiddenAndTogglesVisibility() {
@@ -153,5 +184,12 @@ final class CodeDocumentViewControllerTests: XCTestCase {
         controller.restoreNavigationAnchor(selection: anchor.selection, viewportAnchorLine: anchor.viewportAnchorLine)
         XCTAssertEqual(controller.viewport.selectedUTF8Range, 5..<9)
         XCTAssertEqual(controller.viewport.topmostVisibleLine, 42)
+    }
+
+    func testNavigationAnchorCaptureBeforeHostingUsesTheFirstLine() {
+        let snapshot = SourceSnapshot(text: "first\nsecond\n")
+        let controller = CodeDocumentViewController(snapshot: snapshot)
+
+        XCTAssertEqual(controller.captureNavigationAnchor().viewportAnchorLine, 0)
     }
 }

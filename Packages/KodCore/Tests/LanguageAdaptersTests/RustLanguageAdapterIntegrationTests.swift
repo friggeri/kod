@@ -32,8 +32,8 @@ final class RustLanguageAdapterIntegrationTests: XCTestCase {
         let trustStore = WorkspaceTrustStore(defaults: defaults)
         trustStore.trust(identity)
         let overrideStore = LanguageServerOverrideStore(defaults: defaults)
-        return LanguageAdapterRegistry.makeService(
-            for: RustLanguageAdapter.self,
+        return try LanguageProfileServiceFactory.makeService(
+            for: DefaultLanguageProfiles.rust,
             identity: identity,
             trustStore: trustStore,
             overrideStore: overrideStore

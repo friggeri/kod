@@ -1,5 +1,6 @@
 import Foundation
 import LanguageClient
+import SyntaxCore
 import WorkspaceCore
 
 /// Swift's adapter for Kod's generic language-adapter layer. Preserves
@@ -11,7 +12,10 @@ import WorkspaceCore
 public enum SwiftAdapter: LanguageAdapter {
     public static let languageKey = "swift"
     public static let displayName = "Swift (SourceKit-LSP)"
-    public static let fileExtensions: Set<String> = ["swift"]
+    public static let syntaxLanguages: Set<SyntaxLanguage> = [.swift]
+    public static let executableProfiles = [
+        LanguageServerExecutableProfile(executableNames: ["sourcekit-lsp"], arguments: [], versionArguments: nil)
+    ]
     public static let semanticTokenTypes = SwiftWorkspaceLanguageService.semanticTokenTypes
     public static let semanticTokenModifiers = SwiftWorkspaceLanguageService.semanticTokenModifiers
 

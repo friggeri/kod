@@ -1,5 +1,6 @@
 import AppKit
 import DiagnosticsCore
+import LanguageAdapters
 import SourceModel
 import WorkspaceCore
 import XCTest
@@ -23,7 +24,9 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         return nil
     }
 
-    private func makeFixture() throws -> (
+    private func makeFixture(
+        languageSupportService: LanguageSupportService? = nil
+    ) throws -> (
         controller: WorkspaceViewController,
         trustStore: WorkspaceTrustStore,
         log: BoundedEventLog,
@@ -45,14 +48,23 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         let identity = try WorkspaceIdentity(root: root)
         let trustStore = WorkspaceTrustStore(defaults: defaults)
         let log = BoundedEventLog()
+        let languageSupportService = languageSupportService
+            ?? LanguageSupportService()
         let controller = WorkspaceViewController(
             identity: identity,
             trustStore: trustStore,
             layoutStore: WorkspaceLayoutStore(defaults: defaults),
-            diagnosticsLog: log
+            diagnosticsLog: log,
+            languageSupportService: languageSupportService
         )
         _ = controller.view // triggers loadView(), building the trust banner etc.
         return (controller, trustStore, log, defaults)
+    }
+
+    private func waitForPromptUpdate() async throws {
+        for _ in 0..<30 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     func testRevokeTrustCallsTrustStoreRevokeAndUpdatesTrustState() throws {
@@ -236,12 +248,580 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
 
         // No document has been opened, so no real language-server
         // process is running yet; this asserts `handleTrustRevoked()`
-        // on both coordinators is safe to call unconditionally (a
+        // on the profile coordinator is safe to call unconditionally (a
         // no-op when nothing was started) and does not throw/crash,
         // exactly mirroring how `trustWorkspace(_:)` is safe to call
         // regardless of whether anything is currently degraded.
         controller.revokeTrust(nil)
         XCTAssertNil(controller.multiLanguageServicesCoordinator.service(forURL: controller.identity.root.appendingPathComponent("main.ts")))
+    }
+
+    func testMissingServerPromptIsTrustGatedAndNotNowSuppressesItForTheSession() async throws {
+        let suiteName =
+            "WorkspaceViewControllerTrustControlTests.LanguageProfiles.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let profileStore = try LanguageProfileStore(
+            defaultProfiles: [DefaultLanguageProfiles.shell],
+            defaults: defaults,
+            overrideStore: overrideStore
+        )
+        let service = LanguageSupportService(
+            profileStore: profileStore,
+            overrideStore: overrideStore,
+            discovery: { profile, _ in
+                throw LanguageServerDiscoveryError.notFound(
+                    languageName: profile.displayName,
+                    attemptedSources: []
+                )
+            }
+        )
+        let (controller, trustStore, _, _) = try makeFixture(
+            languageSupportService: service
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        controller.viewDidAppear()
+        let banner = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServerBanner",
+                in: controller.view
+            )
+        )
+
+        controller.multiLanguageServicesCoordinator.onMissingServer?(
+            DefaultLanguageProfiles.shell
+        )
+        try await waitForPromptUpdate()
+        XCTAssertTrue(banner.isHidden)
+
+        trustStore.trust(controller.identity)
+        controller.multiLanguageServicesCoordinator.onMissingServer?(
+            DefaultLanguageProfiles.shell
+        )
+        try await waitForPromptUpdate()
+        XCTAssertFalse(banner.isHidden)
+
+        service.beginEditingProfile(identifier: "shellscript")
+        var unresolvedDraft = try XCTUnwrap(service.requestedProfileDraft)
+        unresolvedDraft.displayName = "Shell Scripts"
+        _ = try service.save(draft: unresolvedDraft)
+        try await waitForPromptUpdate()
+        XCTAssertFalse(
+            banner.isHidden,
+            "Editing a profile without resolving its missing server must keep the prompt visible"
+        )
+
+        let findServerButton = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServer.findServer",
+                in: controller.view
+            ) as? NSButton
+        )
+        XCTAssertTrue(findServerButton.isEnabled)
+
+        let notNowButton = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServer.notNow",
+                in: controller.view
+            ) as? NSButton
+        )
+        notNowButton.performClick(nil)
+        XCTAssertTrue(banner.isHidden)
+
+        controller.multiLanguageServicesCoordinator.onMissingServer?(
+            DefaultLanguageProfiles.shell
+        )
+        try await waitForPromptUpdate()
+        XCTAssertTrue(banner.isHidden)
+    }
+
+    /// SPEC (implement-language-ui-refresh): after an external install and
+    /// clicking Refresh, discovering a previously-missing executable must
+    /// hide the currently displayed matching banner on its own — no
+    /// profile edit or manual executable selection required.
+    func testExecutableDiscoveryHidesTheMatchingBannerWithoutProfileEditOrManualSelection() async throws {
+        let suiteName =
+            "WorkspaceViewControllerTrustControlTests.Discovery.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        addTeardownBlock {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let profileStore = try LanguageProfileStore(
+            defaultProfiles: [DefaultLanguageProfiles.shell],
+            defaults: defaults,
+            overrideStore: overrideStore
+        )
+        let shouldSucceed = DiscoveryGate(false)
+        let service = LanguageSupportService(
+            profileStore: profileStore,
+            overrideStore: overrideStore,
+            discovery: { profile, _ in
+                guard shouldSucceed.get() else {
+                    throw LanguageServerDiscoveryError.notFound(
+                        languageName: profile.displayName,
+                        attemptedSources: []
+                    )
+                }
+                return DiscoveredExecutable(
+                    url: URL(fileURLWithPath: "/usr/local/bin/shellscript-lsp"),
+                    arguments: [],
+                    version: "1.0.0",
+                    source: .loginShellPath
+                )
+            }
+        )
+        let (controller, trustStore, _, _) = try makeFixture(
+            languageSupportService: service
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        controller.viewDidAppear()
+        trustStore.trust(controller.identity)
+
+        let banner = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServerBanner",
+                in: controller.view
+            ) as? NSStackView
+        )
+
+        // Show the shellscript missing-server banner.
+        controller.multiLanguageServicesCoordinator.onMissingServer?(
+            DefaultLanguageProfiles.shell
+        )
+        try await waitForPromptUpdate()
+        XCTAssertFalse(banner.isHidden)
+
+        // Simulate an external install + Settings Refresh: discovery now
+        // succeeds for shellscript. Nothing else is queued, so nothing
+        // else contends for the banner afterward.
+        shouldSucceed.set(true)
+        await service.refresh()
+        try await waitForPromptUpdate()
+
+        // The matching banner must hide without any profile edit or
+        // manual executable selection.
+        XCTAssertTrue(
+            banner.isHidden,
+            "Discovering the executable must hide the matching banner on its own"
+        )
+    }
+
+    /// SPEC (implement-language-ui-refresh): a discovery notification for
+    /// one profile must leave a *different*, currently displayed
+    /// missing-server prompt alone — only clearing that profile's own
+    /// stale queue entry so it doesn't awkwardly resurface later.
+    func testExecutableDiscoveryForOneProfileLeavesADifferentActivePromptUntouched() async throws {
+        let suiteName =
+            "WorkspaceViewControllerTrustControlTests.DiscoveryUnrelated.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        addTeardownBlock {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let profileStore = try LanguageProfileStore(
+            defaultProfiles: [
+                DefaultLanguageProfiles.shell,
+                DefaultLanguageProfiles.markdown
+            ],
+            defaults: defaults,
+            overrideStore: overrideStore
+        )
+        let shellShouldSucceed = DiscoveryGate(false)
+        let service = LanguageSupportService(
+            profileStore: profileStore,
+            overrideStore: overrideStore,
+            discovery: { profile, _ in
+                guard profile.identifier == "shellscript",
+                      shellShouldSucceed.get() else {
+                    throw LanguageServerDiscoveryError.notFound(
+                        languageName: profile.displayName,
+                        attemptedSources: []
+                    )
+                }
+                return DiscoveredExecutable(
+                    url: URL(fileURLWithPath: "/usr/local/bin/shellscript-lsp"),
+                    arguments: [],
+                    version: "1.0.0",
+                    source: .loginShellPath
+                )
+            }
+        )
+        let (controller, trustStore, _, _) = try makeFixture(
+            languageSupportService: service
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        controller.viewDidAppear()
+        trustStore.trust(controller.identity)
+
+        let banner = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServerBanner",
+                in: controller.view
+            ) as? NSStackView
+        )
+        let bannerLabel = try XCTUnwrap(
+            banner.arrangedSubviews.compactMap { $0 as? NSTextField }.first
+        )
+
+        // Markdown's missing-server prompt is currently displayed (this
+        // is the "unrelated ... prompt currently on screen").
+        controller.multiLanguageServicesCoordinator.onMissingServer?(
+            DefaultLanguageProfiles.markdown
+        )
+        try await waitForPromptUpdate()
+        XCTAssertFalse(banner.isHidden)
+        XCTAssertTrue(
+            bannerLabel.stringValue.localizedCaseInsensitiveContains("markdown")
+        )
+
+        // Shellscript's own missing-server signal arrives behind it,
+        // while a different profile's prompt is showing, so it is only
+        // queued rather than displayed immediately.
+        controller.multiLanguageServicesCoordinator.onMissingServer?(
+            DefaultLanguageProfiles.shell
+        )
+        try await waitForPromptUpdate()
+        XCTAssertFalse(banner.isHidden)
+        XCTAssertTrue(
+            bannerLabel.stringValue.localizedCaseInsensitiveContains("markdown"),
+            "Queuing shellscript's missing-server signal must not replace the currently displayed unrelated (Markdown) banner"
+        )
+
+        // Simulate an external install + Settings Refresh: discovery now
+        // succeeds for shellscript only. Markdown remains unresolved.
+        shellShouldSucceed.set(true)
+        await service.refresh()
+        try await waitForPromptUpdate()
+
+        // The Markdown prompt currently on screen must be left alone —
+        // discovering a *different* profile's executable must not hide
+        // or otherwise disturb it.
+        XCTAssertFalse(
+            banner.isHidden,
+            "An unrelated prompt currently on screen must not be hidden by a different profile's discovery event"
+        )
+        XCTAssertTrue(
+            bannerLabel.stringValue.localizedCaseInsensitiveContains("markdown"),
+            "The unrelated prompt currently on screen must remain the one shown, untouched by shellscript's discovery"
+        )
+
+        // Dismiss Markdown's prompt; shellscript's stale queue entry
+        // must have been cleared by the discovery handling, so it must
+        // not resurface even though it was still technically "missing"
+        // when originally queued.
+        let notNowButton = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServer.notNow",
+                in: controller.view
+            ) as? NSButton
+        )
+        notNowButton.performClick(nil)
+        try await waitForPromptUpdate()
+        XCTAssertTrue(
+            banner.isHidden,
+            "No prompt should resurface: Markdown was dismissed and shellscript's stale queue entry was already cleared by discovery"
+        )
+    }
+
+    func testMissingServerBannerOffersInstallationHelpForAKnownDefaultProfile() async throws {
+        let suiteName =
+            "WorkspaceViewControllerTrustControlTests.InstallationHelp.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let profileStore = try LanguageProfileStore(
+            defaultProfiles: [DefaultLanguageProfiles.markdown],
+            defaults: defaults,
+            overrideStore: overrideStore
+        )
+        let service = LanguageSupportService(
+            profileStore: profileStore,
+            overrideStore: overrideStore,
+            discovery: { profile, _ in
+                throw LanguageServerDiscoveryError.notFound(
+                    languageName: profile.displayName,
+                    attemptedSources: []
+                )
+            }
+        )
+        let (controller, trustStore, _, _) = try makeFixture(
+            languageSupportService: service
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        controller.viewDidAppear()
+        trustStore.trust(controller.identity)
+
+        controller.multiLanguageServicesCoordinator.onMissingServer?(
+            DefaultLanguageProfiles.markdown
+        )
+        try await waitForPromptUpdate()
+
+        let banner = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServerBanner",
+                in: controller.view
+            )
+        )
+        XCTAssertFalse(banner.isHidden)
+
+        // Markdown is a known default profile with shipped installation
+        // guidance (`DefaultLanguageServerInstallationGuides`), so the
+        // banner's find action must switch to "Installation Help..." and
+        // point at Marksman's own documentation rather than the generic
+        // public LSP directory.
+        let findServerButton = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServer.findServer",
+                in: controller.view
+            ) as? NSButton
+        )
+        XCTAssertEqual(findServerButton.title, "Installation Help...")
+        let tooltip = try XCTUnwrap(findServerButton.toolTip)
+        XCTAssertTrue(tooltip.contains("Markdown"))
+    }
+
+    func testMissingServerBannerFallsBackToTheDirectoryForACustomProfile() async throws {
+        let suiteName =
+            "WorkspaceViewControllerTrustControlTests.CustomFallback.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let profileStore = try LanguageProfileStore(
+            defaultProfiles: [],
+            defaults: defaults,
+            overrideStore: overrideStore
+        )
+        let service = LanguageSupportService(
+            profileStore: profileStore,
+            overrideStore: overrideStore,
+            discovery: { profile, _ in
+                throw LanguageServerDiscoveryError.notFound(
+                    languageName: profile.displayName,
+                    attemptedSources: []
+                )
+            }
+        )
+        var customProfile = LanguageProfile(
+            identifier: "custom-widget",
+            displayName: "Widget",
+            origin: .custom,
+            defaultRevision: 1,
+            associations: [
+                LanguageFileAssociation(
+                    identifier: "files",
+                    fileExtensions: ["widget"],
+                    syntax: .plainText
+                )
+            ],
+            languageServer: LanguageServerConfiguration(
+                defaultLanguageID: "widget",
+                executableCandidates: [
+                    LanguageServerExecutableCandidate(
+                        identifier: "widget-lsp",
+                        executableNames: ["widget-lsp"],
+                        arguments: []
+                    )
+                ]
+            )
+        )
+        customProfile = try profileStore.createCustomProfile(customProfile)
+
+        let (controller, trustStore, _, _) = try makeFixture(
+            languageSupportService: service
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        controller.viewDidAppear()
+        trustStore.trust(controller.identity)
+
+        controller.multiLanguageServicesCoordinator.onMissingServer?(
+            customProfile
+        )
+        try await waitForPromptUpdate()
+
+        let banner = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServerBanner",
+                in: controller.view
+            )
+        )
+        XCTAssertFalse(banner.isHidden)
+
+        // A custom profile can never resolve shipped installation
+        // guidance (even if it reused a default-sounding identifier), so
+        // the banner keeps the generic public LSP directory fallback.
+        let findServerButton = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServer.findServer",
+                in: controller.view
+            ) as? NSButton
+        )
+        XCTAssertEqual(findServerButton.title, "Find a Server...")
+    }
+
+    func testRevokingTrustDuringServerDiscoveryDoesNotShowAStalePrompt() async throws {
+        let suiteName =
+            "WorkspaceViewControllerTrustControlTests.DelayedDiscovery.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let profileStore = try LanguageProfileStore(
+            defaultProfiles: [DefaultLanguageProfiles.shell],
+            defaults: defaults,
+            overrideStore: overrideStore
+        )
+        let service = LanguageSupportService(
+            profileStore: profileStore,
+            overrideStore: overrideStore,
+            discovery: { profile, _ in
+                Thread.sleep(forTimeInterval: 0.15)
+                throw LanguageServerDiscoveryError.notFound(
+                    languageName: profile.displayName,
+                    attemptedSources: []
+                )
+            }
+        )
+        let (controller, trustStore, _, _) = try makeFixture(
+            languageSupportService: service
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        controller.viewDidAppear()
+        trustStore.trust(controller.identity)
+        controller.multiLanguageServicesCoordinator.onMissingServer?(
+            DefaultLanguageProfiles.shell
+        )
+
+        try await Task.sleep(for: .milliseconds(30))
+        controller.revokeTrust(nil)
+        try await Task.sleep(for: .milliseconds(250))
+
+        let banner = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServerBanner",
+                in: controller.view
+            )
+        )
+        XCTAssertTrue(banner.isHidden)
+    }
+
+    func testUnknownExtensionPromptCreatesAPrefilledCustomProfile() async throws {
+        let suiteName =
+            "WorkspaceViewControllerTrustControlTests.UnknownProfile.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let profileStore = try LanguageProfileStore(
+            defaultProfiles: [],
+            defaults: defaults,
+            overrideStore: overrideStore
+        )
+        let service = LanguageSupportService(
+            profileStore: profileStore,
+            overrideStore: overrideStore
+        )
+        let (controller, trustStore, _, _) = try makeFixture(
+            languageSupportService: service
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        controller.viewDidAppear()
+        trustStore.trust(controller.identity)
+
+        let unknownURL = controller.identity.root.appendingPathComponent(
+            "example.widget"
+        )
+        let secondUnknownURL = controller.identity.root.appendingPathComponent(
+            "other.widget"
+        )
+        controller.multiLanguageServicesCoordinator.onUnknownFileType?(
+            unknownURL
+        )
+        controller.multiLanguageServicesCoordinator.onUnknownFileType?(
+            secondUnknownURL
+        )
+        try await waitForPromptUpdate()
+        let banner = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServerBanner",
+                in: controller.view
+            )
+        )
+
+        let chooseButton = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServer.chooseExisting",
+                in: controller.view
+            ) as? NSButton
+        )
+        XCTAssertEqual(chooseButton.title, "Add Profile...")
+
+        // An unknown file extension has no profile at all (default or
+        // custom), so it must always keep the generic public LSP
+        // directory fallback rather than "Installation Help...".
+        let findServerButton = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServer.findServer",
+                in: controller.view
+            ) as? NSButton
+        )
+        XCTAssertEqual(findServerButton.title, "Find a Server...")
+
+        chooseButton.performClick(nil)
+
+        let draft = try XCTUnwrap(service.requestedProfileDraft)
+        XCTAssertEqual(draft.displayName, "WIDGET")
+        XCTAssertEqual(draft.associations.count, 1)
+        XCTAssertEqual(draft.associations[0].fileExtensions, "widget")
+        XCTAssertNil(draft.associations[0].syntaxLanguage)
+        XCTAssertFalse(draft.languageServerEnabled)
+        XCTAssertFalse(
+            banner.isHidden,
+            "Opening Settings must not dismiss an unresolved prompt"
+        )
+
+        _ = try service.save(draft: draft)
+        try await waitForPromptUpdate()
+        XCTAssertTrue(
+            banner.isHidden,
+            "Saving a matching profile resolves the unknown-file prompt"
+        )
     }
 
     func testPreviewSourceControlLivesInFixedWindowToolbarSlot() async throws {
@@ -326,5 +906,29 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(workspaceEvents.count, 2, "Both trusting and revoking a workspace should record a .workspace diagnostic event")
         XCTAssertTrue(workspaceEvents.contains { $0.message.contains("trust granted") })
         XCTAssertTrue(workspaceEvents.contains { $0.message.contains("trust revoked") })
+    }
+}
+
+/// Thread-safe boolean gate for toggling an injected discovery closure's
+/// behavior mid-test (e.g. simulating an external install becoming
+/// available between two `refresh()` calls).
+private final class DiscoveryGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Bool
+
+    init(_ initial: Bool) {
+        self.value = initial
+    }
+
+    func set(_ newValue: Bool) {
+        lock.lock()
+        value = newValue
+        lock.unlock()
+    }
+
+    func get() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }

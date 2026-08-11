@@ -1,15 +1,12 @@
 import Foundation
-import ManagedLanguageServers
 
 /// One published Kod release as it appears in the signed update feed
 /// (SPEC 13.3: "Network activity is attributable in the UI to app
 /// update ..."; SPEC 17 M4: "Signed/notarized distribution, updater").
 ///
 /// `architecture` is `nil` for a universal (arm64 + x86_64) build
-/// artifact and a specific `ManagedInstallArchitecture` for an
-/// architecture-specific one — mirroring
-/// `ManagedServerArtifact`'s own per-architecture modeling in
-/// `ManagedLanguageServers`, since Kod ships Apple-silicon-first with
+/// artifact and a specific `ReleaseArchitecture` for an
+/// architecture-specific one, since Kod ships Apple-silicon-first with
 /// Intel best-effort (SPEC "Architecture priority").
 ///
 /// `isRollbackTarget` is the *only* thing that makes an older,
@@ -24,7 +21,7 @@ import ManagedLanguageServers
 public struct UpdateFeedEntry: Codable, Sendable, Equatable {
     public let version: SemanticVersion
     public let minimumSystemVersion: SemanticVersion
-    public let architecture: ManagedInstallArchitecture?
+    public let architecture: ReleaseArchitecture?
     public let downloadURL: URL
     public let sha256Hex: String
     public let publishedAt: Date
@@ -35,7 +32,7 @@ public struct UpdateFeedEntry: Codable, Sendable, Equatable {
     public init(
         version: SemanticVersion,
         minimumSystemVersion: SemanticVersion,
-        architecture: ManagedInstallArchitecture? = nil,
+        architecture: ReleaseArchitecture? = nil,
         downloadURL: URL,
         sha256Hex: String,
         publishedAt: Date,
@@ -61,7 +58,7 @@ public struct UpdateFeedEntry: Codable, Sendable, Equatable {
     /// an x86_64-only entry is never offered as an update on arm64 even
     /// though Rosetta could technically run it, since Kod always
     /// prefers offering the native arm64 or universal artifact first).
-    public func isCompatible(withRunningArchitecture runningArchitecture: ManagedInstallArchitecture) -> Bool {
+    public func isCompatible(withRunningArchitecture runningArchitecture: ReleaseArchitecture) -> Bool {
         guard let architecture else {
             return true
         }

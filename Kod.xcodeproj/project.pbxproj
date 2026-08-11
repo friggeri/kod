@@ -26,6 +26,9 @@
 		B00000000000000000000017 /* AppearanceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000001B /* AppearanceSettings.swift */; };
 		B00000000000000000000018 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000001C /* SettingsView.swift */; };
 		B00000000000000000000019 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000001D /* SettingsWindowController.swift */; };
+		B00000000000000000000090 /* LanguageSupportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000090 /* LanguageSupportService.swift */; };
+		B00000000000000000000091 /* LanguageSupportSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000091 /* LanguageSupportSettingsView.swift */; };
+		B00000000000000000000092 /* LanguageSupportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000092 /* LanguageSupportServiceTests.swift */; };
 		B00000000000000000000020 /* ThemeCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000007 /* ThemeCore */; };
 		B00000000000000000000021 /* FontCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000008 /* FontCore */; };
 		B00000000000000000000022 /* SearchCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000009 /* SearchCore */; };
@@ -38,7 +41,6 @@
 		B00000000000000000000024 /* SearchSidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000001E /* SearchSidebarViewController.swift */; };
 		B00000000000000000000025 /* EditorGroupViewControllerReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000001F /* EditorGroupViewControllerReloadTests.swift */; };
 		B00000000000000000000026 /* WorkspaceViewControllerLiveUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000020 /* WorkspaceViewControllerLiveUpdateTests.swift */; };
-		B0000000000000000000002C /* LanguageServicesCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000021 /* LanguageServicesCoordinator.swift */; };
 		B0000000000000000000002D /* ProblemsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000022 /* ProblemsViewController.swift */; };
 		B0000000000000000000002E /* SymbolsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000023 /* SymbolsViewController.swift */; };
 		B0000000000000000000002F /* LanguageClient in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000010 /* LanguageClient */; };
@@ -55,11 +57,6 @@
 		B0000000000000000000003A /* MultiLanguageServicesCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000002B /* MultiLanguageServicesCoordinatorTests.swift */; };
 		B0000000000000000000003B /* LanguageAdapters in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000014 /* LanguageAdapters */; };
 		B0000000000000000000003C /* LanguageAdapters in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000015 /* LanguageAdapters */; };
-		B0000000000000000000003D /* ManagedLanguageServers in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000016 /* ManagedLanguageServers */; };
-		B0000000000000000000003E /* ManagedLanguageServers in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000017 /* ManagedLanguageServers */; };
-		B0000000000000000000003F /* ManagedInstallStatusModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000002C /* ManagedInstallStatusModel.swift */; };
-		B00000000000000000000040 /* ManagedInstallCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000002D /* ManagedInstallCoordinator.swift */; };
-		B00000000000000000000041 /* ManagedInstallCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000002E /* ManagedInstallCoordinatorTests.swift */; };
 		B00000000000000000000042 /* GitWorkspaceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000030 /* GitWorkspaceCoordinator.swift */; };
 		B00000000000000000000043 /* SourceControlSidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000031 /* SourceControlSidebarViewController.swift */; };
 		B00000000000000000000044 /* GitDiffViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000032 /* GitDiffViewController.swift */; };
@@ -140,10 +137,12 @@
 		C0000000000000000000001B /* AppearanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettings.swift; sourceTree = "<group>"; };
 		C0000000000000000000001C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		C0000000000000000000001D /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		C00000000000000000000090 /* LanguageSupportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSupportService.swift; sourceTree = "<group>"; };
+		C00000000000000000000091 /* LanguageSupportSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSupportSettingsView.swift; sourceTree = "<group>"; };
+		C00000000000000000000092 /* LanguageSupportServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSupportServiceTests.swift; sourceTree = "<group>"; };
 		C0000000000000000000001E /* SearchSidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchSidebarViewController.swift; sourceTree = "<group>"; };
 		C0000000000000000000001F /* EditorGroupViewControllerReloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorGroupViewControllerReloadTests.swift; sourceTree = "<group>"; };
 		C00000000000000000000020 /* WorkspaceViewControllerLiveUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceViewControllerLiveUpdateTests.swift; sourceTree = "<group>"; };
-		C00000000000000000000021 /* LanguageServicesCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageServicesCoordinator.swift; sourceTree = "<group>"; };
 		C00000000000000000000022 /* ProblemsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProblemsViewController.swift; sourceTree = "<group>"; };
 		C00000000000000000000023 /* SymbolsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymbolsViewController.swift; sourceTree = "<group>"; };
 		C00000000000000000000024 /* ProblemsViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProblemsViewControllerTests.swift; sourceTree = "<group>"; };
@@ -154,9 +153,6 @@
 		C00000000000000000000029 /* PeekViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeekViewControllerTests.swift; sourceTree = "<group>"; };
 		C0000000000000000000002A /* HierarchyViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HierarchyViewControllerTests.swift; sourceTree = "<group>"; };
 		C0000000000000000000002B /* MultiLanguageServicesCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiLanguageServicesCoordinatorTests.swift; sourceTree = "<group>"; };
-		C0000000000000000000002C /* ManagedInstallStatusModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedInstallStatusModel.swift; sourceTree = "<group>"; };
-		C0000000000000000000002D /* ManagedInstallCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedInstallCoordinator.swift; sourceTree = "<group>"; };
-		C0000000000000000000002E /* ManagedInstallCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedInstallCoordinatorTests.swift; sourceTree = "<group>"; };
 		C00000000000000000000030 /* GitWorkspaceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitWorkspaceCoordinator.swift; sourceTree = "<group>"; };
 		C00000000000000000000031 /* SourceControlSidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlSidebarViewController.swift; sourceTree = "<group>"; };
 		C00000000000000000000032 /* GitDiffViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffViewController.swift; sourceTree = "<group>"; };
@@ -211,7 +207,6 @@
 				B0000000000000000000002F /* LanguageClient in Frameworks */,
 				B00000000000000000000033 /* SyntaxCore in Frameworks */,
 				B0000000000000000000003B /* LanguageAdapters in Frameworks */,
-				B0000000000000000000003D /* ManagedLanguageServers in Frameworks */,
 				B0000000000000000000004C /* GitCore in Frameworks */,
 				B00000000000000000000052 /* PreviewCore in Frameworks */,
 				B00000000000000000000059 /* DiagnosticsCore in Frameworks */,
@@ -232,7 +227,6 @@
 				B00000000000000000000030 /* LanguageClient in Frameworks */,
 				B00000000000000000000034 /* SyntaxCore in Frameworks */,
 				B0000000000000000000003C /* LanguageAdapters in Frameworks */,
-				B0000000000000000000003E /* ManagedLanguageServers in Frameworks */,
 				B0000000000000000000004D /* GitCore in Frameworks */,
 				B00000000000000000000053 /* PreviewCore in Frameworks */,
 				B0000000000000000000005A /* DiagnosticsCore in Frameworks */,
@@ -292,15 +286,14 @@
 				C0000000000000000000001B /* AppearanceSettings.swift */,
 				C0000000000000000000001C /* SettingsView.swift */,
 				C0000000000000000000001D /* SettingsWindowController.swift */,
+				C00000000000000000000090 /* LanguageSupportService.swift */,
+				C00000000000000000000091 /* LanguageSupportSettingsView.swift */,
 				C0000000000000000000001E /* SearchSidebarViewController.swift */,
-				C00000000000000000000021 /* LanguageServicesCoordinator.swift */,
 				C00000000000000000000022 /* ProblemsViewController.swift */,
 				C00000000000000000000023 /* SymbolsViewController.swift */,
 				C00000000000000000000026 /* MultiLanguageServicesCoordinator.swift */,
 				C00000000000000000000027 /* PeekViewController.swift */,
 				C00000000000000000000028 /* HierarchyViewController.swift */,
-				C0000000000000000000002C /* ManagedInstallStatusModel.swift */,
-				C0000000000000000000002D /* ManagedInstallCoordinator.swift */,
 				C00000000000000000000030 /* GitWorkspaceCoordinator.swift */,
 				C00000000000000000000031 /* SourceControlSidebarViewController.swift */,
 				C00000000000000000000032 /* GitDiffViewController.swift */,
@@ -334,7 +327,6 @@
 				C00000000000000000000029 /* PeekViewControllerTests.swift */,
 				C0000000000000000000002A /* HierarchyViewControllerTests.swift */,
 				C0000000000000000000002B /* MultiLanguageServicesCoordinatorTests.swift */,
-				C0000000000000000000002E /* ManagedInstallCoordinatorTests.swift */,
 				C00000000000000000000036 /* GitWorkspaceCoordinatorTests.swift */,
 				C00000000000000000000037 /* SourceControlSidebarViewControllerTests.swift */,
 				C00000000000000000000038 /* GitDiffViewControllerTests.swift */,
@@ -354,6 +346,7 @@
 				C0000000000000000000004F /* UserFacingStringAuditTests.swift */,
 				C00000000000000000000051 /* LanguageHoverControllerTests.swift */,
 				C00000000000000000000054 /* MaterialFileIconTests.swift */,
+				C00000000000000000000092 /* LanguageSupportServiceTests.swift */,
 			);
 			path = KodAppTests;
 			sourceTree = "<group>";
@@ -393,7 +386,6 @@
 				I00000000000000000000010 /* LanguageClient */,
 				I00000000000000000000012 /* SyntaxCore */,
 				I00000000000000000000014 /* LanguageAdapters */,
-				I00000000000000000000016 /* ManagedLanguageServers */,
 				I00000000000000000000018 /* GitCore */,
 				I0000000000000000000001A /* PreviewCore */,
 				I0000000000000000000001C /* DiagnosticsCore */,
@@ -427,7 +419,6 @@
 				I00000000000000000000011 /* LanguageClient */,
 				I00000000000000000000013 /* SyntaxCore */,
 				I00000000000000000000015 /* LanguageAdapters */,
-				I00000000000000000000017 /* ManagedLanguageServers */,
 				I00000000000000000000019 /* GitCore */,
 				I0000000000000000000001B /* PreviewCore */,
 				I0000000000000000000001D /* DiagnosticsCore */,
@@ -543,15 +534,14 @@
 				B00000000000000000000017 /* AppearanceSettings.swift in Sources */,
 				B00000000000000000000018 /* SettingsView.swift in Sources */,
 				B00000000000000000000019 /* SettingsWindowController.swift in Sources */,
+				B00000000000000000000090 /* LanguageSupportService.swift in Sources */,
+				B00000000000000000000091 /* LanguageSupportSettingsView.swift in Sources */,
 				B00000000000000000000024 /* SearchSidebarViewController.swift in Sources */,
-				B0000000000000000000002C /* LanguageServicesCoordinator.swift in Sources */,
 				B0000000000000000000002D /* ProblemsViewController.swift in Sources */,
 				B0000000000000000000002E /* SymbolsViewController.swift in Sources */,
 				B00000000000000000000035 /* MultiLanguageServicesCoordinator.swift in Sources */,
 				B00000000000000000000036 /* PeekViewController.swift in Sources */,
 				B00000000000000000000037 /* HierarchyViewController.swift in Sources */,
-				B0000000000000000000003F /* ManagedInstallStatusModel.swift in Sources */,
-				B00000000000000000000040 /* ManagedInstallCoordinator.swift in Sources */,
 				B00000000000000000000042 /* GitWorkspaceCoordinator.swift in Sources */,
 				B00000000000000000000043 /* SourceControlSidebarViewController.swift in Sources */,
 				B00000000000000000000044 /* GitDiffViewController.swift in Sources */,
@@ -583,7 +573,6 @@
 				B00000000000000000000038 /* PeekViewControllerTests.swift in Sources */,
 				B00000000000000000000039 /* HierarchyViewControllerTests.swift in Sources */,
 				B0000000000000000000003A /* MultiLanguageServicesCoordinatorTests.swift in Sources */,
-				B00000000000000000000041 /* ManagedInstallCoordinatorTests.swift in Sources */,
 				B00000000000000000000048 /* GitWorkspaceCoordinatorTests.swift in Sources */,
 				B00000000000000000000049 /* SourceControlSidebarViewControllerTests.swift in Sources */,
 				B0000000000000000000004A /* GitDiffViewControllerTests.swift in Sources */,
@@ -603,6 +592,7 @@
 				B00000000000000000000067 /* UserFacingStringAuditTests.swift in Sources */,
 				B00000000000000000000069 /* LanguageHoverControllerTests.swift in Sources */,
 				B0000000000000000000006C /* MaterialFileIconTests.swift in Sources */,
+				B00000000000000000000092 /* LanguageSupportServiceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -934,16 +924,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
 			productName = LanguageAdapters;
-		};
-		I00000000000000000000016 /* ManagedLanguageServers */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
-			productName = ManagedLanguageServers;
-		};
-		I00000000000000000000017 /* ManagedLanguageServers */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
-			productName = ManagedLanguageServers;
 		};
 		I00000000000000000000018 /* GitCore */ = {
 			isa = XCSwiftPackageProductDependency;

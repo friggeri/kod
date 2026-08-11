@@ -317,9 +317,14 @@ def criterion_4(ctx: RunContext) -> Evidence:
 
 def criterion_5(ctx: RunContext) -> Evidence:
     log = ctx.swift_test_log()
-    evidence = suites_outcome(log, ["ManagedInstallControllerHostileTests"])
-    evidence.commands.append("swift test --filter ManagedLanguageServersTests.ManagedInstallControllerHostileTests")
-    evidence.notes = "LanguageClientTests' own connection-fixture tests additionally cover missing/crashed/slow-server degradation at the LSP-connection layer."
+    evidence = suites_outcome(log, [
+        "LanguageServerConnectionFixtureTests",
+        "LanguageWorkspaceServiceFixtureTests",
+    ])
+    evidence.commands.append(
+        'swift test --filter "LanguageServerConnectionFixtureTests|LanguageWorkspaceServiceFixtureTests"'
+    )
+    evidence.notes = "Connection and workspace-service fixtures cover malformed frames, timeouts, crashes, restart budgets, disabled states, and explicit initialization failures while document viewing remains independent."
     return evidence
 
 

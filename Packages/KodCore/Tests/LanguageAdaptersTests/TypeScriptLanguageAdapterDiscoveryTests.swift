@@ -45,8 +45,7 @@ final class TypeScriptLanguageAdapterDiscoveryTests: XCTestCase {
             overrideStore: makeOverrideStore(),
             identity: nil,
             loginShellPath: { directory.path },
-            packageManagerDirectories: [],
-            managedInstallProbe: { nil }
+            packageManagerDirectories: []
         )
 
         XCTAssertEqual(result.url, native)
@@ -62,8 +61,7 @@ final class TypeScriptLanguageAdapterDiscoveryTests: XCTestCase {
             overrideStore: makeOverrideStore(),
             identity: nil,
             loginShellPath: { directory.path },
-            packageManagerDirectories: [],
-            managedInstallProbe: { nil }
+            packageManagerDirectories: []
         )
 
         XCTAssertEqual(result.url, legacy)
@@ -87,8 +85,7 @@ final class TypeScriptLanguageAdapterDiscoveryTests: XCTestCase {
             overrideStore: store,
             identity: identity,
             loginShellPath: { directory.path },
-            packageManagerDirectories: [],
-            managedInstallProbe: { nil }
+            packageManagerDirectories: []
         )
 
         XCTAssertEqual(result.url, override)

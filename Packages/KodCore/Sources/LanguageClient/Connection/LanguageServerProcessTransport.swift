@@ -65,6 +65,8 @@ public actor LanguageServerProcessTransport {
     private var stdinHandle: FileHandle?
     private var stdoutHandle: FileHandle?
     private var stderrHandle: FileHandle?
+    private var stdoutReadTask: Task<Void, Never>?
+    private var stderrReadTask: Task<Void, Never>?
     public let stderrCapture = RotatingLogCapture()
 
     private var decoder: JSONRPCFramingDecoder
@@ -116,16 +118,42 @@ public actor LanguageServerProcessTransport {
         stdoutHandle = stdoutPipe.fileHandleForReading
         stderrHandle = stderrPipe.fileHandleForReading
 
-        let transport = self
-        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            Task { await transport.handleStdout(data) }
+        let stdoutChunks = AsyncStream<Data> { continuation in
+            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                continuation.yield(data)
+                if data.isEmpty {
+                    continuation.finish()
+                }
+            }
         }
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            Task { await transport.handleStderr(data) }
+        let stderrChunks = AsyncStream<Data> { continuation in
+            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                continuation.yield(data)
+                if data.isEmpty {
+                    continuation.finish()
+                }
+            }
+        }
+        stdoutReadTask = Task { [weak self] in
+            for await data in stdoutChunks {
+                guard let self else {
+                    return
+                }
+                await self.handleStdout(data)
+            }
+        }
+        stderrReadTask = Task { [weak self] in
+            for await data in stderrChunks {
+                guard let self else {
+                    return
+                }
+                await self.handleStderr(data)
+            }
         }
         process.terminationHandler = { process in
+            let transport = self
             Task { await transport.handleTermination(exitCode: process.terminationStatus) }
         }
 
@@ -208,18 +236,22 @@ public actor LanguageServerProcessTransport {
         }
     }
 
-    private func handleStderr(_ data: Data) {
+    private func handleStderr(_ data: Data) async {
         guard !data.isEmpty else {
             stderrHandle?.readabilityHandler = nil
             return
         }
-        Task { await stderrCapture.append(data) }
+        await stderrCapture.append(data)
     }
 
     private func handleTermination(exitCode: Int32) {
         self.exitCode = exitCode
         stdoutHandle?.readabilityHandler = nil
         stderrHandle?.readabilityHandler = nil
+        stdoutReadTask?.cancel()
+        stdoutReadTask = nil
+        stderrReadTask?.cancel()
+        stderrReadTask = nil
         messageContinuation?.finish()
         terminationContinuation?.resume(returning: exitCode)
         terminationContinuation = nil

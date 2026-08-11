@@ -1,4 +1,5 @@
 import Foundation
+import SyntaxCore
 import WorkspaceCore
 
 /// CSS adapter using `vscode-css-language-server` (from the
@@ -7,7 +8,15 @@ import WorkspaceCore
 public enum CSSLanguageAdapter: LanguageAdapter {
     public static let languageKey = "css"
     public static let displayName = "CSS (vscode-css-language-server)"
-    public static let fileExtensions: Set<String> = ["css", "scss", "less"]
+    public static let syntaxLanguages: Set<SyntaxLanguage> = [.css]
+    public static let additionalFileExtensions: Set<String> = ["scss", "less"]
+    public static let executableProfiles = [
+        LanguageServerExecutableProfile(
+            executableNames: ["vscode-css-language-server"],
+            arguments: ["--stdio"],
+            versionArguments: nil
+        )
+    ]
     public static let semanticTokenTypes = StandardSemanticTokenLegend.tokenTypes
     public static let semanticTokenModifiers = StandardSemanticTokenLegend.tokenModifiers
 
@@ -37,9 +46,6 @@ public enum CSSLanguageAdapter: LanguageAdapter {
             // any invocation without a transport flag, including
             // `--version`.
             versionArguments: nil,
-            managedInstallProbe: {
-                ManagedInstallDiscoverySource.discover(serverID: "vscode-css-language-server", controller: ManagedInstallDiscoverySource.shared)
-            },
             overrideStore: overrideStore,
             identity: identity
         )

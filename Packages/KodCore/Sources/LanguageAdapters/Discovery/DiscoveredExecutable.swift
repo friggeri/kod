@@ -6,20 +6,17 @@ import Foundation
 /// launch, so users can tell exactly why a given binary was chosen.
 public enum ExecutableDiscoverySource: String, Sendable, Equatable, CaseIterable {
     case workspaceOverride
+    case registeredProfile
     case globalOverride
     case languageSpecificTool
     case loginShellPath
     case packageManagerLocation
-    /// Resolved by `ManagedInstallDiscoverySource` reading an active,
-    /// already-verified-and-extracted `ManagedInstallController`
-    /// install (SPEC 6.5's catalog/signature/rollback machinery,
-    /// implemented in the `ManagedLanguageServers` target).
-    case managedInstall
-
     public var displayName: String {
         switch self {
         case .workspaceOverride:
             return "Per-workspace override"
+        case .registeredProfile:
+            return "Registered language profile"
         case .globalOverride:
             return "Global override"
         case .languageSpecificTool:
@@ -28,8 +25,6 @@ public enum ExecutableDiscoverySource: String, Sendable, Equatable, CaseIterable
             return "Login shell PATH"
         case .packageManagerLocation:
             return "Common package-manager location"
-        case .managedInstall:
-            return "Kod-managed install"
         }
     }
 }
@@ -42,18 +37,28 @@ public enum ExecutableDiscoverySource: String, Sendable, Equatable, CaseIterable
 public struct DiscoveredExecutable: Sendable, Equatable {
     public let url: URL
     public let arguments: [String]
+    public let environment: [String: String]?
     public let version: String?
     public let source: ExecutableDiscoverySource
 
-    public init(url: URL, arguments: [String], version: String?, source: ExecutableDiscoverySource) {
+    public init(
+        url: URL,
+        arguments: [String],
+        environment: [String: String]? = nil,
+        version: String?,
+        source: ExecutableDiscoverySource
+    ) {
         self.url = url
         self.arguments = arguments
+        self.environment = environment
         self.version = version
         self.source = source
     }
 }
 
 public enum LanguageServerDiscoveryError: Error, Equatable, Sendable {
+    case profileDisabled(String)
+    case profileHasNoLanguageServer(String)
     /// No executable was found for `languageName` at any precedence
     /// tier through `attemptedSources`.
     case notFound(languageName: String, attemptedSources: [ExecutableDiscoverySource])
@@ -66,6 +71,10 @@ public enum LanguageServerDiscoveryError: Error, Equatable, Sendable {
 extension LanguageServerDiscoveryError: LocalizedError {
     public var errorDescription: String? {
         switch self {
+        case .profileDisabled(let profile):
+            return "Language profile \(profile) is disabled."
+        case .profileHasNoLanguageServer(let profile):
+            return "Language profile \(profile) does not configure a language server."
         case .notFound(let languageName, let attemptedSources):
             let sources = attemptedSources.map(\.displayName).joined(separator: ", ")
             return "No \(languageName) executable was found. Checked: \(sources). Install a compatible server or configure a language-server override."

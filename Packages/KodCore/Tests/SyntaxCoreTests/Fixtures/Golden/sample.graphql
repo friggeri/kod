@@ -1,0 +1,5 @@
+query Greeting($name: String!) {
+  greeting(name: $name) {
+    message
+  }
+}

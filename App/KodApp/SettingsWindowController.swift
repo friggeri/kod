@@ -77,22 +77,34 @@ private final class SettingsModel: ObservableObject {
 final class SettingsWindowController: NSWindowController {
     private let model: SettingsModel
     private let diagnosticsModel: DiagnosticsViewModel
+    private let languageSupportService: LanguageSupportService
+    private var selectedTab = SettingsTab.theme
 
-    convenience init(diagnosticsLog: BoundedEventLog = BoundedEventLog()) {
-        self.init(themeStore: ThemeStore(), fontSettingsStore: FontSettingsStore(), diagnosticsLog: diagnosticsLog)
+    convenience init(
+        diagnosticsLog: BoundedEventLog = BoundedEventLog(),
+        languageSupportService: LanguageSupportService = LanguageSupportService()
+    ) {
+        self.init(
+            themeStore: ThemeStore(),
+            fontSettingsStore: FontSettingsStore(),
+            diagnosticsLog: diagnosticsLog,
+            languageSupportService: languageSupportService
+        )
     }
 
     init(
         themeStore: ThemeStore,
         fontSettingsStore: FontSettingsStore,
-        diagnosticsLog: BoundedEventLog = BoundedEventLog()
+        diagnosticsLog: BoundedEventLog = BoundedEventLog(),
+        languageSupportService: LanguageSupportService = LanguageSupportService()
     ) {
         let model = SettingsModel(themeStore: themeStore, fontSettingsStore: fontSettingsStore)
         self.model = model
         self.diagnosticsModel = DiagnosticsViewModel(diagnosticsLog: diagnosticsLog)
+        self.languageSupportService = languageSupportService
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 540),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -112,6 +124,10 @@ final class SettingsWindowController: NSWindowController {
 
     private func makeView() -> SettingsView {
         SettingsView(
+            selectedTab: Binding(
+                get: { [weak self] in self?.selectedTab ?? .theme },
+                set: { [weak self] in self?.selectedTab = $0 }
+            ),
             selectedThemeIdentifier: Binding(
                 get: { [model] in model.selectedThemeIdentifier },
                 set: { [model] in model.selectedThemeIdentifier = $0 }
@@ -125,8 +141,56 @@ final class SettingsWindowController: NSWindowController {
             ),
             availableFamilies: Self.availableFamilies(currentFamily: model.fontSettings.familyName),
             diagnosticsModel: diagnosticsModel,
-            onExportSupportBundle: { [weak self] in self?.presentSupportBundleExportPanel() }
+            onExportSupportBundle: { [weak self] in self?.presentSupportBundleExportPanel() },
+            languageSupportService: languageSupportService,
+            onChooseLanguageServerExecutable: { [weak self] languageKey in
+                self?.presentLanguageServerExecutablePanel(
+                    profileIdentifier: languageKey
+                )
+            },
+            onFindLanguageServer: {
+                NSWorkspace.shared.open(
+                    LanguageSupportService.serverDirectoryURL
+                )
+            }
         )
+    }
+
+    func showLanguageSupport(profileIdentifier: String? = nil) {
+       selectedTab = .languages
+       languageSupportService.focusProfile(identifier: profileIdentifier)
+       window?.contentViewController = NSHostingController(rootView: makeView())
+       showWindow(nil)
+       window?.makeKeyAndOrderFront(nil)
+    }
+
+    private func presentLanguageServerExecutablePanel(
+       profileIdentifier: String
+    ) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = Localized.string(
+            "Choose an existing language-server executable.",
+            comment: "Open panel message for selecting a language-server executable"
+        )
+
+        guard let window else {
+            return
+        }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else {
+                return
+            }
+            do {
+                try self.languageSupportService.setSelectedExecutable(
+                    profileIdentifier: profileIdentifier,
+                    url: url
+                )
+            } catch {
+                self.languageSupportService.report(error)
+            }
+        }
     }
 
     private static func availableFamilies(currentFamily: String) -> [String] {

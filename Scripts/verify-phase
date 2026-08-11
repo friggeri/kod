@@ -50,8 +50,8 @@ if [ "$phase" = "6" ] || [ "$phase" = "7" ] || [ "$phase" = "8" ] || [ "$phase" 
 fi
 
 # Phase 7's LanguageAdaptersTests run real, headless integration tests
-# against pinned TypeScript/JavaScript, HTML, CSS, Python, and Rust
-# language servers (SPEC 6.5/6.1) — never a shell string, never a
+# against pinned supported language servers, including shell, Markdown,
+# JSON, YAML, and TOML (SPEC 6.5/6.1) — never a shell string, never a
 # repository-provided command. Fail fast with the exact setup command
 # rather than letting those tests report a confusing missing-executable
 # skip later. Rust's `rust-analyzer` is checked via the same `rustup
@@ -63,6 +63,11 @@ if [ "$phase" = "7" ] || [ "$phase" = "8" ] || [ "$phase" = "9" ] || [ "$phase" 
         "node_modules/.bin/typescript-language-server" \
         "node_modules/.bin/vscode-html-language-server" \
         "node_modules/.bin/vscode-css-language-server" \
+        "node_modules/.bin/vscode-json-language-server" \
+        "node_modules/.bin/bash-language-server" \
+        "node_modules/.bin/yaml-language-server" \
+        "native/marksman" \
+        "native/tombi" \
         "pyright-venv/bin/pyright-langserver"
     do
         if [ ! -x "$test_servers_dir/$relative_path" ]; then
@@ -78,25 +83,15 @@ if [ "$phase" = "7" ] || [ "$phase" = "8" ] || [ "$phase" = "9" ] || [ "$phase" 
         printf '%s\n' "Run Scripts/vendor-test-language-servers/setup.sh to install the pinned Phase 7 test language servers." >&2
         exit 1
     fi
-    printf '%s\n' "==> Pinned Phase 7 test language servers present (typescript-language-server, vscode-html/css-language-server, pyright, rust-analyzer)"
+    printf '%s\n' "==> Pinned real test language servers present (Swift, TypeScript/JavaScript, HTML/CSS, Python, Rust, shell, Markdown, JSON, YAML, TOML)"
 fi
 
-# Phase 8's ManagedLanguageServersTests (hostile-archive/catalog,
-# install/upgrade/rollback/remove/interrupted-recovery lifecycle, and
-# discovery-integration coverage) are fully offline and need no external
-# setup beyond what `swift build`/`swift test` already provisions: the
-# repository's own `FakeLanguageServer` executable (built as a normal
-# SwiftPM product) stands in for a real managed server, a fixed
-# non-secret fixture Ed25519 key signs the offline test catalog, and a
-# minimal loopback-only HTTP server exercises real download mechanics.
-# There is deliberately nothing to vendor or provision here — see
-# Scripts/managed-install-signing/README.md for the real-release-key
-# process, which this script never runs (no production signing key
-# exists in this environment; ManagedCatalogTool is release/test tooling
-# only, and CatalogTrustRoot.production ships empty until that process
-# happens offline).
+# Phase 8's language-profile, local-discovery, routing, trust, and syntax
+# coverage is fully offline. Real third-party servers remain optional test
+# fixtures provisioned separately above; Kod never downloads or installs
+# them as part of verification or at runtime.
 if [ "$phase" = "8" ]; then
-    printf '%s\n' "==> Phase 8 managed-install tests run fully offline (fixture catalog/artifacts, no external setup required)"
+    printf '%s\n' "==> Phase 8 language-profile tests run fully offline (no server installation required)"
 fi
 
 # Phase 9's GitCoreTests (status/diff/blame parsing, process-invocation

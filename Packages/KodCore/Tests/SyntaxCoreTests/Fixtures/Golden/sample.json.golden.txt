@@ -1,0 +1,13 @@
+string 4..<10
+string.special.key 4..<10
+string 12..<17
+string 21..<30
+string.special.key 21..<30
+constant.builtin 32..<36
+string 40..<51
+string.special.key 40..<51
+string 54..<61
+string 63..<69
+string 74..<81
+string.special.key 74..<81
+number 83..<84

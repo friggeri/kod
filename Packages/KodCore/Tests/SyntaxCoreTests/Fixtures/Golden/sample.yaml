@@ -1,0 +1,16 @@
+name: Kod
+enabled: true
+languages:
+  - Swift
+  - Rust
+metadata:
+  count: 5
+  ratio: 1.5
+  released: null
+  created: 2026-08-11
+  quoted: "blue"
+  single: 'green'
+  flow: {owner: team, flags: [fast, safe]}
+description: |
+  A read-only editor.
+# YAML comment

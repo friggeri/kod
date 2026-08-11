@@ -1,0 +1,6 @@
+[application]
+name = "Kod"
+
+[application.features]
+syntax-highlighting = true
+language-servers = ["shell", "markdown"]

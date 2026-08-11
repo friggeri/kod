@@ -1,12 +1,10 @@
 import CryptoKit
 import Foundation
-import ManagedLanguageServers
 
 /// Verifies a `SignedUpdateFeedDocument` against an
 /// `UpdateFeedTrustRoot` before ever handing back a usable `UpdateFeed`
-/// (mirroring `ManagedLanguageServers.CatalogVerifier`'s "verify
-/// signature before reading entries" contract). This is the single
-/// choke point every update-check code path must go through.
+/// while enforcing "verify signature before reading entries." This is
+/// the single choke point every update-check code path must go through.
 public enum UpdateFeedVerifier {
     public static func verify(
         _ document: SignedUpdateFeedDocument,
@@ -16,10 +14,10 @@ public enum UpdateFeedVerifier {
             throw UpdateFeedVerificationError.noTrustedKeyConfigured
         }
 
-        // As with `CatalogVerifier`, the signed key ID is looked up only
-        // to select which pinned public key's raw bytes to hand to
-        // CryptoKit — the actual trust decision is the signature check
-        // immediately below, using that key's real public-key bytes.
+        // The signed key ID is looked up only to select which pinned
+        // public key's raw bytes to hand to CryptoKit — the actual trust
+        // decision is the signature check immediately below, using that
+        // key's real public-key bytes.
         let preliminaryFeed = try UpdateFeedCanonicalization.decode(document.canonicalBytes)
         guard let trustedKey = trustRoot.key(id: document.signingKeyID, generatedAt: preliminaryFeed.generatedAt) else {
             throw UpdateFeedVerificationError.unknownSigningKeyID(document.signingKeyID)
@@ -51,7 +49,7 @@ public enum UpdateFeedVerifier {
         in feed: UpdateFeed,
         currentVersion: SemanticVersion,
         currentSystemVersion: SemanticVersion,
-        runningArchitecture: ManagedInstallArchitecture
+        runningArchitecture: ReleaseArchitecture
     ) -> UpdateFeedEntry? {
         feed.entries
             .filter { $0.version > currentVersion }
@@ -77,7 +75,7 @@ public enum UpdateFeedVerifier {
         in feed: UpdateFeed,
         currentVersion: SemanticVersion,
         currentSystemVersion: SemanticVersion,
-        runningArchitecture: ManagedInstallArchitecture
+        runningArchitecture: ReleaseArchitecture
     ) -> UpdateFeedEntry? {
         feed.entries
             .filter { $0.isRollbackTarget }
@@ -89,8 +87,7 @@ public enum UpdateFeedVerifier {
 
     /// Verifies a downloaded update archive's SHA-256 against the
     /// entry's `sha256Hex` before it is ever extracted or executed —
-    /// the update-feed analog of `ManagedLanguageServers.Digest`'s
-    /// pre-extraction digest check. A mismatch throws rather than
+    /// a pre-extraction digest check. A mismatch throws rather than
     /// silently proceeding.
     public static func verifyDownloadedArtifact(at fileURL: URL, matches entry: UpdateFeedEntry) throws {
         let data = try Data(contentsOf: fileURL)

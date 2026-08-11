@@ -1,0 +1,10 @@
+(comment) @comment
+(string_value) @string
+(int_value) @number
+(float_value) @number
+(boolean_value) @boolean
+(null_value) @constant.builtin
+(enum_value) @constant
+(name) @variable
+(operation_type) @keyword
+(type) @type

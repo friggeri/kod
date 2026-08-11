@@ -3,7 +3,6 @@ import DiagnosticsCore
 import FontCore
 import Foundation
 import KodCore
-import ManagedLanguageServers
 import ThemeCore
 import WorkspaceCore
 
@@ -19,26 +18,9 @@ import WorkspaceCore
 /// pattern, so it is directly testable without any app-wide singleton.
 @MainActor
 final class DiagnosticsViewModel: ObservableObject {
-    /// The managed-server IDs Kod's built-in adapters know how to
-    /// resolve via a managed install (SPEC 6.5) — a fixed, non-secret
-    /// list, not discovered from any live catalog fetch (there is no
-    /// production catalog-fetch call site in this build yet, and
-    /// `CatalogTrustRoot.production` is intentionally empty, so every
-    /// one of these will honestly report `.notInstalled` unless a test
-    /// or a future release wires up a real signed catalog).
-    static let knownManagedServerIDs: [(serverID: String, language: String?)] = [
-        ("typescript-language-server", "typescript"),
-        ("vscode-html-language-server", "html"),
-        ("vscode-css-language-server", "css"),
-        ("pyright", "python"),
-        ("rust-analyzer", "rust"),
-        ("node-runtime", nil)
-    ]
-
     private let diagnosticsLog: BoundedEventLog
     private let crashReportingSettingsStore: CrashReportingSettingsStore
     private let quarantineLedgers: @MainActor () -> [QuarantinedRecord]
-    private let managedInstallCoordinator: ManagedInstallCoordinator?
     private let appVersion: String
     private let osVersion: String
     private let architecture: String
@@ -56,7 +38,6 @@ final class DiagnosticsViewModel: ObservableObject {
             crashReportingSettingsStore.save(settings)
         }
     }
-    @Published private(set) var managedServerStatuses: [ManagedInstallStatusModel] = []
     @Published var lastExportErrorDescription: String?
 
     /// `events`, sorted newest-first, restricted to `minimumLevel` and
@@ -71,7 +52,6 @@ final class DiagnosticsViewModel: ObservableObject {
         diagnosticsLog: BoundedEventLog,
         crashReportingSettingsStore: CrashReportingSettingsStore = CrashReportingSettingsStore(),
         quarantineLedgers: @escaping @MainActor () -> [QuarantinedRecord] = DiagnosticsViewModel.defaultQuarantineLedgers,
-        managedInstallCoordinator: ManagedInstallCoordinator? = DiagnosticsViewModel.defaultManagedInstallCoordinator(),
         appVersion: String = "\(KodBuildInfo.current().version) (\(KodBuildInfo.current().build))",
         osVersion: String = ProcessInfo.processInfo.operatingSystemVersionString,
         architecture: String = KodBuildInfo.current().architecture
@@ -79,7 +59,6 @@ final class DiagnosticsViewModel: ObservableObject {
         self.diagnosticsLog = diagnosticsLog
         self.crashReportingSettingsStore = crashReportingSettingsStore
         self.quarantineLedgers = quarantineLedgers
-        self.managedInstallCoordinator = managedInstallCoordinator
         self.appVersion = appVersion
         self.osVersion = osVersion
         self.architecture = architecture
@@ -87,8 +66,7 @@ final class DiagnosticsViewModel: ObservableObject {
     }
 
     /// Refreshes the on-screen event list/dropped-count from the shared
-    /// log's redacted snapshot, and the managed-server provenance
-    /// section from `ManagedInstallCoordinator`. Call from `.task`/
+    /// log's redacted snapshot. Call from `.task`/
     /// `.onAppear` and again on a user-triggered "Refresh" action —
     /// this view never auto-polls in the background, matching this
     /// app's existing "explicit refresh over silent background timers"
@@ -96,12 +74,6 @@ final class DiagnosticsViewModel: ObservableObject {
     func refresh() async {
         events = await diagnosticsLog.redactedSnapshot()
         droppedCount = await diagnosticsLog.droppedCount
-        if let managedInstallCoordinator {
-            for (serverID, language) in Self.knownManagedServerIDs {
-                await managedInstallCoordinator.refreshStatus(serverID: serverID, language: language)
-            }
-            managedServerStatuses = Self.knownManagedServerIDs.map { managedInstallCoordinator.status(for: $0.serverID) }
-        }
     }
 
     /// Assembles a fresh `SupportBundleContents` from the shared log and
@@ -143,19 +115,5 @@ final class DiagnosticsViewModel: ObservableObject {
         ThemeStore().quarantine.ledger()
             + FontSettingsStore().quarantine.ledger()
             + WorkspaceLayoutStore().quarantine.ledger()
-    }
-
-    /// A best-effort, real (not fabricated) `ManagedInstallCoordinator`
-    /// wired to the same on-disk install paths Kod's managed-install
-    /// pipeline would use in production, so the Diagnostics tab's
-    /// managed-server provenance section always reflects genuine
-    /// on-disk state (honestly "not installed" today, since no
-    /// production signed catalog is configured yet) rather than an
-    /// invented status.
-    static func defaultManagedInstallCoordinator() -> ManagedInstallCoordinator? {
-        guard let controller = try? ManagedInstallController() else {
-            return nil
-        }
-        return ManagedInstallCoordinator(controller: controller)
     }
 }

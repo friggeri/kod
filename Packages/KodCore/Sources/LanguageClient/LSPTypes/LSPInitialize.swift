@@ -14,6 +14,7 @@ public struct ClientCapabilities: Encodable, Sendable {
             public let dynamicRegistration = false
         }
         public let symbol = Symbol()
+        public let configuration = true
         /// Explicitly `false`, never omitted: some servers treat a
         /// missing field as "assume default support," so Kod states its
         /// refusal rather than relying on omission.
@@ -164,6 +165,7 @@ public struct InitializeParams: Encodable, Sendable {
     public let rootUri: DocumentURI?
     public let capabilities: ClientCapabilities
     public let workspaceFolders: [WorkspaceFolder]?
+    public let initializationOptions: JSONValue?
     public let trace: String = "off"
 
     public struct ClientInfo: Encodable, Sendable {
@@ -176,13 +178,15 @@ public struct InitializeParams: Encodable, Sendable {
         clientInfo: ClientInfo,
         rootUri: DocumentURI?,
         capabilities: ClientCapabilities,
-        workspaceFolders: [WorkspaceFolder]?
+        workspaceFolders: [WorkspaceFolder]?,
+        initializationOptions: JSONValue? = nil
     ) {
         self.processId = processId
         self.clientInfo = clientInfo
         self.rootUri = rootUri
         self.capabilities = capabilities
         self.workspaceFolders = workspaceFolders
+        self.initializationOptions = initializationOptions
     }
 }
 

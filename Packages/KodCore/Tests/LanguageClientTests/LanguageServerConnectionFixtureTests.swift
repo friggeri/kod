@@ -43,6 +43,30 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         XCTAssertNotNil(capabilities?.semanticTokensProvider)
     }
 
+    func testSendsFixedInitializationOptionsAndSafeWorkspaceConfiguration() async throws {
+        var configuration = try makeConfiguration(scenario: "workspace-configuration")
+        configuration.initializationOptions = .object(["safe": .bool(true)])
+        configuration.workspaceConfiguration = [
+            "yaml": .object(["validate": .bool(true)])
+        ]
+        let logMessages = LockedArray<String>()
+        let connection = LanguageServerConnection(configuration: configuration, onNotification: { notification in
+            if case .logMessage(let text) = notification,
+               text.hasPrefix("workspaceConfiguration:") {
+                logMessages.append(text)
+            }
+        })
+        try await connection.start()
+        defer { Task { await connection.shutdown() } }
+
+        let deadline = Date().addingTimeInterval(3)
+        while logMessages.count() == 0, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertEqual(logMessages.snapshot(), ["workspaceConfiguration:accepted"])
+    }
+
     func testHoverDefinitionReferencesSymbolsDiagnosticsSemanticTokensAllRoundTrip() async throws {
         let configuration = try makeConfiguration(scenario: "normal")
         let connection = LanguageServerConnection(configuration: configuration)

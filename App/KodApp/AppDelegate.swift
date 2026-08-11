@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// workspace opened during this run, not just whichever one is
     /// currently frontmost.
     private let diagnosticsLog = BoundedEventLog()
+    private let languageSupportService = LanguageSupportService()
 
     static func main() {
         let application = NSApplication.shared
@@ -487,11 +488,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func showSettings(_ sender: Any? = nil) {
-        let controller = settingsWindowController ?? SettingsWindowController(diagnosticsLog: diagnosticsLog)
+        let controller = settingsWindowController ?? SettingsWindowController(
+            diagnosticsLog: diagnosticsLog,
+            languageSupportService: languageSupportService
+        )
         settingsWindowController = controller
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc
+    func showLanguageSupportSettings(_ sender: Any? = nil) {
+        showSettings(sender)
+        settingsWindowController?.showLanguageSupport(
+            profileIdentifier: languageSupportService.focusedProfileIdentifier
+        )
     }
 
     private func displayWorkspace(at url: URL) {
@@ -500,7 +512,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             recentWorkspaceStore.record(identity.root)
             configureMainMenu()
 
-            let controller = WorkspaceViewController(identity: identity, diagnosticsLog: diagnosticsLog)
+            let controller = WorkspaceViewController(
+                identity: identity,
+                diagnosticsLog: diagnosticsLog,
+                languageSupportService: languageSupportService
+            )
             guard let window = welcomeWindowController?.window else {
                 return
             }
@@ -528,7 +544,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard !Task.isCancelled, let self else {
                     return
                 }
-                let controller = StandaloneDocumentViewController(snapshot: snapshot)
+                let controller = StandaloneDocumentViewController(
+                    snapshot: snapshot,
+                    languageSupportService: self.languageSupportService
+                )
                 guard let window = self.welcomeWindowController?.window else {
                     return
                 }

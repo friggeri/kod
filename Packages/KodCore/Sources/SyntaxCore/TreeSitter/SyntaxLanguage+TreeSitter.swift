@@ -1,12 +1,25 @@
 import CTreeSitter
+import CTreeSitterBash
+import CTreeSitterC
 import CTreeSitterCSS
+import CTreeSitterGo
+import CTreeSitterGraphQL
 import CTreeSitterHTML
+import CTreeSitterJava
 import CTreeSitterJavaScript
+import CTreeSitterJSON
+import CTreeSitterMarkdown
+import CTreeSitterMarkdownInline
 import CTreeSitterPython
+import CTreeSitterRuby
 import CTreeSitterRust
 import CTreeSitterSwift
+import CTreeSitterTOML
 import CTreeSitterTypeScript
 import CTreeSitterTSX
+import CTreeSitterYAML
+import CTreeSitterLua
+import CTreeSitterXML
 
 extension SyntaxLanguage {
     /// The pinned, compiled-in `TSLanguage` for this language. Each grammar
@@ -23,6 +36,19 @@ extension SyntaxLanguage {
         case .css: tree_sitter_css()
         case .python: tree_sitter_python()
         case .rust: tree_sitter_rust()
+        case .shell: tree_sitter_bash()
+        case .markdown: tree_sitter_markdown()
+        case .markdownInline: tree_sitter_markdown_inline()
+        case .json: tree_sitter_json()
+        case .yaml: tree_sitter_yaml()
+        case .toml: tree_sitter_toml()
+        case .c: tree_sitter_c()
+        case .go: tree_sitter_go()
+        case .java: tree_sitter_java()
+        case .ruby: tree_sitter_ruby()
+        case .lua: tree_sitter_lua()
+        case .graphql: tree_sitter_graphql()
+        case .xml: tree_sitter_xml()
         }
     }
 }

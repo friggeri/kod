@@ -22,7 +22,7 @@ Kod is not an editor. It must never offer an operation that changes source files
 2. **First content fast.** File browsing and plain-text rendering must not wait for syntax parsing, Git, search indexing, or a language server.
 3. **Progressive intelligence.** Tree-sitter highlighting, Git context, diagnostics, and semantic information may arrive incrementally without blocking interaction.
 4. **Native where it matters.** Kod uses native windowing, input, accessibility, typography, scrolling, menus, and system appearance.
-5. **Local and private.** Source remains on the Mac. Network access is limited to explicit app or language-server downloads and opt-in crash reports.
+5. **Local and private.** Source remains on the Mac. Network access is limited to explicit app updates, user-approved remote preview resources, user-owned language-server behavior, and opt-in crash reports.
 6. **Predictable over extensible.** Kod ships a curated, tested feature set. There is no extension runtime or arbitrary in-process plug-in API.
 
 ## 2. Goals and non-goals
@@ -33,9 +33,9 @@ Kod is not an editor. It must never offer an operation that changes source files
 - Remain responsive in repositories with 100,000 files and a 5 GB working tree.
 - Fully view source files up to 10 MB under the performance contract in section 12.
 - Provide keyboard-first file, text, symbol, and navigation-history workflows.
-- Support Tree-sitter syntax highlighting for Swift, TypeScript, JavaScript, HTML, CSS, Python, and Rust.
+- Support quality-gated bundled Tree-sitter syntax for Swift, TypeScript, JavaScript, HTML, CSS, Python, Rust, shell, Markdown, JSON, YAML, TOML, C, Go, Java, Ruby, Lua, GraphQL, and XML, with Plain Text fallback.
 - Support a complete read-only LSP surface: hover, definitions, declarations, type definitions, implementations, references, document symbols, workspace symbols, diagnostics, semantic tokens, inlay hints, call hierarchy, and type hierarchy.
-- Discover compatible language servers already installed on the Mac and offer verified Kod-managed installs where practical.
+- Provide editable global language profiles that discover or register user-installed language servers without downloading or installing them.
 - Show Git status, working-tree and staged differences, inline change markers, a file diff view, and blame information without changing Git state.
 - Support installed monospaced fonts and import both VS Code color-theme JSON files and Kod-native themes.
 - Preview Markdown, images, JSON, and property lists.
@@ -85,13 +85,19 @@ Kod is not an editor. It must never offer an operation that changes source files
 
 ### 4.2 Supported launch languages
 
-| Language | Syntax grammar | Default language server | Discovery | Kod-managed install |
-| --- | --- | --- | --- | --- |
-| Swift | Tree-sitter Swift | SourceKit-LSP | Active Xcode/toolchain, `xcrun`, configured path | Guided toolchain installation; no repackaging by default |
-| TypeScript / JavaScript | Tree-sitter TypeScript/JavaScript | `typescript-language-server` with TypeScript | Configured path, login-shell environment, common package-manager locations | Yes |
-| HTML / CSS | Tree-sitter HTML/CSS | VS Code HTML/CSS language servers | Configured path, login-shell environment, common package-manager locations | Yes |
-| Python | Tree-sitter Python | Pyright-compatible server | Configured path, virtual environment, login-shell environment | Yes |
-| Rust | Tree-sitter Rust | `rust-analyzer` | `rustup`, configured path, login-shell environment | Yes |
+| Profile | Bundled syntax | Optional local server candidates |
+| --- | --- | --- |
+| Swift | Tree-sitter Swift | SourceKit-LSP via active Xcode/toolchain or selected path |
+| TypeScript / JavaScript | Tree-sitter TypeScript/JavaScript | `typescript-language-server` |
+| HTML / CSS | Tree-sitter HTML/CSS | VS Code HTML/CSS language servers |
+| Python | Tree-sitter Python | Pyright-compatible server |
+| Rust | Tree-sitter Rust | `rust-analyzer` via `rustup`, PATH, or selected path |
+| Shell | Tree-sitter Bash | `bash-language-server`, with optional ShellCheck discovery |
+| Markdown | Tree-sitter Markdown block + inline | Marksman |
+| JSON / YAML / TOML | Corresponding Tree-sitter grammar | VS Code JSON server, `yaml-language-server`, Tombi, or Taplo |
+| C / Go / Java | Corresponding Tree-sitter grammar | `clangd`, `gopls`, or `jdtls` |
+| Ruby / Lua | Corresponding Tree-sitter grammar | `ruby-lsp` or `lua-language-server` |
+| GraphQL / XML | Corresponding Tree-sitter grammar | `graphql-lsp` or `lemminx` |
 
 Kod's LSP client must remain protocol-generic. "Supported" means the listed combination is tested, has a setup adapter, and receives release-blocking compatibility coverage; it does not mean the client hard-codes protocol behavior by language.
 
@@ -158,7 +164,7 @@ Kod must not expose or invoke:
 
 If a server sends a mutating request, Kod rejects it with the correct LSP error, records a local diagnostic event, and shows a non-blocking explanation when user action initiated the exchange.
 
-Third-party language servers may create their own caches or build artifacts after a workspace is trusted. Kod-managed adapters must redirect those outputs into Kod's Application Support or cache directory whenever the server provides a supported option. The trust dialog must disclose side effects that Kod cannot technically prevent.
+Third-party language servers may access the network, invoke tools, or create caches and build artifacts after a workspace is trusted. The trust dialog must disclose that user-selected servers are not sandboxed and that Kod cannot technically prevent those side effects.
 
 ### 5.6 External file changes
 
@@ -239,29 +245,48 @@ Capabilities that imply mutation are not advertised during initialization. Dynam
 - Selecting a diagnostic navigates without changing the problem list.
 - Quick fixes and code actions are intentionally absent, even when advertised by the server.
 
-### 6.5 Server discovery and managed installs
+### 6.5 Language profiles and server discovery
 
 Discovery order is deterministic:
 
 1. Explicit Kod per-workspace override stored outside the repository.
-2. Explicit global Kod setting.
-3. Language-specific system discovery, such as `xcrun` or `rustup`.
-4. A captured login-shell environment.
-5. Common package-manager locations.
-6. Kod-managed installation.
+2. The profile's explicitly selected absolute executable.
+3. A migrated legacy global override, when present.
+4. Ordered profile candidates using constrained discovery such as `xcrun`, `rustup`, PATH, or common package-manager locations.
 
 Kod displays the selected executable, version, source, and arguments before first launch. It must never evaluate shell text or repository-provided command strings.
 
-Managed installs must:
+The Languages settings pane is the shared source of truth for syntax and server
+status. It provides editable, disableable default profiles and global custom
+profiles. Each profile maps files to a bundled grammar or Plain Text and may
+optionally define an LSP language ID, a selected executable, and fixed arguments.
+Kod validates that selected executables are absolute local executable paths,
+launches argument arrays directly without a shell, and never executes package
+manager commands.
 
-- Use a signed, versioned catalog controlled by the Kod release process.
-- Download over TLS only after explicit user action.
-- Verify an expected cryptographic digest before extraction.
-- Pin the selected version and support atomic upgrade and rollback.
-- Install under `~/Library/Application Support/Kod/LanguageServers`.
-- Avoid package-manager lifecycle scripts.
-- Include a verified private runtime when a server requires one.
-- Keep Apple-silicon and Intel artifacts separate and identify unsupported combinations clearly.
+Settings exposes Add/Edit Profile, Choose Executable, Use Auto-Detected,
+Enable/Disable, Reset Default, and Delete Custom Profile. Association conflicts
+require explicit confirmation; exact filenames take precedence over extensions,
+then bounded built-in content matchers apply. A missing-server prompt offers
+Choose Executable, Open Language Settings, Find a Server, and Not Now. The Find
+action opens the public LSP implementors directory only after user action and
+does not imply endorsement.
+
+For a missing server on a default (non-custom) profile, Kod may additionally
+show curated installation guidance from a separate, shipped-only catalog keyed
+by default profile identifier (`DefaultLanguageServerInstallationGuides`) —
+never part of the editable, Codable profile model, and never resolvable for a
+custom profile even if it reuses a default profile's identifier or metadata.
+The guidance is an exact, package-manager-labeled command (e.g. `npm`, `pnpm`,
+Homebrew, `rustup`, `go install`, RubyGems, or the Xcode Command Line Tools)
+shown as selectable monospaced text with a one-click "Copy ... Command" button,
+plus a link to that server's official installation documentation. When a
+known default profile with guidance is missing its server, the workspace
+banner's Find action becomes "Installation Help..." and opens that
+documentation directly instead of the generic directory; unknown file types,
+custom profiles, and default profiles without guidance keep the public
+directory fallback. Kod only displays and copies this text; it never executes
+a package manager, shell command, update, or removal.
 
 ## 7. Syntax and visual presentation
 
@@ -412,7 +437,7 @@ Git integration is read-only and optional for non-Git folders.
 | `CodeViewport` | Virtualized layout, Core Text drawing, selection, folding, accessibility |
 | `SyntaxCore` | Tree-sitter parsers, queries, captures, parse scheduling |
 | `LanguageClient` | JSON-RPC, LSP state machine, capability filtering, cancellation |
-| `LanguageAdapters` | Discovery, setup, configuration, managed-server catalog |
+| `LanguageAdapters` | Language profiles, routing, local executable discovery, and configuration |
 | `SearchCore` | Filename fuzzy index, file find, streaming text search |
 | `GitCore` | Safe read-only status, diff, blame, cache invalidation |
 | `ThemeCore` | Native themes, VS Code import, resolved style tables |
@@ -489,7 +514,7 @@ Kod stores the following under its Application Support container:
 - Window, split, tab, navigation, fold, and scroll restoration.
 - Global and per-workspace settings.
 - Imported themes.
-- Managed language servers and their manifest.
+- Global language profiles and selected local executable metadata.
 - Bounded diagnostic logs.
 
 Caches live under the system cache directory and may be deleted without data loss. Source contents, search indexes, and LSP responses are not persisted beyond what is required for restoration metadata.
@@ -558,6 +583,7 @@ They may not start:
 - Repository-discovered executables
 - Toolchain commands that inspect project configuration
 - Remote Markdown resources
+- Remote JSON, YAML, or TOML schemas requested by a language server
 
 Trust is recorded against canonical path and volume identity, is visible in the status bar, and can be revoked from that indicator after confirmation.
 
@@ -568,7 +594,8 @@ Trust is recorded against canonical path and volume identity, is visible in the 
 - Environment variables are allowlisted per adapter where practical.
 - Process stdout, stderr, message size, execution time, and restart rates are bounded.
 - JSON-RPC messages and all server ranges are schema- and bounds-validated.
-- Managed installers reject archive traversal, symlink escape, digest mismatch, unexpected executable layout, and unsigned catalog changes.
+- Profile-selected executables must be absolute, local, executable files; launch arguments remain discrete values and never pass through a shell.
+- Custom profiles cannot provide arbitrary environment variables, shell commands, initialization payloads, or native parser plug-ins.
 
 ### 13.3 Privacy
 
@@ -576,7 +603,8 @@ Trust is recorded against canonical path and volume identity, is visible in the 
 - Kod collects no usage telemetry.
 - Crash reporting is opt-in.
 - Crash reports and support bundles redact source text, search terms, usernames, home-directory prefixes, repository remotes, environment secrets, and full paths by default.
-- Network activity is attributable in the UI to app update, managed server download, remote Markdown resource, or crash report.
+- Network activity is attributable in the UI to app updates, trusted user-owned
+  language-server behavior, remote Markdown resources, or crash reports.
 
 ## 14. Accessibility and localization
 
@@ -659,7 +687,7 @@ Milestones are gated by exit criteria rather than dates.
 ### M2: Search and language intelligence
 
 - Streaming workspace search.
-- Language client, adapters, discovery, trust gate, and managed-install foundation.
+- Language client, editable profiles, local executable discovery, and trust gate.
 - Full read-only LSP feature surface and Problems/Symbols views.
 - Server failure, cancellation, logging, and recovery UX.
 
@@ -689,8 +717,7 @@ The following require a separate post-1.0 product decision:
 
 - Repository and commit history browsing beyond per-file blame.
 - Multi-root workspaces.
-- Additional first-class languages and managed-server adapters.
-- User-installable Tree-sitter grammars that do not require an extension runtime.
+- Additional quality-gated bundled grammars and default language profiles.
 - Custom keybinding profiles.
 - Remote repositories and hosted review integrations.
 - A reduced Mac App Store edition.
@@ -708,8 +735,8 @@ This specification incorporates these product decisions:
 - AppKit/Core Text rendering with selective SwiftUI.
 - Tree-sitter syntax plus LSP semantic-token overlays.
 - Full read-only LSP features.
-- Installed-server discovery plus optional verified Kod-managed installs.
-- First-class Swift, TypeScript/JavaScript, HTML/CSS, Python, and Rust support.
+- Editable profiles plus selected-path and known-candidate discovery for user-installed servers; Kod never installs language servers, and only ever shows curated, copyable installation commands and official documentation links for default profiles, never executing them.
+- First-class bundled syntax for the supported profile catalog, with Plain Text fallback.
 - In-memory filename indexing and on-demand ripgrep-compatible text search.
 - Git status, inline changes, file diffs, and blame.
 - VS Code color-theme JSON import plus a native Kod theme format.

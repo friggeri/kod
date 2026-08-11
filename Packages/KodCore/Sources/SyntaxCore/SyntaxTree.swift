@@ -39,6 +39,11 @@ public struct ScopeHeader: Equatable, Sendable {
     }
 }
 
+struct SyntaxTreeLayer: Sendable {
+    let treeBox: TSTreeBox
+    let language: SyntaxLanguage
+}
+
 /// A parsed Tree-sitter tree bound to the exact snapshot bytes it was
 /// parsed from, plus the snapshot version and language it is valid for.
 /// `SyntaxEngine` discards any `SyntaxTree` whose `snapshotVersion` no
@@ -49,6 +54,7 @@ public struct SyntaxTree: Sendable {
     public let snapshotVersion: Int
 
     private let treeBox: TSTreeBox
+    private let additionalLayers: [SyntaxTreeLayer]
     private let utf8: Data
 
     /// Safety ceiling for fold ranges and scope-header collection so a
@@ -57,8 +63,15 @@ public struct SyntaxTree: Sendable {
     /// unbounded allocation").
     private static let maximumStructuralResults = 20_000
 
-    init(treeBox: TSTreeBox, utf8: Data, language: SyntaxLanguage, snapshotVersion: Int) {
+    init(
+        treeBox: TSTreeBox,
+        additionalLayers: [SyntaxTreeLayer] = [],
+        utf8: Data,
+        language: SyntaxLanguage,
+        snapshotVersion: Int
+    ) {
         self.treeBox = treeBox
+        self.additionalLayers = additionalLayers
         self.utf8 = utf8
         self.language = language
         self.snapshotVersion = snapshotVersion
@@ -73,15 +86,35 @@ public struct SyntaxTree: Sendable {
     /// the visible viewport's byte range lets `SyntaxEngine` prioritize
     /// what is currently on screen without walking the whole tree first.
     public func captures(inByteRange byteRange: Range<Int>) -> [SyntaxCapture] {
-        guard case .success(let queryBox) = TSQueryStore.shared.highlightsQuery(for: language) else {
+        let layers = [SyntaxTreeLayer(treeBox: treeBox, language: language)] + additionalLayers
+        var results: [SyntaxCapture] = []
+        for layer in layers {
+            appendCaptures(
+                from: layer,
+                inByteRange: byteRange,
+                into: &results
+            )
+            if results.count >= Self.maximumStructuralResults {
+                break
+            }
+        }
+        return results
+    }
+
+    private func appendCaptures(
+        from layer: SyntaxTreeLayer,
+        inByteRange byteRange: Range<Int>,
+        into results: inout [SyntaxCapture]
+    ) {
+        guard case .success(let queryBox) = TSQueryStore.shared.highlightsQuery(for: layer.language) else {
             // Already logged (once, cached) by `TSQueryStore` at compile
             // time; returning no captures here just means this call site
             // keeps showing plain text instead of hanging or crashing.
-            return []
+            return
         }
         guard let cursor = ts_query_cursor_new() else {
             SyntaxCoreLog.parsing.error("ts_query_cursor_new() returned NULL (out of memory?)")
-            return []
+            return
         }
         defer { ts_query_cursor_delete(cursor) }
 
@@ -90,10 +123,9 @@ public struct SyntaxTree: Sendable {
             UInt32(clamping: byteRange.lowerBound),
             UInt32(clamping: byteRange.upperBound)
         )
-        ts_query_cursor_exec(cursor, queryBox.pointer, rootNode)
+        ts_query_cursor_exec(cursor, queryBox.pointer, ts_tree_root_node(layer.treeBox.pointer))
 
         let evaluator = TreeSitterPredicateEvaluator(query: queryBox.pointer, utf8: utf8)
-        var results: [SyntaxCapture] = []
         var match = TSQueryMatch()
 
         while ts_query_cursor_next_match(cursor, &match) {
@@ -124,11 +156,10 @@ public struct SyntaxTree: Sendable {
                 )
                 results.append(SyntaxCapture(name: name, utf8Range: start..<end))
                 if results.count >= Self.maximumStructuralResults {
-                    return results
+                    return
                 }
             }
         }
-        return results
     }
 
     /// Structural fold ranges derived from any named node spanning two or

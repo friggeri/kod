@@ -27,8 +27,8 @@ final class HTMLLanguageAdapterIntegrationTests: XCTestCase {
             languageKey: HTMLLanguageAdapter.languageKey,
             identity: identity
         )
-        return LanguageAdapterRegistry.makeService(
-            for: HTMLLanguageAdapter.self,
+        return try LanguageProfileServiceFactory.makeService(
+            for: DefaultLanguageProfiles.html,
             identity: identity,
             trustStore: trustStore,
             overrideStore: overrideStore

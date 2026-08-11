@@ -27,8 +27,8 @@ final class CSSLanguageAdapterIntegrationTests: XCTestCase {
             languageKey: CSSLanguageAdapter.languageKey,
             identity: identity
         )
-        return LanguageAdapterRegistry.makeService(
-            for: CSSLanguageAdapter.self,
+        return try LanguageProfileServiceFactory.makeService(
+            for: DefaultLanguageProfiles.css,
             identity: identity,
             trustStore: trustStore,
             overrideStore: overrideStore

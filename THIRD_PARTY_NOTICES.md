@@ -42,20 +42,36 @@ TypeScript.
 | Language | Project | Pinned commit | Tag | Vendored at |
 | --- | --- | --- | --- | --- |
 | Swift | [alex-pinkus/tree-sitter-swift](https://github.com/alex-pinkus/tree-sitter-swift) | `31d17fe7e818a2048c808b5c6fdc2dc792f4f5b5` | `0.7.3-with-generated-files` | `Packages/KodCore/Sources/CTreeSitterSwift` |
-| TypeScript | [tree-sitter/tree-sitter-typescript](https://github.com/tree-sitter/tree-sitter-typescript) | `f975a621f4e7f532fe322e13c4f79495e0a7b2e7` | `v0.23.2` | `Packages/KodCore/Sources/CTreeSitterTypeScript` |
+| TypeScript / TSX | [tree-sitter/tree-sitter-typescript](https://github.com/tree-sitter/tree-sitter-typescript) | `f975a621f4e7f532fe322e13c4f79495e0a7b2e7` | `v0.23.2` | `Packages/KodCore/Sources/CTreeSitterTypeScript` and `Packages/KodCore/Sources/CTreeSitterTSX` |
 | JavaScript | [tree-sitter/tree-sitter-javascript](https://github.com/tree-sitter/tree-sitter-javascript) | `44c892e0be055ac465d5eeddae6d3e194424e7de` | `v0.25.0` | `Packages/KodCore/Sources/CTreeSitterJavaScript` |
 | HTML | [tree-sitter/tree-sitter-html](https://github.com/tree-sitter/tree-sitter-html) | `5a5ca8551a179998360b4a4ca2c0f366a35acc03` | `v0.23.2` | `Packages/KodCore/Sources/CTreeSitterHTML` |
 | CSS | [tree-sitter/tree-sitter-css](https://github.com/tree-sitter/tree-sitter-css) | `dda5cfc5722c429eaba1c910ca32c2c0c5bb1a3f` | `v0.25.0` | `Packages/KodCore/Sources/CTreeSitterCSS` |
 | Python | [tree-sitter/tree-sitter-python](https://github.com/tree-sitter/tree-sitter-python) | `293fdc02038ee2bf0e2e206711b69c90ac0d413f` | `v0.25.0` | `Packages/KodCore/Sources/CTreeSitterPython` |
 | Rust | [tree-sitter/tree-sitter-rust](https://github.com/tree-sitter/tree-sitter-rust) | `77a3747266f4d621d0757825e6b11edcbf991ca5` | `v0.24.2` | `Packages/KodCore/Sources/CTreeSitterRust` |
+| Shell | [tree-sitter/tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash) | `a06c2e4415e9bc0346c6b86d401879ffb44058f7` | `v0.25.1` | `Packages/KodCore/Sources/CTreeSitterBash` |
+| JSON | [tree-sitter/tree-sitter-json](https://github.com/tree-sitter/tree-sitter-json) | `ee35a6ebefcef0c5c416c0d1ccec7370cfca5a24` | `v0.24.8` | `Packages/KodCore/Sources/CTreeSitterJSON` |
+| YAML | [tree-sitter-grammars/tree-sitter-yaml](https://github.com/tree-sitter-grammars/tree-sitter-yaml) | `7708026449bed86239b1cd5bce6e3c34dbca6415` | `v0.7.2` | `Packages/KodCore/Sources/CTreeSitterYAML` |
+| TOML | [tree-sitter-grammars/tree-sitter-toml](https://github.com/tree-sitter-grammars/tree-sitter-toml) | `64b56832c2cffe41758f28e05c756a3a98d16f41` | `v0.7.0` | `Packages/KodCore/Sources/CTreeSitterTOML` |
+| Markdown (block and inline) | [tree-sitter-grammars/tree-sitter-markdown](https://github.com/tree-sitter-grammars/tree-sitter-markdown) | `f969cd3ae3f9fbd4e43205431d0ae286014c05b5b` | `v0.5.3` | `Packages/KodCore/Sources/CTreeSitterMarkdown` and `Packages/KodCore/Sources/CTreeSitterMarkdownInline` |
+| C | [tree-sitter/tree-sitter-c](https://github.com/tree-sitter/tree-sitter-c) | `b780e47fc780ddc8da13afa35a3f4ed5c157823d` | `v0.24.2` | `Packages/KodCore/Sources/CTreeSitterC` |
+| Go | [tree-sitter/tree-sitter-go](https://github.com/tree-sitter/tree-sitter-go) | `1547678a9da59885853f5f5cc8a99cc203fa2e2c` | `v0.25.0` | `Packages/KodCore/Sources/CTreeSitterGo` |
+| Java | [tree-sitter/tree-sitter-java](https://github.com/tree-sitter/tree-sitter-java) | `94703d5a6bed02b98e438d7cad1136c01a60ba2c` | `v0.23.5` | `Packages/KodCore/Sources/CTreeSitterJava` |
+| Ruby | [tree-sitter/tree-sitter-ruby](https://github.com/tree-sitter/tree-sitter-ruby) | `71bd32fb7607035768799732addba884a37a6210` | `v0.23.1` | `Packages/KodCore/Sources/CTreeSitterRuby` |
+| Lua | [tree-sitter-grammars/tree-sitter-lua](https://github.com/tree-sitter-grammars/tree-sitter-lua) | `10fe0054734eec83049514ea2e718b2a56acd0c9` | `v0.5.0` | `Packages/KodCore/Sources/CTreeSitterLua` |
+| GraphQL | [bkegley/tree-sitter-graphql](https://github.com/bkegley/tree-sitter-graphql) | `5e66e961eee421786bdda8495ed1db045e06b5fe` | unreleased | `Packages/KodCore/Sources/CTreeSitterGraphQL` |
+| XML | [tree-sitter-grammars/tree-sitter-xml](https://github.com/tree-sitter-grammars/tree-sitter-xml) | `4b64dd3a03ec002258d6268d712fd93716d6ab57` | `v0.7.0` | `Packages/KodCore/Sources/CTreeSitterXML` |
 
-All seven grammars are licensed under the MIT License. Each vendored
+All twenty-one parser targets are licensed under the MIT License. Each vendored
 directory carries its own upstream `LICENSE-upstream.txt` copy.
 
 The bundled `highlights.scm` (and, for Swift, `locals.scm`/`injections.scm`)
 queries under `Packages/KodCore/Sources/SyntaxCore/Resources/Queries` are
-vendored from the same pinned commits and carry the same MIT license as
-their grammar.
+vendored from the same pinned commits and carry the same MIT license as their
+grammar, except GraphQL's small Kod-authored highlights query: its pinned
+upstream does not ship one. The vendoring script records it as local and its
+fixture/golden test validates its node names and captures. XML's external
+scanner includes the upstream shared scanner header; its vendored include path
+is adjusted in the same reproducible script for the target-local header path.
 
 ## Kod-authored code that adapts third-party formats
 
@@ -117,8 +133,9 @@ their grammar.
 
 ## Test-only external language servers (never bundled or shipped)
 
-Phase 7's real-server integration tests (`Packages/KodCore/Tests/LanguageAdaptersTests`)
-exercise Kod's TypeScript/JavaScript, HTML, CSS, Python, and Rust language
+Real-server integration tests (`Packages/KodCore/Tests/LanguageAdaptersTests`)
+exercise Kod's TypeScript/JavaScript, HTML, CSS, Python, Rust, shell, Markdown,
+JSON, YAML, and TOML language
 adapters against genuine, pinned third-party language servers. None of
 these are vendored into the repository, linked into Kod, or shipped with
 any build — they are installed locally, on demand, purely so the test
@@ -127,60 +144,22 @@ suite can run real protocol round trips instead of only the deterministic
 and its `manifest.json` record the exact pinned versions and reproduce the
 installation; everything it installs lives under
 `Packages/KodCore/.build/test-language-servers/`, which the repository-wide
-`.build/` `.gitignore` rule already excludes. Kod-managed installation for
-end users (a signed, versioned, hash-verified catalog with consent,
-rollback, and no vendored third-party server binaries in this repository
-either) is implemented separately — see the "Kod-managed language-server
-installs (Phase 8)" section below.
+`.build/` `.gitignore` rule already excludes. These dependencies are test
+fixtures only. Kod does not download or install language servers for users.
 
 | Server | Project | Pinned version | License |
 | --- | --- | --- | --- |
 | `typescript-language-server` | [typescript-language-server/typescript-language-server](https://github.com/typescript-language-server/typescript-language-server) | `4.3.4` (with `typescript` `5.9.3`) | Apache-2.0 |
-| `vscode-html-language-server` / `vscode-css-language-server` | [microsoft/vscode-langservers-extracted](https://github.com/microsoft/vscode-langservers-extracted) | `4.10.0` | MIT |
+| `vscode-html-language-server` / `vscode-css-language-server` / `vscode-json-language-server` | [hrsh7th/vscode-langservers-extracted](https://github.com/hrsh7th/vscode-langservers-extracted) | `4.10.0` | MIT |
 | `pyright-langserver` | [microsoft/pyright](https://github.com/microsoft/pyright) | `1.1.407` | MIT |
 | `rust-analyzer` | [rust-lang/rust-analyzer](https://github.com/rust-lang/rust-analyzer) | rustup `rust-analyzer` component for the pinned `stable-aarch64-apple-darwin` toolchain (rustc `1.95.0`) | MIT OR Apache-2.0 (dual-licensed) |
+| `bash-language-server` | [bash-lsp/bash-language-server](https://github.com/bash-lsp/bash-language-server) | `5.6.0` | MIT |
+| `yaml-language-server` | [redhat-developer/yaml-language-server](https://github.com/redhat-developer/yaml-language-server) | `1.24.0` | MIT |
+| Marksman | [artempyanykh/marksman](https://github.com/artempyanykh/marksman) | `2026-02-08` | MIT |
+| Tombi | [tombi-toml/tombi](https://github.com/tombi-toml/tombi) | `1.2.10` | MIT |
 
 Swift's SourceKit-LSP continues to be discovered exclusively through the
 active Xcode/toolchain (unchanged from Phase 6) and needs no setup here.
-
-## Kod-managed language-server installs (Phase 8)
-
-`ManagedLanguageServers`/`ManagedInstallController` can, with explicit
-user consent, download and install a language server or its private
-runtime under `~/Library/Application Support/Kod/LanguageServers` after
-verifying a signed catalog and a per-artifact SHA-256 digest (SPEC 6.5).
-As with the test-only servers above, **no third-party server binary,
-private Node runtime, or `rust-analyzer` build is vendored into this
-repository** — a real release's catalog would reference each project's
-own official release artifacts, fetched and digested at release-signing
-time (`Scripts/managed-install-signing/README.md`), never bundled here:
-
-| Server | Project | License |
-| --- | --- | --- |
-| `typescript-language-server` | [typescript-language-server/typescript-language-server](https://github.com/typescript-language-server/typescript-language-server) | Apache-2.0 |
-| `vscode-html-language-server` / `vscode-css-language-server` | [microsoft/vscode-langservers-extracted](https://github.com/microsoft/vscode-langservers-extracted) | MIT |
-| `pyright-langserver` | [microsoft/pyright](https://github.com/microsoft/pyright) | MIT |
-| `rust-analyzer` (standalone release artifact) | [rust-lang/rust-analyzer](https://github.com/rust-lang/rust-analyzer) | MIT OR Apache-2.0 (dual-licensed) |
-| Private Node.js runtime (for the three Node-based servers above) | [nodejs/node](https://github.com/nodejs/node) | MIT (with third-party components under their own licenses, per Node's own `LICENSE`) |
-
-`ManagedLanguageServers`'s own code — the catalog model, Ed25519
-signature verification (via Apple's `CryptoKit`), the pure-Swift gzip
-(`GzipCodec`, built on Apple's `Compression` framework) and USTAR tar
-(`TarReader`/`TarWriter`) codecs, and `SecureArchiveExtractor`'s hostile-
-archive defenses — is 100% original Kod code; no third-party archive,
-compression, or signing library is vendored or linked for this. The
-`FakeLanguageServer` executable this repository already builds and uses
-for `LanguageClientTests`/`LanguageAdaptersTests` is reused as the
-fixture "server" in `ManagedLanguageServersTests`'s offline install/
-launch/upgrade/rollback/remove tests — it is Kod's own code, not a
-vendored dependency.
-
-See `Scripts/managed-install-signing/README.md` for the full
-key-generation, rotation, revocation, and reproducible-artifact-generation
-process, and for this environment's explicit release-provisioning gap
-(no real, notarized production signing key exists here — a real release
-requires an offline, human-controlled key-generation and catalog-signing
-step this repository deliberately never performs on its own).
 
 ## PreviewCore (Phase 10 built-in previews)
 
@@ -214,10 +193,9 @@ seeded fuzz/property-test harness shared by every new Phase 12 fuzz
 suite) are both 100% original Kod code with **no third-party
 dependency of any kind**:
 
-- `UpdaterCore` uses only `CryptoKit` (Ed25519 signing/verification,
-  exactly as `ManagedLanguageServers`' catalog signing already does),
-  `Foundation`, and this repository's own `ManagedLanguageServers`
-  (`SemanticVersion`/`ManagedInstallArchitecture` reuse).
+- `UpdaterCore` uses only `CryptoKit` (Ed25519 signing/verification) and
+  `Foundation`; its semantic-version and release-architecture models are
+  owned by `UpdaterCore`.
 - `FuzzSupport` uses only `Foundation` (a from-scratch SplitMix64
   pseudo-random generator, not a vendored fuzzing library).
 
@@ -225,7 +203,7 @@ dependency of any kind**:
 command-line tools already present on every macOS development machine
 (`xcodebuild`, `codesign`, `xcrun notarytool`/`stapler`, `spctl`,
 `hdiutil`, `ditto`, `shasum`) plus this repository's own
-`UpdateFeedTool`/`ManagedCatalogTool` executables — nothing new to
+`UpdateFeedTool` executable — nothing new to
 vendor or attribute.
 
 There is nothing to pin, vendor, or attribute here beyond what this

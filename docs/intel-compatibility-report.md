@@ -18,7 +18,7 @@ never a simulation of real Intel hardware, and never a substitute for it.
 2. **All 636 KodCore package tests pass when actually executed as real x86_64 machine code**, translated by
    Rosetta 2 (`arch -x86_64 swift test --arch x86_64`), not merely cross-compiled and left unexecuted. This is
    a real, headless functional-correctness signal for the x86_64 code path — including every fuzz/property
-   suite, every Git/managed-install/preview parser, and the full performance-suite battery (though the
+   suite, every Git and preview parser, and the full performance-suite battery (though the
    *performance numbers themselves* are not meaningful under Rosetta translation overhead; only pass/fail
    functional correctness is asserted here — see "What this report is *not* evidence of" below).
 3. **Both `.xcarchive` outputs contain real, correctly-tagged Mach-O binaries** for their respective

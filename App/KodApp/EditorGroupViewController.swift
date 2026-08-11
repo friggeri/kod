@@ -5,6 +5,7 @@ import GitCore
 import PreviewCore
 import QuartzCore
 import SourceModel
+import SyntaxCore
 import ThemeCore
 import WorkspaceCore
 
@@ -67,6 +68,7 @@ final class EditorGroupViewController: NSViewController {
     /// Resolves a workspace-relative path to a freshly-loaded snapshot; set
     /// by the owning `WorkspaceViewController`.
     var loadSnapshot: (@MainActor (String) async throws -> SourceSnapshot)?
+    var syntaxLanguageForSnapshot: ((SourceSnapshot) -> SyntaxLanguage?)?
     /// Reads a workspace-relative path's exact raw bytes, independent of
     /// `SourceSnapshot`'s text-decoding requirement — used only for
     /// SPEC 10.2 image previews, since a PNG/JPEG/GIF/HEIC/TIFF file is
@@ -358,10 +360,8 @@ final class EditorGroupViewController: NSViewController {
                 reconciledAnchor = nil
             }
 
-            let newController = CodeDocumentViewController(
-                snapshot: newSnapshot,
-                theme: AppearanceSettings.currentTheme(),
-                fontSettings: AppearanceSettings.currentFontSettings()
+            let newController = makeDocumentController(
+                snapshot: newSnapshot
             )
             newController.wordWrapEnabled = wordWrapEnabled
             documentControllers[tab.id] = newController
@@ -401,9 +401,34 @@ final class EditorGroupViewController: NSViewController {
                 showContent(nil)
                 showTombstonePlaceholder(relativePath: relativePath)
             }
+
         }
         refreshTabBar()
         notifyStateChange()
+    }
+
+    func reloadChangedSyntaxDefinitions() {
+        let changedSnapshots = documentControllers.values
+            .filter { controller in
+                guard let syntaxLanguageForSnapshot else {
+                    return false
+                }
+                return controller.viewport.language
+                    != syntaxLanguageForSnapshot(controller.snapshot)
+            }
+            .reduce(into: [String: SourceSnapshot]()) {
+                snapshots,
+                controller in
+                guard let tab = state.tabs.first(where: {
+                    documentControllers[$0.id] === controller
+                }) else {
+                    return
+                }
+                snapshots[tab.relativePath] = controller.snapshot
+            }
+        for (relativePath, snapshot) in changedSnapshots {
+            reloadTab(relativePath: relativePath, with: snapshot)
+        }
     }
 
     /// Clears a previously set tombstone (the file reappeared at the same
@@ -712,14 +737,28 @@ final class EditorGroupViewController: NSViewController {
         if let existing = documentControllers[tabID] {
             return existing
         }
-        let controller = CodeDocumentViewController(
+        let controller = makeDocumentController(snapshot: snapshot)
+        controller.wordWrapEnabled = wordWrapEnabled
+        documentControllers[tabID] = controller
+        return controller
+    }
+
+    private func makeDocumentController(
+        snapshot: SourceSnapshot
+    ) -> CodeDocumentViewController {
+        if let syntaxLanguageForSnapshot {
+            return CodeDocumentViewController(
+                snapshot: snapshot,
+                syntaxLanguage: syntaxLanguageForSnapshot(snapshot),
+                theme: AppearanceSettings.currentTheme(),
+                fontSettings: AppearanceSettings.currentFontSettings()
+            )
+        }
+        return CodeDocumentViewController(
             snapshot: snapshot,
             theme: AppearanceSettings.currentTheme(),
             fontSettings: AppearanceSettings.currentFontSettings()
         )
-        controller.wordWrapEnabled = wordWrapEnabled
-        documentControllers[tabID] = controller
-        return controller
     }
 
     private func loadAndShow(tabID: EditorTabID, restoring entry: EditorNavigationEntry?) {

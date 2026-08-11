@@ -89,6 +89,7 @@ final class RequestCountRegistry: @unchecked Sendable {
 
 let cancelledIDs = CancelledIDRegistry()
 let requestCounts = RequestCountRegistry()
+let initializationOptionsAccepted = LockedFlag()
 let stateFilePath = ProcessInfo.processInfo.environment["FAKE_LSP_STATE_FILE"]
 let stateFileLock = NSLock()
 
@@ -110,6 +111,23 @@ func appendStateFileLine(_ line: String) {
 
 let legendTokenTypes = ["namespace", "type", "class", "enum", "function", "variable"]
 let legendTokenModifiers = ["declaration", "readonly"]
+
+final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func set(_ newValue: Bool) {
+        lock.lock()
+        value = newValue
+        lock.unlock()
+    }
+
+    func get() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
 
 func initializeResult() -> JSONValue {
     var capabilities: [String: JSONValue] = [
@@ -153,7 +171,7 @@ func initializeResult() -> JSONValue {
     return .object(["capabilities": .object(capabilities)])
 }
 
-func handleInitialize(id: JSONRPCID) {
+func handleInitialize(id: JSONRPCID, params: JSONValue?) {
     if scenario == "initialize-error" {
         respondError(
             id: id,
@@ -161,6 +179,14 @@ func handleInitialize(id: JSONRPCID) {
             message: "No compatible language runtime was found."
         )
         return
+    }
+    if scenario == "workspace-configuration",
+       case .object(let fields)? = params,
+       fields["initializationOptions"] == .object(["safe": .bool(true)]),
+       case .object(let capabilities)? = fields["capabilities"],
+       case .object(let workspace)? = capabilities["workspace"],
+       workspace["configuration"] == .bool(true) {
+        initializationOptionsAccepted.set(true)
     }
     respond(id: id, result: initializeResult())
 }
@@ -270,6 +296,20 @@ func handleInitialized() {
                     "value": .object(["kind": .string("end"), "message": .string("Done")])
                 ]))
             }
+        }
+
+    case "workspace-configuration":
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            requestClient(
+                id: .string("workspace-configuration"),
+                method: "workspace/configuration",
+                params: .object([
+                    "items": .array([
+                        .object(["section": .string("yaml")]),
+                        .object(["section": .string("missing")])
+                    ])
+                ])
+            )
         }
 
     case "crash-immediately":
@@ -622,7 +662,7 @@ func handleRequest(id: JSONRPCID, method: String, params: JSONValue?) {
     appendStateFileLine("request:\(method)")
     switch method {
     case "initialize":
-        handleInitialize(id: id)
+        handleInitialize(id: id, params: params)
     case "shutdown":
         handleShutdown(id: id)
     case "textDocument/hover":
@@ -692,6 +732,19 @@ func handleResponseFromClient(id: JSONRPCID?, result: JSONValue?, error: JSONRPC
         notify("window/logMessage", .object(["type": .number(3), "message": .string("registerThenUnregister:\(outcome)")]))
     case "unregister":
         notify("window/logMessage", .object(["type": .number(3), "message": .string("unregister:\(outcome)")]))
+    case "workspace-configuration":
+        let expected: JSONValue = .array([
+            .object(["validate": .bool(true)]),
+            .null
+        ])
+        let accepted = error == nil && result == expected && initializationOptionsAccepted.get()
+        notify(
+            "window/logMessage",
+            .object([
+                "type": .number(3),
+                "message": .string("workspaceConfiguration:\(accepted ? "accepted" : "rejected")")
+            ])
+        )
     default:
         break
     }
@@ -727,6 +780,23 @@ func handleNotification(method: String, params: JSONValue?) {
         if case .number(let versionNumber)? = textDocument["version"] {
             version = Int(versionNumber)
         }
+        let diagnosticMessage: String
+        if scenario == "profile-config" {
+            let languageID: String
+            if case .string(let value)? = textDocument["languageId"] {
+                languageID = value
+            } else {
+                languageID = ""
+            }
+            let accepted = languageID == "widget-lsp"
+                && CommandLine.arguments.dropFirst(2).contains("--profile-marker")
+            diagnosticMessage =
+                accepted
+                    ? "Profile configuration accepted"
+                    : "Profile configuration rejected"
+        } else {
+            diagnosticMessage = "Fake published diagnostic"
+        }
         notify("textDocument/publishDiagnostics", .object([
             "uri": .string(uri),
             "version": .number(Double(version)),
@@ -734,7 +804,7 @@ func handleNotification(method: String, params: JSONValue?) {
                 .object([
                     "range": lspRange(startLine: 0, startChar: 0, endLine: 0, endChar: 4),
                     "severity": .number(2),
-                    "message": .string("Fake published diagnostic")
+                    "message": .string(diagnosticMessage)
                 ])
             ])
         ]))

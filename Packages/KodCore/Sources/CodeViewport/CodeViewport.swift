@@ -145,13 +145,27 @@ public final class CodeViewport: NSView {
     private let rightPadding: CGFloat = 32
     private let stickyHeaderMaximumDepth = 3
 
-    public init(
+    public convenience init(
         snapshot: SourceSnapshot,
         theme: KodTheme = BundledThemes.dark,
         fontSettings: FontSettings = .default
     ) {
+        self.init(
+            snapshot: snapshot,
+            syntaxLanguage: SyntaxLanguage.detect(for: snapshot),
+            theme: theme,
+            fontSettings: fontSettings
+        )
+    }
+
+    public init(
+        snapshot: SourceSnapshot,
+        syntaxLanguage: SyntaxLanguage?,
+        theme: KodTheme = BundledThemes.dark,
+        fontSettings: FontSettings = .default
+    ) {
         self.snapshot = snapshot
-        self.language = SyntaxLanguage.detect(forURL: snapshot.url)
+        self.language = syntaxLanguage
         self.theme = theme
         self.fontSettings = fontSettings
         self.resolvedFont = FontResolver.resolve(fontSettings)
@@ -206,10 +220,18 @@ public final class CodeViewport: NSView {
     /// Back/Forward navigation anchor.
     public var topmostVisibleLine: Int {
         rebuildVisualMetricsIfNeeded()
-        guard lineHeight > 0 else {
+        guard lineHeight.isFinite, lineHeight > 0 else {
             return 0
         }
-        let visualRow = max(0, Int(floor(visibleRect.minY / lineHeight)))
+        let rawVisualRow = floor(visibleRect.minY / lineHeight)
+        guard rawVisualRow.isFinite, rawVisualRow > 0 else {
+            return 0
+        }
+        let maximumVisualRow = max(0, totalVisualRows - 1)
+        guard rawVisualRow < CGFloat(Int.max) else {
+            return sourceLine(forVisualRow: maximumVisualRow).line
+        }
+        let visualRow = min(Int(rawVisualRow), maximumVisualRow)
         return sourceLine(forVisualRow: visualRow).line
     }
 

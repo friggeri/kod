@@ -56,6 +56,55 @@ final class CodeViewportSyntaxDecorationTests: XCTestCase {
         XCTAssertEqual(viewport.theme.syntax["keyword"]?.foreground, ThemeColor(hex: "#ABCDEF"))
     }
 
+    func testYAMLMappingKeysAndValuesUseDistinctColors() async throws {
+        let source = "name: Kod\nenabled: true\n"
+        let snapshot = SourceSnapshot(
+            text: source,
+            url: URL(fileURLWithPath: "/tmp/example.yaml")
+        )
+        let viewport = CodeViewport(snapshot: snapshot, theme: BundledThemes.dark)
+        let tree = try await SyntaxEngine().parse(
+            snapshot: snapshot,
+            language: .yaml
+        )
+        let captures = tree.captures(inByteRange: 0..<snapshot.utf8Count)
+
+        XCTAssertEqual(
+            captures.filter { $0.utf8Range == 0..<4 }.map(\.name),
+            ["property"]
+        )
+        XCTAssertEqual(
+            captures.filter { $0.utf8Range == 6..<9 }.map(\.name),
+            ["string"]
+        )
+
+        viewport.applyLexicalCaptures(
+            captures,
+            snapshotVersion: snapshot.version,
+            layerVersion: 1
+        )
+        let lineRange = try XCTUnwrap(snapshot.utf8RangeForLine(0))
+        let attributed = viewport.attributedString(
+            forSegment: try XCTUnwrap(snapshot.line(at: 0)),
+            utf8Range: lineRange
+        )
+        let keyColor = try XCTUnwrap(
+            attributed.attribute(
+                .foregroundColor,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+        let valueColor = try XCTUnwrap(
+            attributed.attribute(
+                .foregroundColor,
+                at: 6,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+        XCTAssertFalse(keyColor.isEqual(valueColor))
+    }
+
     func testLSPConfirmedHoverUnderlinesIdentifierAndUsesPointingHandCursor() throws {
         let snapshot = SourceSnapshot(text: "const client = api;\n")
         let viewport = CodeViewport(snapshot: snapshot)

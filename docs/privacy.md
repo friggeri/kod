@@ -27,13 +27,15 @@ per-instance opt-in:
 | Purpose | When it happens | Default |
 | --- | --- | --- |
 | App update check | Kod's own signed update-feed check (`UpdaterCore`), verified with a pinned Ed25519 key before any entry is ever considered — see below | Depends on distribution channel |
-| Managed language server download | You explicitly install a Kod-managed language server | Only on your explicit action |
+| JSON/YAML/TOML schema lookup | A trusted workspace's language server resolves a remote schema referenced by an open document | Disabled until you trust the workspace |
 | Remote Markdown image | A Markdown file you're viewing references a remote image | Off; requires a per-document opt-in click, and is blocked entirely in untrusted workspaces |
 | Crash report upload | Only if you enable crash reporting in Settings | Off; and even when enabled, no real transport is configured in this build |
 
-There is no other network-capable code path in Kod. If you ever see
-Kod attempt a network connection for a purpose not listed above,
-that is a bug — please report it.
+Third-party language-server processes may have behavior outside Kod's direct
+control after a workspace is trusted. Kod's built-in JSON, YAML, and TOML
+profiles enable remote schema resolution only after trust and report that
+behavior in Languages settings. If you see Kod itself attempt a network
+connection for a purpose not listed above, that is a bug — please report it.
 
 ## The update mechanism
 
@@ -84,10 +86,12 @@ the trust indicator at the bottom-right of the status bar, which
 immediately stops any running language servers for it. The trust banner
 is shown only the first time each workspace is opened.
 
-## Managed language server provenance
+Trust also gates remote schema resolution by the built-in JSON, YAML, and TOML
+language-server profiles. Revoking trust stops those servers immediately.
 
-Language servers Kod installs on your behalf (rather than ones already
-on your system) show their provenance — which catalog and version they
-came from — in Settings → Diagnostics, distinct from a server Kod merely
-discovered on your system or one you configured an explicit override
-for.
+## User-owned language servers
+
+Kod does not download, install, update, or remove language servers.
+Settings → Languages shows each profile's selected or auto-detected local
+executable, version, provenance, and fixed arguments before launch. Kod
+never executes package-manager commands or shell installation strings.

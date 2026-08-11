@@ -134,6 +134,10 @@ public struct ReferenceParams: Encodable, Sendable {
     }
 }
 
+/// LSP permits `textDocument/references` to return `null` when no
+/// references are available.
+public typealias ReferenceResult = [LSPLocation]?
+
 // MARK: - Symbols
 
 public enum SymbolKind: Int, Codable, Sendable {

@@ -5,9 +5,7 @@ import Foundation
 /// key produced it. `UpdateFeedVerifier` never decodes `canonicalBytes`
 /// into an `UpdateFeed` until the signature over those exact bytes has
 /// already been checked, so a tampered byte can never even reach the
-/// JSON decoder — the same non-negotiable ordering
-/// `ManagedLanguageServers.SignedCatalogDocument` uses for the managed
-/// language-server catalog.
+/// JSON decoder.
 public struct SignedUpdateFeedDocument: Codable, Sendable, Equatable {
     public let canonicalBytes: Data
     public let signature: Data

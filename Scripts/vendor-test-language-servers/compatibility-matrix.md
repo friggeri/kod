@@ -36,6 +36,34 @@ no test asserts it for this adapter).
 | Call hierarchy | — (not checked; capability-gated) | ✅ | — | ✅ | ✅ |
 | Type hierarchy | — (not checked; capability-gated) | — | — | — | — |
 
+## First-wave language servers
+
+`FirstWaveLanguageAdapterIntegrationTests` initializes each pinned server,
+opens a real fixture, validates document symbols, and invokes every read-only
+capability below that the server advertises. The JSON integration pin uses
+Microsoft's extracted test distribution only as a test fixture; Kod does not
+ship or install that server.
+
+| Capability | Shell (`bash-language-server` 5.6.0) | Markdown (Marksman 2026-02-08) | JSON (`vscode-langservers-extracted` 4.10.0) | YAML (`yaml-language-server` 1.24.0) | TOML (Tombi 1.2.10) |
+| --- | --- | --- | --- | --- | --- |
+| Hover | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Definition | ✅ | ✅ | — | ✅ | ✅ |
+| Declaration | — | — | — | — | ✅ |
+| Type definition | — | — | — | — | ✅ |
+| Implementation | — | — | — | — | — |
+| References | ✅ | ✅ | — | — | ✅ |
+| Document highlight | ✅ | — | — | — | — |
+| Document/workspace symbols | ✅ / ✅ | ✅ / ✅ | ✅ / — | ✅ / — | ✅ / — |
+| Pull diagnostics | — | — | ✅ | — | — |
+| Semantic tokens (full) | — | ✅ | — | — | ✅ |
+| Folding ranges | — | — | ✅ | ✅ | ✅ |
+| Selection ranges | — | — | ✅ | ✅ | — |
+| Document links | — | — | ✅ | ✅ | ✅ |
+| Inlay hints | — | — | — | — | ✅ |
+| Signature help | — | — | — | — | — |
+| Call hierarchy | — | — | — | — | — |
+| Type hierarchy | — | — | — | — | — |
+
 ## Known interop findings from this pin set
 
 - **`vscode-css-language-server`'s `documentSymbol` omits the optional
@@ -64,6 +92,10 @@ no test asserts it for this adapter).
   `~/.cargo/bin/rust-analyzer` shim some environments use to reach a
   standalone binary directly — `RustLanguageAdapter`'s language-specific
   discovery probe (`rustup which rust-analyzer`) reflects this.
+- **Tombi returns JSON `null` for valid empty `textDocument/references` and
+  `textDocument/documentLink` responses.** Both methods permit `null` in LSP
+  3.17. Kod now decodes those responses as empty result sets rather than
+  treating them as a broken connection.
 
 Re-run this check (temporarily add an ad hoc test that logs
 `await service.capabilities()` for the adapter in question — see how

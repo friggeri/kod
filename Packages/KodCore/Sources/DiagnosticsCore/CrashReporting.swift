@@ -2,13 +2,12 @@ import Foundation
 
 /// Every network call Kod ever makes must be attributable to one of these
 /// purposes in the UI/model (SPEC 13.3: "Network activity is attributable
-/// in the UI to app update, managed server download, remote Markdown
-/// resource, or crash report."). This is a closed set on purpose — a
+/// in the UI to app updates, remote Markdown resources, or crash reports.
+/// This is a closed set on purpose — a
 /// network call that doesn't fit one of these categories is a bug, not
 /// something to label `.other`.
 public enum NetworkAttribution: String, Sendable, Equatable, Codable, CaseIterable {
     case appUpdate
-    case managedServerDownload
     case remoteMarkdownResource
     case crashReport
 
@@ -16,8 +15,6 @@ public enum NetworkAttribution: String, Sendable, Equatable, Codable, CaseIterab
         switch self {
         case .appUpdate:
             return "App update check"
-        case .managedServerDownload:
-            return "Managed language server download"
         case .remoteMarkdownResource:
             return "Remote Markdown image"
         case .crashReport:

@@ -28,8 +28,8 @@ final class PythonLanguageAdapterIntegrationTests: XCTestCase {
             languageKey: PythonLanguageAdapter.languageKey,
             identity: identity
         )
-        return LanguageAdapterRegistry.makeService(
-            for: PythonLanguageAdapter.self,
+        return try LanguageProfileServiceFactory.makeService(
+            for: DefaultLanguageProfiles.python,
             identity: identity,
             trustStore: trustStore,
             overrideStore: overrideStore

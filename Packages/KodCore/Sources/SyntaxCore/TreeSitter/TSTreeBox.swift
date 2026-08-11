@@ -34,6 +34,7 @@ final class TSQueryBox: @unchecked Sendable {
 enum TreeSitterParseError: Error, Equatable {
     case parserAllocationFailed
     case languageIncompatible
+    case invalidIncludedRanges
     case parseProducedNoTree
 }
 
@@ -53,7 +54,11 @@ enum TreeSitterQueryError: Error, Equatable {
 /// correct; `SyntaxEngine` still avoids redundant work by keying results on
 /// the snapshot version and cancelling stale requests.
 enum TreeSitterParser {
-    static func parse(utf8: Data, language: SyntaxLanguage) throws -> TSTreeBox {
+    static func parse(
+        utf8: Data,
+        language: SyntaxLanguage,
+        includedRanges: [TSRange] = []
+    ) throws -> TSTreeBox {
         guard let parser = ts_parser_new() else {
             throw TreeSitterParseError.parserAllocationFailed
         }
@@ -61,6 +66,18 @@ enum TreeSitterParser {
 
         guard ts_parser_set_language(parser, language.tsLanguage) else {
             throw TreeSitterParseError.languageIncompatible
+        }
+        if !includedRanges.isEmpty {
+            let accepted = includedRanges.withUnsafeBufferPointer { ranges in
+                ts_parser_set_included_ranges(
+                    parser,
+                    ranges.baseAddress,
+                    UInt32(ranges.count)
+                )
+            }
+            guard accepted else {
+                throw TreeSitterParseError.invalidIncludedRanges
+            }
         }
 
         let tree: OpaquePointer? = utf8.withUnsafeBytes { rawBuffer in

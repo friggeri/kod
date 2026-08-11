@@ -10,7 +10,7 @@ import Foundation
 /// dropped" instead of just showing a suspiciously short log.
 ///
 /// An `actor` (not `@MainActor`) because subsystems that log — language
-/// servers, Git, search, managed installs, previews — run on background
+/// servers, Git, search, and previews — run on background
 /// queues/tasks and must be able to record events without hopping to the
 /// main actor first.
 public actor BoundedEventLog {

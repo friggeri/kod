@@ -4,7 +4,7 @@ import Foundation
 /// One Ed25519 public key Kod trusts to sign the update feed, pinned in
 /// app sources — never the private key, which never ships in the app.
 /// Multiple keys may be valid at once so a rotation has an overlap
-/// window, exactly like `ManagedLanguageServers.TrustedSigningKey`.
+/// window.
 public struct TrustedUpdateSigningKey: Sendable, Equatable {
     public let id: String
     public let publicKeyBase64: String

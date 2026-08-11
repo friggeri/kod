@@ -1,6 +1,8 @@
 import AppKit
 import CodeViewport
+import LanguageAdapters
 import SourceModel
+import SyntaxCore
 
 /// Wraps `CodeDocumentViewController` for the single-file (non-workspace)
 /// window path so Find in File, Go to Line, and Word Wrap share the same
@@ -8,15 +10,23 @@ import SourceModel
 /// needing to depend on any App-layer panel type.
 @MainActor
 final class StandaloneDocumentViewController: NSViewController {
-    private let documentController: CodeDocumentViewController
+    private var documentController: CodeDocumentViewController
+    private let languageSupportService: LanguageSupportService
     private var goToLinePanelController: GoToLinePanelController?
     private var wordWrapEnabled = false {
         didSet { documentController.wordWrapEnabled = wordWrapEnabled }
     }
 
-    init(snapshot: SourceSnapshot) {
+    init(
+        snapshot: SourceSnapshot,
+        languageSupportService: LanguageSupportService
+    ) {
+        self.languageSupportService = languageSupportService
         documentController = CodeDocumentViewController(
             snapshot: snapshot,
+            syntaxLanguage: languageSupportService.syntaxLanguage(
+                for: snapshot
+            ),
             theme: AppearanceSettings.currentTheme(),
             fontSettings: AppearanceSettings.currentFontSettings()
         )
@@ -26,6 +36,12 @@ final class StandaloneDocumentViewController: NSViewController {
             selector: #selector(appearanceSettingsDidChange),
             name: .kodAppearanceSettingsChanged,
             object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(languageProfilesDidChange(_:)),
+            name: .kodLanguageProfilesDidChange,
+            object: languageSupportService.profileStore
         )
     }
 
@@ -44,9 +60,72 @@ final class StandaloneDocumentViewController: NSViewController {
         documentController.fontSettings = AppearanceSettings.currentFontSettings()
     }
 
+    @objc
+    private func languageProfilesDidChange(_ notification: Notification) {
+        languageSupportService.profileRegistry.reload()
+        let syntaxLanguage = languageSupportService.syntaxLanguage(
+            for: documentController.snapshot
+        )
+        guard syntaxLanguage != documentController.viewport.language else {
+            return
+        }
+
+        let oldController = documentController
+        let anchor = oldController.captureNavigationAnchor()
+        let foldedHeaderLines =
+            oldController.viewport.foldedHeaderLinesSnapshot()
+        let findState = oldController.captureFindState()
+        let wasViewportFirstResponder =
+            oldController.view.window?.firstResponder
+                === oldController.viewport
+        let replacement = CodeDocumentViewController(
+            snapshot: oldController.snapshot,
+            syntaxLanguage: syntaxLanguage,
+            theme: oldController.theme,
+            fontSettings: oldController.fontSettings
+        )
+        replacement.wordWrapEnabled = wordWrapEnabled
+        replacement.viewport.restoreFoldedHeaderLines(foldedHeaderLines)
+
+        if isViewLoaded {
+            oldController.view.removeFromSuperview()
+            oldController.removeFromParent()
+            installDocumentController(replacement)
+            replacement.restoreFindState(findState)
+            view.window?.layoutIfNeeded()
+            replacement.restoreNavigationAnchor(
+                selection: anchor.selection,
+                viewportAnchorLine: anchor.viewportAnchorLine
+            )
+            if wasViewportFirstResponder {
+                view.window?.makeFirstResponder(replacement.viewport)
+            }
+        }
+        documentController = replacement
+    }
+
+    var syntaxLanguage: SyntaxLanguage? {
+        documentController.viewport.language
+    }
+
     override func loadView() {
-        addChild(documentController)
-        view = documentController.view
+        view = NSView()
+        installDocumentController(documentController)
+    }
+
+    private func installDocumentController(
+        _ controller: CodeDocumentViewController
+    ) {
+        addChild(controller)
+        let documentView = controller.view
+        documentView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(documentView)
+        NSLayoutConstraint.activate([
+            documentView.topAnchor.constraint(equalTo: view.topAnchor),
+            documentView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            documentView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            documentView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
     }
 
     @objc

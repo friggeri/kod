@@ -139,6 +139,15 @@ final class LanguageServerDiscoveryEngineTests: XCTestCase {
         XCTAssertTrue(LanguageServerDiscoveryEngine.defaultPackageManagerDirectories().contains(expected))
     }
 
+    func testDefaultPackageManagerLocationsIncludeDefaultGoBinDirectory() {
+        let expected = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("go/bin")
+        XCTAssertTrue(
+            LanguageServerDiscoveryEngine.defaultPackageManagerDirectories()
+                .contains(expected)
+        )
+    }
+
     func testLoginShellPathCaptureUsesAnInteractiveLoginShell() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -158,57 +167,6 @@ final class LanguageServerDiscoveryEngineTests: XCTestCase {
         )
 
         XCTAssertNotNil(LoginShellPathCapture.capture(shellURL: shell))
-    }
-
-    func testManagedInstallIsTheFinalTierAfterEveryOtherFails() throws {
-        let (identity, _) = try makeIdentity()
-        let overrideStore = makeOverrideStore()
-        let managedResult = DiscoveredExecutable(
-            url: Self.alwaysPresentExecutable,
-            arguments: ["--managed"],
-            version: "1.2.3 (arm64, Kod-managed)",
-            source: .managedInstall
-        )
-
-        let result = try LanguageServerDiscoveryEngine.resolve(
-            languageKey: "test-lang",
-            languageDisplayName: "Test Language",
-            executableNames: ["definitely-does-not-exist-anywhere"],
-            arguments: [],
-            versionArguments: nil,
-            languageSpecificProbe: { nil },
-            managedInstallProbe: { managedResult },
-            overrideStore: overrideStore,
-            identity: identity,
-            loginShellPath: { nil },
-            packageManagerDirectories: []
-        )
-        XCTAssertEqual(result, managedResult)
-    }
-
-    func testManagedInstallProbeReturningNilStillReportsNotFound() throws {
-        let (identity, _) = try makeIdentity()
-        let overrideStore = makeOverrideStore()
-
-        do {
-            _ = try LanguageServerDiscoveryEngine.resolve(
-                languageKey: "test-lang",
-                languageDisplayName: "Test Language",
-                executableNames: ["definitely-does-not-exist-anywhere"],
-                arguments: [],
-                versionArguments: nil,
-                languageSpecificProbe: { nil },
-                managedInstallProbe: { nil },
-                overrideStore: overrideStore,
-                identity: identity,
-                loginShellPath: { nil },
-                packageManagerDirectories: []
-            )
-            XCTFail("Expected notFound")
-        } catch LanguageServerDiscoveryError.notFound(let name, let attempted) {
-            XCTAssertEqual(name, "Test Language")
-            XCTAssertEqual(attempted, [.workspaceOverride, .globalOverride, .languageSpecificTool, .loginShellPath, .packageManagerLocation, .managedInstall])
-        }
     }
 
     func testNotFoundReportsEveryAttemptedTier() throws {

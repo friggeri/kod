@@ -1,4 +1,5 @@
 import Foundation
+import SyntaxCore
 import WorkspaceCore
 
 /// Rust adapter using `rust-analyzer`. Tries `rustup which rust-analyzer`
@@ -11,7 +12,10 @@ import WorkspaceCore
 public enum RustLanguageAdapter: LanguageAdapter {
     public static let languageKey = "rust"
     public static let displayName = "Rust (rust-analyzer)"
-    public static let fileExtensions: Set<String> = ["rs"]
+    public static let syntaxLanguages: Set<SyntaxLanguage> = [.rust]
+    public static let executableProfiles = [
+        LanguageServerExecutableProfile(executableNames: ["rust-analyzer"], arguments: [])
+    ]
     public static let semanticTokenTypes = StandardSemanticTokenLegend.tokenTypes
     public static let semanticTokenModifiers = StandardSemanticTokenLegend.tokenModifiers
 
@@ -30,9 +34,6 @@ public enum RustLanguageAdapter: LanguageAdapter {
             arguments: [],
             versionArguments: ["--version"],
             languageSpecificProbe: { probeRustupManagedAnalyzer() },
-            managedInstallProbe: {
-                ManagedInstallDiscoverySource.discover(serverID: "rust-analyzer", controller: ManagedInstallDiscoverySource.shared)
-            },
             overrideStore: overrideStore,
             identity: identity
         )

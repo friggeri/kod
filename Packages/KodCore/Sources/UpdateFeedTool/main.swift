@@ -1,6 +1,5 @@
 import CryptoKit
 import Foundation
-import ManagedLanguageServers
 import UpdaterCore
 
 /// Release/test tooling for Kod's signed update feed: generate an
@@ -9,8 +8,7 @@ import UpdaterCore
 /// shipped inside Kod.app; it exists purely so update-feed signing is a
 /// documented, reproducible, scriptable step (`Scripts/release/README.md`)
 /// rather than an ad hoc one-off, and never requires the private key to
-/// live anywhere inside this repository or the app's own source. This
-/// mirrors `ManagedCatalogTool`'s own three subcommands exactly.
+/// live anywhere inside this repository or the app's own source.
 ///
 /// Usage:
 ///   UpdateFeedTool generate-key

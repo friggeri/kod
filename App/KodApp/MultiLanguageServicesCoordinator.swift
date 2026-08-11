@@ -6,386 +6,429 @@ import LanguageClient
 import SourceModel
 import WorkspaceCore
 
-/// Owns one `LanguageWorkspaceService` per non-Swift `LanguageAdapter`
-/// (TypeScript/JavaScript, HTML, CSS, Python, Rust) for one workspace,
-/// mirroring `LanguageServicesCoordinator`'s Swift-specific role but
-/// generically (SPEC 6.2: "one server process shared per workspace,
-/// language adapter"). Swift itself continues to go through
-/// `LanguageServicesCoordinator`/`SwiftWorkspaceLanguageService`
-/// unchanged — routing Swift through this coordinator too would launch
-/// a second, redundant SourceKit-LSP process for the same workspace.
+/// Owns one lazily-started generic LSP service per enabled language profile for
+/// a workspace. Swift and every other language share this path; syntax and
+/// search remain independent when a profile has no LSP configuration.
 @MainActor
 final class MultiLanguageServicesCoordinator {
     private let identity: WorkspaceIdentity
     private let trustStore: WorkspaceTrustStore
     private let overrideStore: LanguageServerOverrideStore
-    /// Shared, app-lifetime bounded diagnostics log (SPEC 15) — see
-    /// `LanguageServicesCoordinator`'s identical field for why a
-    /// crashed/disabled adapter server is recorded here in addition to
-    /// the in-UI server-state label.
     private let diagnosticsLog: BoundedEventLog
-    private var services: [ObjectIdentifier: LanguageWorkspaceService] = [:]
-    private var startupTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
-    private var startupGenerations: [ObjectIdentifier: Int] = [:]
-    private var statesByAdapter: [ObjectIdentifier: LanguageServerState] = [:]
-    private var controllersByRelativePath: [String: WeakMultiLanguageDocumentController] = [:]
+    private let profileRegistry: LanguageProfileRegistry
+
+    private var services: [String: LanguageWorkspaceService] = [:]
+    private var serviceProfiles: [String: LanguageProfile] = [:]
+    private var startupTasks: [String: Task<Void, Never>] = [:]
+    private var startupGenerations: [String: Int] = [:]
+    private var statesByProfile: [String: LanguageServerState] = [:]
+    private var controllersByRelativePath: [
+        String: WeakMultiLanguageDocumentController
+    ] = [:]
     private var semanticDecorationTasks: [String: Task<Void, Never>] = [:]
+    private var profileObserver: UUID?
 
     var onStateChange: (() -> Void)?
     var onDiagnostics: ((URL, [Diagnostic]) -> Void)?
+    var onMissingServer: ((LanguageProfile) -> Void)?
+    var onUnknownFileType: ((URL) -> Void)?
 
     init(
         identity: WorkspaceIdentity,
         trustStore: WorkspaceTrustStore,
+        profileRegistry: LanguageProfileRegistry,
         overrideStore: LanguageServerOverrideStore = LanguageServerOverrideStore(),
         diagnosticsLog: BoundedEventLog = BoundedEventLog()
     ) {
         self.identity = identity
         self.trustStore = trustStore
+        self.profileRegistry = profileRegistry
         self.overrideStore = overrideStore
         self.diagnosticsLog = diagnosticsLog
+        self.profileObserver = profileRegistry.store.observeChanges {
+            [weak self] in
+            self?.handleProfilesChanged()
+        }
     }
 
     private var isTrusted: Bool {
         trustStore.isTrusted(identity)
     }
 
-    /// The adapters Kod ships that this coordinator manages — every one
-    /// except Swift.
-    static let managedAdapters: [any LanguageAdapter.Type] = LanguageAdapterRegistry.all.filter {
-        ObjectIdentifier($0) != ObjectIdentifier(SwiftAdapter.self)
-    }
-
-    /// The current server-state summary across every non-Swift adapter
-    /// currently in use for this workspace — used to feed a combined
-    /// server-state indicator alongside Swift's (SPEC 6.2's Missing/
-    /// Starting/Indexing/Ready/Busy/Stopped/Crashed/Disabled UI).
-    var states: [(adapter: any LanguageAdapter.Type, state: LanguageServerState)] {
-        Self.managedAdapters.compactMap { adapter in
-            guard let state = statesByAdapter[ObjectIdentifier(adapter)] else {
-                return nil
-            }
-            return (adapter, state)
+    var languageServerProfiles: [LanguageProfile] {
+        profileRegistry.snapshot.profiles.filter {
+            $0.languageServer != nil
         }
     }
 
-    /// Called whenever any document becomes visible. A no-op for a file
-    /// extension no managed adapter claims (e.g. plain text), so syntax
-    /// viewing and search remain fully independent of this coordinator.
-    func handleDocumentReady(relativePath: String, controller: CodeDocumentViewController) {
-        let url = controller.snapshot.url
-        guard let adapter = Self.adapter(for: url) else {
+    var states: [(profile: LanguageProfile, state: LanguageServerState)] {
+        languageServerProfiles.compactMap { profile in
+            statesByProfile[profile.identifier].map {
+                (profile: profile, state: $0)
+            }
+        }
+    }
+
+    func handleDocumentReady(
+        relativePath: String,
+        controller: CodeDocumentViewController
+    ) {
+        guard let resolved = resolvedProfile(for: controller.snapshot) else {
+            onUnknownFileType?(controller.snapshot.url)
             return
         }
-        controllersByRelativePath[relativePath] = WeakMultiLanguageDocumentController(controller)
+        guard resolved.profile.languageServer != nil else {
+            return
+        }
+        controllersByRelativePath[relativePath] =
+            WeakMultiLanguageDocumentController(controller)
         guard isTrusted else {
             return
         }
         Task {
             await self.syncAndDecorate(
-                adapter: adapter,
+                resolved: resolved,
                 relativePath: relativePath,
                 controller: controller
             )
         }
     }
 
-    /// Manual Restart action for one specific adapter's server (SPEC 6.2).
-    func restart(adapter: any LanguageAdapter.Type) {
-        guard let service = services[ObjectIdentifier(adapter)] else {
+    func restart(profileIdentifier: String) {
+        guard let service = services[profileIdentifier],
+              let profile = profileRegistry.snapshot.profile(
+                  identifier: profileIdentifier
+              ) else {
             return
         }
-        for (relativePath, weakController) in controllersByRelativePath {
-            guard let controller = weakController.controller,
-                  let controllerAdapter = Self.adapter(for: controller.snapshot.url),
-                  ObjectIdentifier(controllerAdapter) == ObjectIdentifier(adapter) else {
-                continue
-            }
-            semanticDecorationTasks[relativePath]?.cancel()
-            semanticDecorationTasks.removeValue(forKey: relativePath)
-        }
+        cancelDecorations(for: profileIdentifier)
         Task {
             do {
                 try await service.restart()
             } catch {
                 return
             }
-            for (relativePath, weakController) in self.controllersByRelativePath {
-                guard let controller = weakController.controller,
-                      let controllerAdapter = Self.adapter(for: controller.snapshot.url),
-                      ObjectIdentifier(controllerAdapter) == ObjectIdentifier(adapter) else {
-                    continue
-                }
-                await self.syncAndDecorate(
-                    adapter: adapter,
-                    relativePath: relativePath,
-                    controller: controller
-                )
-            }
+            await self.resynchronizeOpenDocuments(for: profile)
         }
     }
 
     func restart(forURL url: URL) {
-        guard let adapter = Self.adapter(for: url) else {
+        guard let resolved = resolvedProfile(forOpenURL: url) else {
             return
         }
-        restart(adapter: adapter)
+        restart(profileIdentifier: resolved.profile.identifier)
     }
 
-    func status(forURL url: URL) -> (languageName: String, state: LanguageServerState)? {
-        guard let adapter = Self.adapter(for: url) else {
+    func status(
+        forURL url: URL
+    ) -> (languageName: String, state: LanguageServerState)? {
+        guard let resolved = resolvedProfile(forOpenURL: url),
+              resolved.profile.languageServer != nil else {
             return nil
         }
         let state: LanguageServerState
         if !isTrusted {
             state = .disabled(reason: "Workspace is not trusted")
         } else {
-            state = statesByAdapter[ObjectIdentifier(adapter)] ?? .missing(reason: "Not started")
+            state = statesByProfile[resolved.profile.identifier]
+                ?? .missing(reason: "Not started")
         }
-        let languageName: String
-        switch adapter.languageKey {
-        case "typescript": languageName = "TypeScript"
-        case "html": languageName = "HTML"
-        case "css": languageName = "CSS"
-        default: languageName = adapter.languageKey.capitalized
-        }
-        return (languageName, state)
+        return (resolved.profile.displayName, state)
     }
 
     func languageKey(forURL url: URL) -> String? {
-        Self.adapter(for: url)?.languageKey
+        resolvedProfile(forOpenURL: url)?.profile.identifier
     }
 
-    /// Returns the already-started service for `url`'s adapter, if any
-    /// — used by Peek/Hierarchy/Inlay commands, which should simply be
-    /// unavailable (hidden) rather than erroring when no server for that
-    /// language is running yet.
     func service(forURL url: URL) -> LanguageWorkspaceService? {
-        guard let adapter = Self.adapter(for: url) else {
+        guard let resolved = resolvedProfile(forOpenURL: url) else {
             return nil
         }
-        return services[ObjectIdentifier(adapter)]
+        return services[resolved.profile.identifier]
     }
 
     func workspaceSymbols(
         forURL url: URL,
         query: String
     ) async throws -> [WorkspaceSymbolLocation] {
-        guard let adapter = Self.adapter(for: url) else {
+        guard let resolved = resolvedProfile(forOpenURL: url),
+              resolved.profile.languageServer != nil else {
             return []
         }
         guard isTrusted else {
             throw LanguageWorkspaceServiceError.notTrusted
         }
-        guard let service = await startServiceIfNeeded(adapter: adapter) else {
+        guard let service = await startServiceIfNeeded(resolved: resolved) else {
             throw LanguageWorkspaceServiceError.notStarted
         }
         return try await service.workspaceSymbols(query: query)
     }
 
-    func hover(snapshot: SourceSnapshot, utf8Offset: Int) async throws -> Hover? {
-        guard let adapter = Self.adapter(for: snapshot.url),
-              let service = services[ObjectIdentifier(adapter)] else {
+    func hover(
+        snapshot: SourceSnapshot,
+        utf8Offset: Int
+    ) async throws -> Hover? {
+        guard let service = startedService(for: snapshot) else {
             return nil
         }
-        return try await service.hover(snapshot: snapshot, utf8Offset: utf8Offset)
+        return try await service.hover(
+            snapshot: snapshot,
+            utf8Offset: utf8Offset
+        )
     }
 
-    func definition(snapshot: SourceSnapshot, utf8Offset: Int) async throws -> [NavigationTarget] {
-        guard let adapter = Self.adapter(for: snapshot.url),
-              let service = services[ObjectIdentifier(adapter)] else {
+    func definition(
+        snapshot: SourceSnapshot,
+        utf8Offset: Int
+    ) async throws -> [NavigationTarget] {
+        guard let service = startedService(for: snapshot) else {
             return []
         }
-        return try await service.definition(snapshot: snapshot, utf8Offset: utf8Offset)
-    }
-
-    private static func adapter(for url: URL) -> (any LanguageAdapter.Type)? {
-        managedAdapters.first { $0.fileExtensions.contains(url.pathExtension.lowercased()) }
-    }
-
-    private func startServiceIfNeeded(adapter: any LanguageAdapter.Type) async -> LanguageWorkspaceService? {
-        let key = ObjectIdentifier(adapter)
-        if let existing = services[key] {
-            if let startupTask = startupTasks[key] {
-                await startupTask.value
-            }
-            return isTrusted && services[key] === existing ? existing : nil
-        }
-        guard isTrusted else {
-            return nil
-        }
-        let newService = LanguageAdapterRegistry.makeService(
-            for: adapter,
-            identity: identity,
-            trustStore: trustStore,
-            overrideStore: overrideStore,
-            onStateChange: { [weak self] newState in
-                Task { @MainActor in
-                    self?.statesByAdapter[key] = newState
-                    self?.recordStateChangeIfDegraded(adapter: adapter, newState)
-                    self?.onStateChange?()
-                }
-            },
-            onDiagnostics: { [weak self] url, diagnostics in
-                Task { @MainActor in
-                    self?.onDiagnostics?(url, diagnostics)
-                }
-            }
-        )
-        services[key] = newService
-        startupGenerations[key, default: 0] += 1
-        let startupGeneration = startupGenerations[key, default: 0]
-        let startupTask = Task {
-            do {
-                try await newService.start()
-            } catch {
-                // The service's own state-change callback already reported
-                // `.missing`/`.crashed` as appropriate.
-            }
-        }
-        startupTasks[key] = startupTask
-        await startupTask.value
-        if startupGenerations[key] == startupGeneration {
-            startupTasks.removeValue(forKey: key)
-        }
-        guard isTrusted, services[key] === newService else {
-            return nil
-        }
-        return newService
-    }
-
-    /// Mirrors `LanguageServicesCoordinator.recordStateChangeIfDegraded`
-    /// for this coordinator's per-adapter servers: only the explicit
-    /// `crashed`/`disabled` failure states are recorded, tagging which
-    /// adapter's `languageKey` degraded (a fixed, non-identifying label,
-    /// not repository content) alongside the workspace root path.
-    private func recordStateChangeIfDegraded(adapter: any LanguageAdapter.Type, _ newState: LanguageServerState) {
-        let reason: String
-        switch newState {
-        case .crashed(let message):
-            reason = message
-        case .disabled(let message):
-            reason = message
-        default:
-            return
-        }
-        Task {
-            await diagnosticsLog.record(
-                subsystem: .languageServer,
-                level: .warning,
-                message: Localized.string(
-                    "\(adapter.languageKey) language server entered \(newState.displayName.lowercased()) state",
-                    comment: "Diagnostics log message recorded when a language server adapter transitions to a degraded state"
-                ),
-                context: [
-                    DiagnosticContextField(name: "workspaceRoot", category: .fullPath, value: identity.root.path),
-                    DiagnosticContextField(name: "reason", category: .diagnosticMessage, value: reason)
-                ]
-            )
-        }
-    }
-
-    private func syncAndDecorate(
-        adapter: any LanguageAdapter.Type,
-        relativePath: String,
-        controller: CodeDocumentViewController
-    ) async {
-        let snapshot = controller.snapshot
-        guard let service = await startServiceIfNeeded(adapter: adapter) else {
-            return
-        }
-        do {
-            try await service.didOpen(snapshot)
-        } catch {
-            do {
-                try await service.didChange(snapshot)
-            } catch {
-                return
-            }
-        }
-        guard let liveController = controllersByRelativePath[relativePath]?.controller,
-              liveController.snapshot.version == snapshot.version else {
-            return
-        }
-        scheduleSemanticDecoration(
-            adapter: adapter,
-            relativePath: relativePath,
-            controller: liveController,
-            service: service
+        return try await service.definition(
+            snapshot: snapshot,
+            utf8Offset: utf8Offset
         )
     }
 
-    private func scheduleSemanticDecoration(
-        adapter: any LanguageAdapter.Type,
-        relativePath: String,
-        controller: CodeDocumentViewController,
-        service: LanguageWorkspaceService,
-        delay: Duration = .zero
-    ) {
-        semanticDecorationTasks[relativePath]?.cancel()
-        let snapshot = controller.snapshot
-        semanticDecorationTasks[relativePath] = Task { @MainActor [weak self, weak controller] in
-            if delay != .zero {
-                do {
-                    try await Task.sleep(for: delay)
-                } catch {
-                    return
-                }
-            }
-            guard let self, let controller,
-                  self.controllersByRelativePath[relativePath]?.controller === controller,
-                  controller.snapshot.version == snapshot.version else {
-                return
-            }
-            await self.applySemanticDecoration(
-                adapter: adapter,
-                relativePath: relativePath,
-                controller: controller,
-                service: service,
-                snapshot: snapshot
-            )
+    func declaration(
+        snapshot: SourceSnapshot,
+        utf8Offset: Int
+    ) async throws -> [NavigationTarget] {
+        guard let service = startedService(for: snapshot) else {
+            return []
         }
+        return try await service.declaration(
+            snapshot: snapshot,
+            utf8Offset: utf8Offset
+        )
     }
 
-    private func applySemanticDecoration(
-        adapter: any LanguageAdapter.Type,
-        relativePath: String,
-        controller: CodeDocumentViewController,
-        service: LanguageWorkspaceService,
+    func typeDefinition(
+        snapshot: SourceSnapshot,
+        utf8Offset: Int
+    ) async throws -> [NavigationTarget] {
+        guard let service = startedService(for: snapshot) else {
+            return []
+        }
+        return try await service.typeDefinition(
+            snapshot: snapshot,
+            utf8Offset: utf8Offset
+        )
+    }
+
+    func implementation(
+        snapshot: SourceSnapshot,
+        utf8Offset: Int
+    ) async throws -> [NavigationTarget] {
+        guard let service = startedService(for: snapshot) else {
+            return []
+        }
+        return try await service.implementation(
+            snapshot: snapshot,
+            utf8Offset: utf8Offset
+        )
+    }
+
+    func references(
+        snapshot: SourceSnapshot,
+        utf8Offset: Int,
+        includeDeclaration: Bool
+    ) async throws -> [NavigationTarget] {
+        guard let service = startedService(for: snapshot) else {
+            return []
+        }
+        return try await service.references(
+            snapshot: snapshot,
+            utf8Offset: utf8Offset,
+            includeDeclaration: includeDeclaration
+        )
+    }
+
+    func documentHighlights(
+        snapshot: SourceSnapshot,
+        utf8Offset: Int
+    ) async throws -> [ValidatedDocumentHighlight] {
+        guard let service = startedService(for: snapshot) else {
+            return []
+        }
+        return try await service.documentHighlights(
+            snapshot: snapshot,
+            utf8Offset: utf8Offset
+        )
+    }
+
+    func foldingRanges(
         snapshot: SourceSnapshot
-    ) async {
-        do {
-            let tokens = try await service.semanticTokens(snapshot: snapshot)
-            guard let stillLiveController = controllersByRelativePath[relativePath]?.controller,
-                  stillLiveController.snapshot.version == snapshot.version else {
-                return
+    ) async throws -> [ValidatedFoldingRange] {
+        guard let service = startedService(for: snapshot) else {
+            return []
+        }
+        return try await service.foldingRanges(snapshot: snapshot)
+    }
+
+    func selectionRanges(
+        snapshot: SourceSnapshot,
+        utf8Offsets: [Int]
+    ) async throws -> [ValidatedSelectionRange] {
+        guard let service = startedService(for: snapshot) else {
+            return []
+        }
+        return try await service.selectionRanges(
+            snapshot: snapshot,
+            utf8Offsets: utf8Offsets
+        )
+    }
+
+    func documentLinks(
+        snapshot: SourceSnapshot
+    ) async throws -> [ValidatedDocumentLink] {
+        guard let service = startedService(for: snapshot) else {
+            return []
+        }
+        return try await service.documentLinks(snapshot: snapshot)
+    }
+
+    func inlayHints(
+        snapshot: SourceSnapshot,
+        utf8Range: Range<Int>
+    ) async throws -> [ValidatedInlayHint] {
+        guard let service = startedService(for: snapshot) else {
+            return []
+        }
+        return try await service.inlayHints(
+            snapshot: snapshot,
+            utf8Range: utf8Range
+        )
+    }
+
+    func signatureHelp(
+        snapshot: SourceSnapshot,
+        utf8Offset: Int
+    ) async throws -> SignatureHelp? {
+        guard let service = startedService(for: snapshot) else {
+            return nil
+        }
+        return try await service.signatureHelp(
+            snapshot: snapshot,
+            utf8Offset: utf8Offset
+        )
+    }
+
+    func prepareCallHierarchy(
+        snapshot: SourceSnapshot,
+        utf8Offset: Int
+    ) async throws -> [ValidatedHierarchyItem] {
+        guard let service = startedService(for: snapshot) else {
+            return []
+        }
+        return try await service.prepareCallHierarchy(
+            snapshot: snapshot,
+            utf8Offset: utf8Offset
+        )
+    }
+
+    func callHierarchyIncomingCalls(
+        item: ValidatedHierarchyItem
+    ) async throws -> [ValidatedIncomingCall] {
+        guard let service = service(forURL: item.url) else {
+            return []
+        }
+        return try await service.callHierarchyIncomingCalls(item: item)
+    }
+
+    func callHierarchyOutgoingCalls(
+        item: ValidatedHierarchyItem
+    ) async throws -> [ValidatedOutgoingCall] {
+        guard let service = service(forURL: item.url) else {
+            return []
+        }
+        return try await service.callHierarchyOutgoingCalls(item: item)
+    }
+
+    func prepareTypeHierarchy(
+        snapshot: SourceSnapshot,
+        utf8Offset: Int
+    ) async throws -> [ValidatedHierarchyItem] {
+        guard let service = startedService(for: snapshot) else {
+            return []
+        }
+        return try await service.prepareTypeHierarchy(
+            snapshot: snapshot,
+            utf8Offset: utf8Offset
+        )
+    }
+
+    func typeHierarchySupertypes(
+        item: ValidatedHierarchyItem
+    ) async throws -> [ValidatedHierarchyItem] {
+        guard let service = service(forURL: item.url) else {
+            return []
+        }
+        return try await service.typeHierarchySupertypes(item: item)
+    }
+
+    func typeHierarchySubtypes(
+        item: ValidatedHierarchyItem
+    ) async throws -> [ValidatedHierarchyItem] {
+        guard let service = service(forURL: item.url) else {
+            return []
+        }
+        return try await service.typeHierarchySubtypes(item: item)
+    }
+
+    func handleLanguageSupportChanged(languageKey: String) {
+        profileRegistry.reload()
+        handleProfilesChanged()
+        if services[languageKey] != nil {
+            restart(profileIdentifier: languageKey)
+        }
+    }
+
+    /// Executable-discovery counterpart to `handleLanguageSupportChanged`.
+    /// Call this only when `LanguageSupportService.refresh()` finds that
+    /// `languageKey`'s executable, previously unavailable, is now
+    /// available — never for a profile configuration edit. Unlike
+    /// `handleLanguageSupportChanged`, this never reloads the profile
+    /// registry and never calls `LanguageSupportService.refresh()` (or
+    /// anything that would), so it cannot recurse back into another
+    /// discovery notification.
+    ///
+    /// For an already-open document matching `languageKey`: starts a
+    /// service if none exists yet, restarts one that is stuck in a
+    /// terminal failed state (`missing`/`crashed`/`stopped`/`disabled`)
+    /// so `LanguageWorkspaceService.restart()` rediscovers the
+    /// executable, and does nothing if a startup is already in flight or
+    /// the service is already starting/indexing/ready/busy — repeated
+    /// Settings refreshes must not restart a healthy service.
+    func handleLanguageServerExecutableAvailable(languageKey: String) {
+        guard isTrusted,
+              let profile = profileRegistry.snapshot.profile(
+                  identifier: languageKey
+              ),
+              profile.languageServer != nil else {
+            return
+        }
+        guard services[languageKey] != nil else {
+            // No service has ever been created for this profile (e.g. no
+            // document was open when it was last missing). Clear any
+            // stale status and retry for whichever open documents match.
+            statesByProfile.removeValue(forKey: languageKey)
+            onStateChange?()
+            Task {
+                await self.resynchronizeOpenDocuments(for: profile)
             }
-            let layer = SemanticTokenDecorationSource.layer(
-                fromTokens: tokens,
-                theme: stillLiveController.theme,
-                snapshotVersion: snapshot.version,
-                layerVersion: 1
-            )
-            stillLiveController.viewport.applyDecorationLayer(layer)
-        } catch is CancellationError {
-            guard !Task.isCancelled,
-                  controllersByRelativePath[relativePath]?.controller === controller,
-                  controller.snapshot.version == snapshot.version else {
-                return
-            }
-            scheduleSemanticDecoration(
-                adapter: adapter,
-                relativePath: relativePath,
-                controller: controller,
-                service: service,
-                delay: .milliseconds(250)
-            )
-        } catch LanguageWorkspaceServiceError.capabilityUnavailable {
-            // Lexical highlighting remains active when this adapter does not
-            // advertise semantic tokens.
-        } catch {
-            // Connection state and diagnostics expose server failures; the
-            // independent lexical layer remains usable.
+            return
+        }
+        guard startupTasks[languageKey] == nil else {
+            // A startup attempt is already in flight; let it resolve
+            // naturally rather than racing a second one.
+            return
+        }
+        switch statesByProfile[languageKey] {
+        case .missing, .crashed, .stopped, .disabled, .none:
+            restart(profileIdentifier: languageKey)
+        case .starting, .indexing, .ready, .busy, .stopping:
+            break
         }
     }
 
@@ -393,27 +436,9 @@ final class MultiLanguageServicesCoordinator {
         guard isTrusted else {
             return
         }
-        for (relativePath, weakController) in controllersByRelativePath {
-            guard let controller = weakController.controller,
-                  let adapter = Self.adapter(for: controller.snapshot.url) else {
-                continue
-            }
-            Task {
-                await self.syncAndDecorate(
-                    adapter: adapter,
-                    relativePath: relativePath,
-                    controller: controller
-                )
-            }
-        }
+        resynchronizeAllOpenDocuments()
     }
 
-    /// Stops every already-started adapter service for this workspace
-    /// (SPEC 13.1: revoking trust must be immediately effective, mirrored
-    /// from `LanguageServicesCoordinator.handleTrustRevoked()`), resetting
-    /// each adapter's reported state to `.disabled` so the combined
-    /// server-state UI reflects the revocation right away rather than
-    /// only on the next document open.
     func handleTrustRevoked() {
         semanticDecorationTasks.values.forEach { $0.cancel() }
         semanticDecorationTasks.removeAll()
@@ -427,8 +452,11 @@ final class MultiLanguageServicesCoordinator {
         }
         let runningServices = services
         services.removeAll()
-        for key in statesByAdapter.keys {
-            statesByAdapter[key] = .disabled(reason: "Workspace trust revoked")
+        serviceProfiles.removeAll()
+        for key in statesByProfile.keys {
+            statesByProfile[key] = .disabled(
+                reason: "Workspace trust revoked"
+            )
         }
         onStateChange?()
         Task {
@@ -443,8 +471,349 @@ final class MultiLanguageServicesCoordinator {
                     comment: "Diagnostics log message recorded when language servers are stopped due to trust revocation"
                 ),
                 context: [
-                    DiagnosticContextField(name: "workspaceRoot", category: .fullPath, value: identity.root.path)
+                    DiagnosticContextField(
+                        name: "workspaceRoot",
+                        category: .fullPath,
+                        value: identity.root.path
+                    )
                 ]
+            )
+        }
+    }
+
+    private func resolvedProfile(
+        for snapshot: SourceSnapshot
+    ) -> ResolvedLanguageProfile? {
+        profileRegistry.resolve(snapshot: snapshot)
+    }
+
+    private func resolvedProfile(
+        forOpenURL url: URL
+    ) -> ResolvedLanguageProfile? {
+        let standardizedURL = url.standardizedFileURL
+        for weakController in controllersByRelativePath.values {
+            guard let snapshot = weakController.controller?.snapshot,
+                  snapshot.url.standardizedFileURL == standardizedURL else {
+                continue
+            }
+            return resolvedProfile(for: snapshot)
+        }
+        return profileRegistry.resolve(url: url)
+    }
+
+    private func startedService(
+        for snapshot: SourceSnapshot
+    ) -> LanguageWorkspaceService? {
+        guard let resolved = resolvedProfile(for: snapshot) else {
+            return nil
+        }
+        return services[resolved.profile.identifier]
+    }
+
+    private func startServiceIfNeeded(
+        resolved: ResolvedLanguageProfile
+    ) async -> LanguageWorkspaceService? {
+        let profile = resolved.profile
+        let key = profile.identifier
+        if let existing = services[key] {
+            if let startupTask = startupTasks[key] {
+                await startupTask.value
+            }
+            return isTrusted && services[key] === existing ? existing : nil
+        }
+        guard isTrusted, profile.languageServer != nil else {
+            return nil
+        }
+
+        startupGenerations[key, default: 0] += 1
+        let generation = startupGenerations[key, default: 0]
+        let newService: LanguageWorkspaceService
+        do {
+            newService = try LanguageProfileServiceFactory.makeService(
+                for: profile,
+                identity: identity,
+                trustStore: trustStore,
+                overrideStore: overrideStore,
+                onStateChange: { [weak self] newState in
+                    Task { @MainActor in
+                        guard let self,
+                              self.startupGenerations[key] == generation else {
+                            return
+                        }
+                        self.statesByProfile[key] = newState
+                        self.recordStateChangeIfDegraded(
+                            profile: profile,
+                            newState
+                        )
+                        if case .missing = newState {
+                            self.onMissingServer?(profile)
+                        }
+                        self.onStateChange?()
+                    }
+                },
+                onDiagnostics: { [weak self] url, diagnostics in
+                    Task { @MainActor in
+                        self?.onDiagnostics?(url, diagnostics)
+                    }
+                }
+            )
+        } catch {
+            statesByProfile[key] = .missing(
+                reason: error.localizedDescription
+            )
+            onMissingServer?(profile)
+            onStateChange?()
+            return nil
+        }
+
+        services[key] = newService
+        serviceProfiles[key] = profile
+        let startupTask = Task {
+            do {
+                try await newService.start()
+            } catch {
+                // The service state callback reports discovery/start failures.
+            }
+        }
+        startupTasks[key] = startupTask
+        await startupTask.value
+        if startupGenerations[key] == generation {
+            startupTasks.removeValue(forKey: key)
+        }
+        guard isTrusted,
+              startupGenerations[key] == generation,
+              services[key] === newService else {
+            return nil
+        }
+        return newService
+    }
+
+    private func syncAndDecorate(
+        resolved: ResolvedLanguageProfile,
+        relativePath: String,
+        controller: CodeDocumentViewController
+    ) async {
+        let snapshot = controller.snapshot
+        guard let service = await startServiceIfNeeded(
+            resolved: resolved
+        ) else {
+            return
+        }
+        do {
+            try await service.didOpen(snapshot)
+        } catch {
+            do {
+                try await service.didChange(snapshot)
+            } catch {
+                return
+            }
+        }
+        guard let liveController =
+                controllersByRelativePath[relativePath]?.controller,
+              liveController.snapshot.version == snapshot.version else {
+            return
+        }
+        scheduleSemanticDecoration(
+            profileIdentifier: resolved.profile.identifier,
+            relativePath: relativePath,
+            controller: liveController,
+            service: service
+        )
+    }
+
+    private func scheduleSemanticDecoration(
+        profileIdentifier: String,
+        relativePath: String,
+        controller: CodeDocumentViewController,
+        service: LanguageWorkspaceService,
+        delay: Duration = .zero
+    ) {
+        semanticDecorationTasks[relativePath]?.cancel()
+        let snapshot = controller.snapshot
+        semanticDecorationTasks[relativePath] = Task {
+            @MainActor [weak self, weak controller] in
+            if delay != .zero {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+            }
+            guard let self, let controller,
+                  self.controllersByRelativePath[relativePath]?.controller
+                    === controller,
+                  controller.snapshot.version == snapshot.version else {
+                return
+            }
+            await self.applySemanticDecoration(
+                profileIdentifier: profileIdentifier,
+                relativePath: relativePath,
+                controller: controller,
+                service: service,
+                snapshot: snapshot
+            )
+        }
+    }
+
+    private func applySemanticDecoration(
+        profileIdentifier: String,
+        relativePath: String,
+        controller: CodeDocumentViewController,
+        service: LanguageWorkspaceService,
+        snapshot: SourceSnapshot
+    ) async {
+        do {
+            let tokens = try await service.semanticTokens(snapshot: snapshot)
+            guard let stillLiveController =
+                    controllersByRelativePath[relativePath]?.controller,
+                  stillLiveController.snapshot.version
+                    == snapshot.version else {
+                return
+            }
+            let layer = SemanticTokenDecorationSource.layer(
+                fromTokens: tokens,
+                theme: stillLiveController.theme,
+                snapshotVersion: snapshot.version,
+                layerVersion: 1
+            )
+            stillLiveController.viewport.applyDecorationLayer(layer)
+        } catch is CancellationError {
+            guard !Task.isCancelled,
+                  controllersByRelativePath[relativePath]?.controller
+                    === controller,
+                  controller.snapshot.version == snapshot.version else {
+                return
+            }
+            scheduleSemanticDecoration(
+                profileIdentifier: profileIdentifier,
+                relativePath: relativePath,
+                controller: controller,
+                service: service,
+                delay: .milliseconds(250)
+            )
+        } catch LanguageWorkspaceServiceError.capabilityUnavailable {
+            // Tree-sitter highlighting remains active without semantic tokens.
+        } catch {
+            // Connection state exposes failures; syntax remains independent.
+        }
+    }
+
+    private func recordStateChangeIfDegraded(
+        profile: LanguageProfile,
+        _ newState: LanguageServerState
+    ) {
+        let reason: String
+        switch newState {
+        case .crashed(let message), .disabled(let message):
+            reason = message
+        default:
+            return
+        }
+        Task {
+            await diagnosticsLog.record(
+                subsystem: .languageServer,
+                level: .warning,
+                message: Localized.string(
+                    "\(profile.identifier) language server entered \(newState.displayName.lowercased()) state",
+                    comment: "Diagnostics log message recorded when a language profile's server transitions to a degraded state"
+                ),
+                context: [
+                    DiagnosticContextField(
+                        name: "workspaceRoot",
+                        category: .fullPath,
+                        value: identity.root.path
+                    ),
+                    DiagnosticContextField(
+                        name: "reason",
+                        category: .diagnosticMessage,
+                        value: reason
+                    )
+                ]
+            )
+        }
+    }
+
+    private func handleProfilesChanged() {
+        profileRegistry.reload()
+        let activeProfiles = Dictionary(
+            uniqueKeysWithValues: languageServerProfiles.map {
+                ($0.identifier, $0)
+            }
+        )
+        var servicesToStop: [LanguageWorkspaceService] = []
+        let changedServiceIdentifiers = services.compactMap { identifier, _ in
+            activeProfiles[identifier] == serviceProfiles[identifier]
+                ? nil
+                : identifier
+        }
+        for identifier in changedServiceIdentifiers {
+            guard let service = services[identifier] else {
+                continue
+            }
+            startupGenerations[identifier, default: 0] += 1
+            startupTasks.removeValue(forKey: identifier)?.cancel()
+            services.removeValue(forKey: identifier)
+            serviceProfiles.removeValue(forKey: identifier)
+            statesByProfile.removeValue(forKey: identifier)
+            servicesToStop.append(service)
+        }
+        semanticDecorationTasks.values.forEach { $0.cancel() }
+        semanticDecorationTasks.removeAll()
+        onStateChange?()
+        Task {
+            for service in servicesToStop {
+                await service.stop()
+            }
+            self.resynchronizeAllOpenDocuments()
+        }
+    }
+
+    private func cancelDecorations(for profileIdentifier: String) {
+        for (relativePath, weakController) in controllersByRelativePath {
+            guard let snapshot = weakController.controller?.snapshot,
+                  resolvedProfile(for: snapshot)?.profile.identifier
+                    == profileIdentifier else {
+                continue
+            }
+            semanticDecorationTasks.removeValue(
+                forKey: relativePath
+            )?.cancel()
+        }
+    }
+
+    private func resynchronizeAllOpenDocuments() {
+        guard isTrusted else {
+            return
+        }
+        for (relativePath, weakController) in controllersByRelativePath {
+            guard let controller = weakController.controller,
+                  let resolved = resolvedProfile(for: controller.snapshot),
+                  resolved.profile.languageServer != nil else {
+                continue
+            }
+            Task {
+                await self.syncAndDecorate(
+                    resolved: resolved,
+                    relativePath: relativePath,
+                    controller: controller
+                )
+            }
+        }
+    }
+
+    private func resynchronizeOpenDocuments(
+        for profile: LanguageProfile
+    ) async {
+        for (relativePath, weakController) in controllersByRelativePath {
+            guard let controller = weakController.controller,
+                  let resolved = resolvedProfile(for: controller.snapshot),
+                  resolved.profile.identifier == profile.identifier else {
+                continue
+            }
+            await syncAndDecorate(
+                resolved: resolved,
+                relativePath: relativePath,
+                controller: controller
             )
         }
     }

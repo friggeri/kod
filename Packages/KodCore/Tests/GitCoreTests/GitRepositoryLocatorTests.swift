@@ -84,19 +84,22 @@ final class GitRepositoryLocatorTests: XCTestCase {
         }
     }
 
-    /// This very repository (the one Phase 9 is being developed in) is
-    /// itself a linked worktree of a shared repository, giving a real,
-    /// already-present worktree/common-dir split to validate against —
-    /// beyond the synthetic fixtures above. Read-only: only ever calls
-    /// `locate()`, never `status()`/`diff()`/`blame()`, so nothing here
-    /// is asserted to remain byte-identical (that guarantee is what
-    /// `GitImmutabilityTests` covers on disposable fixtures instead).
-    func testLocatesThisRepositorysOwnLinkedWorktree() async throws {
-        let locator = try makeLocator()
-        let thisFile = URL(fileURLWithPath: #filePath)
-        let location = try await locator.locate(startingAt: thisFile.deletingLastPathComponent())
+    func testLocatesALinkedWorktree() async throws {
+        let fixture = try GitFixtureBuilder.makeEmptyRepository()
+        defer { try? fixture.removeAll() }
+        try fixture.write("a.txt", text: "hi\n")
+        try fixture.addAll()
+        _ = try fixture.commit(message: "c1", date: "2024-01-01T10:00:00 -0500")
 
-        XCTAssertTrue(location.isLinkedWorktree, "the session workspace is expected to be a linked worktree")
+        let linkedWorktree = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GitCoreLinkedWorktree-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: linkedWorktree) }
+        try fixture.run(["worktree", "add", "-q", "-b", "linked", linkedWorktree.path])
+
+        let locator = try makeLocator()
+        let location = try await locator.locate(startingAt: linkedWorktree)
+
+        XCTAssertTrue(location.isLinkedWorktree)
         XCTAssertNotEqual(location.gitDirectory, location.commonDirectory)
         XCTAssertFalse(location.isBareRepository)
     }

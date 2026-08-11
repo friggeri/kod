@@ -22,14 +22,12 @@ let package = Package(
         .library(name: "SearchCore", targets: ["SearchCore"]),
         .library(name: "LanguageClient", targets: ["LanguageClient"]),
         .library(name: "LanguageAdapters", targets: ["LanguageAdapters"]),
-        .library(name: "ManagedLanguageServers", targets: ["ManagedLanguageServers"]),
         .library(name: "GitCore", targets: ["GitCore"]),
         .library(name: "PreviewCore", targets: ["PreviewCore"]),
         .library(name: "DiagnosticsCore", targets: ["DiagnosticsCore"]),
         .library(name: "UpdaterCore", targets: ["UpdaterCore"]),
         .executable(name: "KodFixtureGenerator", targets: ["KodFixtureGenerator"]),
         .executable(name: "FakeLanguageServer", targets: ["FakeLanguageServer"]),
-        .executable(name: "ManagedCatalogTool", targets: ["ManagedCatalogTool"]),
         .executable(name: "GitProcessSpy", targets: ["GitProcessSpy"]),
         .executable(name: "UpdateFeedTool", targets: ["UpdateFeedTool"]),
         .executable(name: "KodMemoryBenchmark", targets: ["KodMemoryBenchmark"])
@@ -140,6 +138,128 @@ let package = Package(
             publicHeadersPath: "include",
             cSettings: grammarCSettings
         ),
+        .target(
+            name: "CTreeSitterBash",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterBash",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c", "scanner.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
+            name: "CTreeSitterJSON",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterJSON",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
+            name: "CTreeSitterYAML",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterYAML",
+            exclude: [
+                "LICENSE-upstream.txt",
+                "schema.core.c",
+                "schema.json.c",
+                "schema.legacy.c"
+            ],
+            sources: ["parser.c", "scanner.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
+            name: "CTreeSitterTOML",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterTOML",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c", "scanner.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
+            name: "CTreeSitterMarkdown",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterMarkdown",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c", "scanner.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
+            name: "CTreeSitterMarkdownInline",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterMarkdownInline",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c", "scanner.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
+            name: "CTreeSitterC",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterC",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
+            name: "CTreeSitterGo",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterGo",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
+            name: "CTreeSitterJava",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterJava",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
+            name: "CTreeSitterRuby",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterRuby",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c", "scanner.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
+            name: "CTreeSitterLua",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterLua",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c", "scanner.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
+            name: "CTreeSitterGraphQL",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterGraphQL",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
+        .target(
+            name: "CTreeSitterXML",
+            dependencies: ["CTreeSitter"],
+            path: "Sources/CTreeSitterXML",
+            exclude: ["LICENSE-upstream.txt"],
+            sources: ["parser.c", "scanner.c"],
+            publicHeadersPath: "include",
+            cSettings: grammarCSettings
+        ),
 
         .target(
             name: "SyntaxCore",
@@ -154,7 +274,20 @@ let package = Package(
                 "CTreeSitterHTML",
                 "CTreeSitterCSS",
                 "CTreeSitterPython",
-                "CTreeSitterRust"
+                "CTreeSitterRust",
+                "CTreeSitterBash",
+                "CTreeSitterJSON",
+                "CTreeSitterYAML",
+                "CTreeSitterTOML",
+                "CTreeSitterMarkdown",
+                "CTreeSitterMarkdownInline",
+                "CTreeSitterC",
+                "CTreeSitterGo",
+                "CTreeSitterJava",
+                "CTreeSitterRuby",
+                "CTreeSitterLua",
+                "CTreeSitterGraphQL",
+                "CTreeSitterXML"
             ],
             resources: [
                 .copy("Resources/Queries")
@@ -170,19 +303,17 @@ let package = Package(
         ),
         .target(
             name: "LanguageAdapters",
-            dependencies: ["LanguageClient", "SourceModel", "WorkspaceCore", "ManagedLanguageServers"]
-        ),
-        .target(
-            name: "ManagedLanguageServers",
-            dependencies: ["WorkspaceCore"]
+            dependencies: [
+                "DiagnosticsCore",
+                "LanguageClient",
+                "SourceModel",
+                "SyntaxCore",
+                "WorkspaceCore"
+            ]
         ),
         .executableTarget(
             name: "FakeLanguageServer",
             dependencies: ["LanguageClient"]
-        ),
-        .executableTarget(
-            name: "ManagedCatalogTool",
-            dependencies: ["ManagedLanguageServers"]
         ),
         .target(
             name: "GitCore",
@@ -198,10 +329,7 @@ let package = Package(
         .target(
             name: "DiagnosticsCore"
         ),
-        .target(
-            name: "UpdaterCore",
-            dependencies: ["ManagedLanguageServers"]
-        ),
+        .target(name: "UpdaterCore"),
         .executableTarget(
             name: "UpdateFeedTool",
             dependencies: ["UpdaterCore"]
@@ -263,12 +391,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LanguageAdaptersTests",
-            dependencies: ["LanguageAdapters", "LanguageClient", "SourceModel", "WorkspaceCore", "ManagedLanguageServers", "FakeLanguageServer"],
-            exclude: ["Fixtures"]
-        ),
-        .testTarget(
-            name: "ManagedLanguageServersTests",
-            dependencies: ["ManagedLanguageServers", "WorkspaceCore", "LanguageClient", "FakeLanguageServer", "FuzzSupport"],
+            dependencies: ["LanguageAdapters", "LanguageClient", "SourceModel", "WorkspaceCore", "FakeLanguageServer"],
             exclude: ["Fixtures"]
         ),
         .testTarget(
@@ -288,7 +411,7 @@ let package = Package(
         ),
         .testTarget(
             name: "UpdaterCoreTests",
-            dependencies: ["UpdaterCore", "ManagedLanguageServers"]
+            dependencies: ["UpdaterCore"]
         ),
         .testTarget(
             name: "PerformanceSuiteTests",

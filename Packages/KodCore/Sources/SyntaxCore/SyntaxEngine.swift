@@ -1,3 +1,5 @@
+import CTreeSitter
+import Foundation
 import SourceModel
 
 /// Schedules Tree-sitter parsing and capture computation off the main
@@ -17,11 +19,165 @@ public actor SyntaxEngine {
     /// there is no meaningful "incremental reparse" to perform here.
     public func parse(snapshot: SourceSnapshot, language: SyntaxLanguage) throws -> SyntaxTree {
         let treeBox = try TreeSitterParser.parse(utf8: snapshot.utf8Data, language: language)
+        let additionalLayers = try Self.additionalLayers(
+            primaryTree: treeBox,
+            utf8: snapshot.utf8Data,
+            language: language
+        )
         return SyntaxTree(
             treeBox: treeBox,
+            additionalLayers: additionalLayers,
             utf8: snapshot.utf8Data,
             language: language,
             snapshotVersion: snapshot.version
+        )
+    }
+
+    private static let maximumMarkdownInjectionRanges = 2_048
+    private static let maximumMarkdownTraversalNodes = 100_000
+
+    private static func additionalLayers(
+        primaryTree: TSTreeBox,
+        utf8: Data,
+        language: SyntaxLanguage
+    ) throws -> [SyntaxTreeLayer] {
+        guard language == .markdown else {
+            return []
+        }
+        let root = ts_tree_root_node(primaryTree.pointer)
+        var layers: [SyntaxTreeLayer] = []
+
+        let inlineRanges = ranges(
+            ofNodesNamed: "inline",
+            below: root,
+            limit: maximumMarkdownInjectionRanges
+        )
+        if !inlineRanges.isEmpty {
+            let tree = try TreeSitterParser.parse(
+                utf8: utf8,
+                language: .markdownInline,
+                includedRanges: inlineRanges
+            )
+            layers.append(SyntaxTreeLayer(treeBox: tree, language: .markdownInline))
+        }
+
+        let fencedBlocks = nodes(
+            named: "fenced_code_block",
+            below: root,
+            limit: maximumMarkdownInjectionRanges
+        )
+        var injectedRanges: [SyntaxLanguage: [TSRange]] = [:]
+        for block in fencedBlocks {
+            guard let languageNode = firstDescendant(named: "language", below: block),
+                  let contentNode = firstDescendant(named: "code_fence_content", below: block),
+                  let injectedLanguage = markdownFenceLanguage(node: languageNode, utf8: utf8) else {
+                continue
+            }
+            injectedRanges[injectedLanguage, default: []].append(range(for: contentNode))
+        }
+        for injectedLanguage in injectedRanges.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+            guard let ranges = injectedRanges[injectedLanguage], !ranges.isEmpty else {
+                continue
+            }
+            let tree = try TreeSitterParser.parse(
+                utf8: utf8,
+                language: injectedLanguage,
+                includedRanges: ranges
+            )
+            layers.append(SyntaxTreeLayer(treeBox: tree, language: injectedLanguage))
+        }
+        return layers
+    }
+
+    private static func markdownFenceLanguage(node: TSNode, utf8: Data) -> SyntaxLanguage? {
+        let start = Int(ts_node_start_byte(node))
+        let end = Int(ts_node_end_byte(node))
+        guard start >= 0, end > start, end <= utf8.count else {
+            return nil
+        }
+        let name = String(decoding: utf8[start..<end], as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return switch name {
+        case "swift": .swift
+        case "ts", "typescript": .typescript
+        case "tsx": .tsx
+        case "js", "javascript", "jsx": .javascript
+        case "html": .html
+        case "css": .css
+        case "py", "python": .python
+        case "rs", "rust": .rust
+        case "bash", "sh", "shell": .shell
+        case "json": .json
+        case "yaml", "yml": .yaml
+        case "toml": .toml
+        case "c", "h": .c
+        case "go": .go
+        case "java": .java
+        case "ruby", "rb": .ruby
+        case "lua": .lua
+        case "graphql", "gql": .graphql
+        case "xml", "svg", "xsd", "xsl", "xslt": .xml
+        default: nil
+        }
+    }
+
+    private static func ranges(
+        ofNodesNamed name: String,
+        below root: TSNode,
+        limit: Int
+    ) -> [TSRange] {
+        nodes(named: name, below: root, limit: limit).map(range(for:))
+    }
+
+    private static func nodes(named name: String, below root: TSNode, limit: Int) -> [TSNode] {
+        var results: [TSNode] = []
+        var stack = [root]
+        var visited = 0
+        while let node = stack.popLast(),
+              visited < maximumMarkdownTraversalNodes,
+              results.count < limit {
+            visited += 1
+            if nodeType(node) == name {
+                results.append(node)
+            }
+            let childCount = ts_node_named_child_count(node)
+            for index in (0..<childCount).reversed() {
+                stack.append(ts_node_named_child(node, index))
+            }
+        }
+        return results
+    }
+
+    private static func firstDescendant(named name: String, below root: TSNode) -> TSNode? {
+        var stack = [root]
+        var visited = 0
+        while let node = stack.popLast(), visited < maximumMarkdownTraversalNodes {
+            visited += 1
+            if nodeType(node) == name {
+                return node
+            }
+            let childCount = ts_node_named_child_count(node)
+            for index in (0..<childCount).reversed() {
+                stack.append(ts_node_named_child(node, index))
+            }
+        }
+        return nil
+    }
+
+    private static func nodeType(_ node: TSNode) -> String {
+        guard let type = ts_node_type(node) else {
+            return ""
+        }
+        return String(cString: type)
+    }
+
+    private static func range(for node: TSNode) -> TSRange {
+        TSRange(
+            start_point: ts_node_start_point(node),
+            end_point: ts_node_end_point(node),
+            start_byte: ts_node_start_byte(node),
+            end_byte: ts_node_end_byte(node)
         )
     }
 

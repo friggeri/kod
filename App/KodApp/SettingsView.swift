@@ -2,6 +2,13 @@ import FontCore
 import SwiftUI
 import ThemeCore
 
+enum SettingsTab: Hashable {
+    case theme
+    case font
+    case languages
+    case diagnostics
+}
+
 /// Native settings UI for theme and font selection (SPEC 7.2, 7.3): a
 /// theme picker over the four bundled themes plus any VS Code imports,
 /// and font controls for family (filtered to installed monospaced
@@ -10,6 +17,7 @@ import ThemeCore
 /// `@Binding`s owned by `SettingsWindowController`, so it is constructible
 /// and previewable without any app-wide singleton.
 struct SettingsView: View {
+    @Binding var selectedTab: SettingsTab
     @Binding var selectedThemeIdentifier: String
     let availableThemes: [KodTheme]
     let onImportVSCodeTheme: @MainActor () -> Void
@@ -20,20 +28,33 @@ struct SettingsView: View {
 
     @ObservedObject var diagnosticsModel: DiagnosticsViewModel
     let onExportSupportBundle: @MainActor () -> Void
+    @ObservedObject var languageSupportService: LanguageSupportService
+    let onChooseLanguageServerExecutable: @MainActor (String) -> Void
+    let onFindLanguageServer: @MainActor () -> Void
 
     @State private var newFallbackFamily = ""
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             themeTab
                 .tabItem { Label("Theme", systemImage: "paintpalette") }
+                .tag(SettingsTab.theme)
             fontTab
                 .tabItem { Label("Font", systemImage: "textformat") }
+                .tag(SettingsTab.font)
+            LanguageSupportSettingsView(
+                service: languageSupportService,
+                onChooseExecutable: onChooseLanguageServerExecutable,
+                onFindLanguageServer: onFindLanguageServer
+            )
+            .tabItem { Label("Languages", systemImage: "curlybraces") }
+            .tag(SettingsTab.languages)
             DiagnosticsView(model: diagnosticsModel, onExportSupportBundle: onExportSupportBundle)
                 .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
+                .tag(SettingsTab.diagnostics)
         }
         .padding(20)
-        .frame(width: 480, height: 420)
+        .frame(width: 720, height: 540)
     }
 
     private var themeTab: some View {
@@ -73,9 +94,9 @@ struct SettingsView: View {
 
     private func previewSwatch(for theme: KodTheme) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("func greet() {").foregroundStyle(color(theme.lexicalStyle(forCapture: "keyword").foreground))
-            Text("    return \"hi\"").foregroundStyle(color(theme.lexicalStyle(forCapture: "string").foreground))
-            Text("}")
+            Text(verbatim: "func greet() {").foregroundStyle(color(theme.lexicalStyle(forCapture: "keyword").foreground))
+            Text(verbatim: "    return \"hi\"").foregroundStyle(color(theme.lexicalStyle(forCapture: "string").foreground))
+            Text(verbatim: "}")
         }
         .font(.system(.body, design: .monospaced))
         .padding(10)

@@ -7,8 +7,8 @@ help, the most useful thing you can attach is a support bundle:
 
 1. Open **Kod → Settings… → Diagnostics**.
 2. Review the bounded, redacted event log shown there — it lists recent
-   background-subsystem events (language server, Git, search, managed
-   install, preview) with severity, subsystem, and a redacted message.
+   background-subsystem events (language server, Git, search, preview)
+   with severity, subsystem, and a redacted message.
    If more events occurred than the log's bounded capacity, a "N events
    dropped" indicator is shown so you know the log is not silently
    incomplete.
@@ -46,6 +46,41 @@ support request, the crash log is the standard macOS
 `~/Library/Logs/DiagnosticReports/` crash report for the `Kod` process,
 which you can attach yourself; Kod does not automatically collect or
 transmit it.
+
+## Language support
+
+Open **Kod → Settings… → Languages** to inspect the active language server's
+absolute path, version, source, fixed arguments, architecture, runtime
+dependency, and schema-network behavior.
+
+Syntax highlighting is bundled independently. Language-server executables are
+not bundled in current builds, so an `LSP missing` status does not mean that
+syntax highlighting is missing.
+
+If a server is missing:
+
+1. Trust the workspace if you want language intelligence; syntax highlighting
+   remains available without trust.
+2. Use **Choose Executable…** to select a local executable you installed,
+   or **Use Auto-Detected** to return to profile candidate discovery.
+3. For a default (non-custom) profile, Settings may show a **Suggested
+   Installation** area with the exact command for that server (e.g. `npm
+   install -g pyright`), a **Copy … Command** button, and a link to that
+   server's official installation documentation. Kod only copies the command
+   text to the pasteboard and never runs a package manager, shell command,
+   update, or removal on your behalf — you always run the copied command
+   yourself. The same known-server case changes the workspace missing-server
+   banner's action to **Installation Help…**, opening that documentation
+   directly.
+4. Otherwise, use **Find a Language Server…** to open the public LSP
+   implementors directory. Kod does not install or endorse listed servers.
+5. Check **Kod → Settings… → Diagnostics** for bounded server stderr and
+   lifecycle events if launch still fails.
+
+Shell intelligence works without ShellCheck, but lint diagnostics are more
+limited when ShellCheck is absent. Kod does not silently install ShellCheck.
+JSON, YAML, and TOML servers may resolve remote schemas only in a trusted
+workspace.
 
 ## Updating and rolling back
 

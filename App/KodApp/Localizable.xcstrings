@@ -1,2454 +1,2772 @@
 {
-  "sourceLanguage": "en",
-  "strings": {
-    "A": {
-      "comment": "Single-letter Explorer badge for an added file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A"
+  "sourceLanguage" : "en",
+  "strings" : {
+    "\"%arg\" is not monospaced; column alignment may vary." : {
+
+    },
+    "%@ Syntax" : {
+
+    },
+    "%arg earlier event(s) dropped (the log is bounded)." : {
+
+    },
+    "A" : {
+      "comment" : "Single-letter Explorer badge for an added file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A"
+          }
+        }
+      }
+    },
+    "A fast, native, read-only code viewer for macOS" : {
+
+    },
+    "About Kod" : {
+      "comment" : "Application menu item that shows the standard About panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Kod"
+          }
+        }
+      }
+    },
+    "Active Theme" : {
+
+    },
+    "Active editor group" : {
+      "comment" : "Accessibility value indicating this is the currently active editor group",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active editor group"
+          }
+        }
+      }
+    },
+    "Actual Size" : {
+      "comment" : "Button title to show the image preview at its actual pixel size",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actual Size"
+          }
+        }
+      }
+    },
+    "Add" : {
+
+    },
+    "Add Argument" : {
+
+    },
+    "Add Association" : {
+
+    },
+    "Add Language Profile" : {
+
+    },
+    "Add Profile" : {
+
+    },
+    "Add Profile..." : {
+      "comment" : "Button title creating a language profile for an unknown file type"
+    },
+    "Add fallback family" : {
+
+    },
+    "Added" : {
+      "comment" : "Accessibility description for an added file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added"
+          }
+        }
+      }
+    },
+    "Argument %lld" : {
+
+    },
+    "Back" : {
+      "comment" : "Navigate menu item that goes back in navigation history",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back"
           }
         }
       }
     },
-    "About Kod": {
-      "comment": "Application menu item that shows the standard About panel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "About Kod"
+    "Binary file — no textual diff available." : {
+      "comment" : "Text shown in the diff view when the file is binary and has no textual diff",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Binary file — no textual diff available."
           }
         }
       }
     },
-    "Active editor group": {
-      "comment": "Accessibility value indicating this is the currently active editor group",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Active editor group"
+    "Blame" : {
+      "comment" : "Column title for the Git blame gutter table",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blame"
           }
         }
       }
     },
-    "Actual Size": {
-      "comment": "Button title to show the image preview at its actual pixel size",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Actual Size"
+    "Bring All to Front" : {
+      "comment" : "Window menu item that brings all app windows to the front",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bring All to Front"
           }
         }
       }
     },
-    "Added": {
-      "comment": "Accessibility description for an added file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Added"
+    "Bundled Tree-sitter grammar: %@" : {
+
+    },
+    "Call Hierarchy" : {
+      "comment" : "Title of the Call Hierarchy panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Call Hierarchy"
           }
         }
       }
     },
-    "Back": {
-      "comment": "Navigate menu item that goes back in navigation history",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Back"
+    "Callees" : {
+      "comment" : "Call hierarchy mode segment title showing outgoing callees",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Callees"
           }
         }
       }
     },
-    "Binary file — no textual diff available.": {
-      "comment": "Text shown in the diff view when the file is binary and has no textual diff",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Binary file — no textual diff available."
+    "Callers" : {
+      "comment" : "Call hierarchy mode segment title showing incoming callers",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Callers"
           }
         }
       }
     },
-    "Blame": {
-      "comment": "Column title for the Git blame gutter table",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Blame"
+    "Cancel" : {
+      "comment" : "Cancel button title in panels and workspace trust confirmation alerts",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
           }
         }
       }
     },
-    "Bring All to Front": {
-      "comment": "Window menu item that brings all app windows to the front",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bring All to Front"
+    "Case" : {
+      "comment" : "Checkbox toggling case-sensitive workspace search",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Case"
           }
         }
       }
     },
-    "Call Hierarchy": {
-      "comment": "Title of the Call Hierarchy panel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Call Hierarchy"
+    "Changes" : {
+      "comment" : "Source Control sidebar section title for unstaged changes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changes"
           }
         }
       }
     },
-    "Callees": {
-      "comment": "Call hierarchy mode segment title showing outgoing callees",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Callees"
+    "Checkerboard" : {
+      "comment" : "Checkbox toggling the transparency checkerboard background in image preview",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checkerboard"
           }
         }
       }
+    },
+    "Checking LSP" : {
+
     },
-    "Callers": {
-      "comment": "Call hierarchy mode segment title showing incoming callers",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Callers"
+    "Choose Executable..." : {
+      "comment" : "Button title selecting a local executable from the missing language-server banner"
+    },
+    "Choose Existing..." : {
+      "comment" : "Button title in the missing language-server banner"
+    },
+    "Choose a VS Code color-theme JSON file to import." : {
+      "comment" : "Open panel message for importing a VS Code theme",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a VS Code color-theme JSON file to import."
           }
         }
       }
     },
-    "Cancel": {
-      "comment": "Cancel button title in panels and workspace trust confirmation alerts",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancel"
+    "Choose an existing language-server executable." : {
+      "comment" : "Open panel message for selecting a language-server executable\nOpen panel message for selecting a missing language server"
+    },
+    "Choose where to save the redacted diagnostics support bundle." : {
+      "comment" : "Save panel message for exporting the diagnostics support bundle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose where to save the redacted diagnostics support bundle."
           }
         }
       }
     },
-    "Case": {
-      "comment": "Checkbox toggling case-sensitive workspace search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Case"
+    "Close Editor Group" : {
+      "comment" : "View menu item that closes the active editor group",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Editor Group"
           }
         }
       }
     },
-    "Changes": {
-      "comment": "Source Control sidebar section title for unstaged changes",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Changes"
+    "Close Group" : {
+      "comment" : "Accessibility description for the close-editor-group button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Group"
           }
         }
       }
     },
-    "Checkerboard": {
-      "comment": "Checkbox toggling the transparency checkerboard background in image preview",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Checkerboard"
+    "Close Tab" : {
+      "comment" : "File menu item that closes the active editor tab",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Tab"
           }
         }
       }
     },
-    "Choose a VS Code color-theme JSON file to import.": {
-      "comment": "Open panel message for importing a VS Code theme",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose a VS Code color-theme JSON file to import."
+    "Close Window" : {
+      "comment" : "File menu item that closes the frontmost window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Window"
           }
         }
       }
     },
-    "Choose where to save the redacted diagnostics support bundle.": {
-      "comment": "Save panel message for exporting the diagnostics support bundle",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose where to save the redacted diagnostics support bundle."
+    "Command" : {
+      "comment" : "Column title for the Command Palette's results table",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command"
           }
         }
       }
     },
-    "Close Editor Group": {
-      "comment": "View menu item that closes the active editor group",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close Editor Group"
+    "Command Palette" : {
+      "comment" : "Title of the Command Palette panel window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command Palette"
           }
         }
       }
     },
-    "Close Group": {
-      "comment": "Accessibility description for the close-editor-group button",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close Group"
+    "Command Palette..." : {
+      "comment" : "File menu item that opens the Command Palette",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command Palette..."
           }
         }
       }
     },
-    "Close Tab": {
-      "comment": "File menu item that closes the active editor tab",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close Tab"
+    "Commit details" : {
+      "comment" : "Accessibility label for the Git blame commit-details popover text",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Commit details"
           }
         }
       }
     },
-    "Close Window": {
-      "comment": "File menu item that closes the frontmost window",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close Window"
+    "Conflicted" : {
+      "comment" : "Accessibility description for a conflicted file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conflicted"
           }
         }
       }
     },
-    "Command": {
-      "comment": "Column title for the Command Palette's results table",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command"
+    "Copied" : {
+      "comment" : "Transient confirmation label shown after copying an installation command to the pasteboard",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copied"
           }
         }
       }
     },
-    "Command Palette": {
-      "comment": "Title of the Command Palette panel window",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command Palette"
+    "Copy" : {
+      "comment" : "Edit menu item that copies the selection",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy"
           }
         }
       }
     },
-    "Command Palette...": {
-      "comment": "File menu item that opens the Command Palette",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command Palette..."
+    "Copy %@ Command" : {
+      "comment" : "Button title copying one installation command option to the pasteboard, where %@ is the tool name (e.g. npm, pnpm, Homebrew)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy %@ Command"
           }
         }
       }
     },
-    "Commit details": {
-      "comment": "Accessibility label for the Git blame commit-details popover text",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Commit details"
+    "Copy Key Path" : {
+      "comment" : "Structured-data preview context menu item that copies the selected node's key path",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Key Path"
           }
         }
       }
     },
-    "Conflicted": {
-      "comment": "Accessibility description for a conflicted file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conflicted"
+    "Copy Value" : {
+      "comment" : "Structured-data preview context menu item that copies the selected node's value",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Value"
           }
         }
       }
     },
-    "Copy": {
-      "comment": "Edit menu item that copies the selection",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy"
+    "Could Not Import Theme" : {
+      "comment" : "Alert title shown when a VS Code theme import fails",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could Not Import Theme"
           }
         }
       }
+    },
+    "Could Not Save Profile" : {
+
     },
-    "Copy Key Path": {
-      "comment": "Structured-data preview context menu item that copies the selected node's key path",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy Key Path"
+    "Could Not Update Language Profile" : {
+
+    },
+    "Crash reports are never sent automatically. No upload destination is configured in this build, so enabling this toggle does not transmit anything anywhere — it only prepares Kod to record a crash report locally if a real upload destination is added in a future release. Kod has no usage telemetry." : {
+      "comment" : "Explanatory body text under the crash-reporting toggle in Settings"
+    },
+    "Custom Language" : {
+
+    },
+    "Custom Profile" : {
+
+    },
+    "D" : {
+      "comment" : "Single-letter Explorer badge for a deleted file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "D"
           }
         }
       }
     },
-    "Copy Value": {
-      "comment": "Structured-data preview context menu item that copies the selected node's value",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy Value"
+    "Decrease Text Size" : {
+      "comment" : "View menu item that decreases the editor font size",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decrease Text Size"
           }
         }
       }
+    },
+    "Default Profile" : {
+
+    },
+    "Default language ID" : {
+
+    },
+    "Delete" : {
+
     },
-    "Could Not Import Theme": {
-      "comment": "Alert title shown when a VS Code theme import fails",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could Not Import Theme"
+    "Delete Profile" : {
+
+    },
+    "Delete this custom language profile?" : {
+
+    },
+    "Deleted" : {
+      "comment" : "Accessibility description for a deleted file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleted"
           }
         }
       }
+    },
+    "Diagnostics" : {
+
     },
-    "D": {
-      "comment": "Single-letter Explorer badge for a deleted file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "D"
+    "Diagnostics Log" : {
+      "comment" : "Section header for the diagnostics event log in Settings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagnostics Log"
           }
         }
       }
     },
-    "Decrease Text Size": {
-      "comment": "View menu item that decreases the editor font size",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Decrease Text Size"
+    "Discovering files..." : {
+      "comment" : "Status label shown in the workspace Explorer while the initial file scan is in progress",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Discovering files..."
           }
         }
       }
     },
-    "Deleted": {
-      "comment": "Accessibility description for a deleted file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deleted"
+    "Dismiss Workspace Trust Banner" : {
+      "comment" : "Accessibility label and description for the button that dismisses the workspace trust banner",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dismiss Workspace Trust Banner"
           }
         }
       }
     },
-    "Diagnostics Log": {
-      "comment": "Section header for the diagnostics event log in Settings",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diagnostics Log"
+    "Edit" : {
+      "comment" : "Title of the Edit menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit"
           }
         }
       }
     },
-    "Dismiss Workspace Trust Banner": {
-      "comment": "Accessibility label and description for the button that dismisses the workspace trust banner",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dismiss Workspace Trust Banner"
+    "Edit %@" : {
+
+    },
+    "Editor group" : {
+      "comment" : "Accessibility label for an editor group's root view",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editor group"
           }
         }
       }
+    },
+    "Enable Language Server" : {
+
     },
-    "Discovering files...": {
-      "comment": "Status label shown in the workspace Explorer while the initial file scan is in progress",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Discovering files..."
+    "Enable Opt-In Crash Reporting" : {
+
+    },
+    "Enable opt-in crash reporting. Off by default. Kod has no usage telemetry." : {
+      "comment" : "Accessibility label for the crash-reporting opt-in toggle in Settings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable opt-in crash reporting. Off by default. Kod has no usage telemetry."
           }
         }
       }
+    },
+    "Enabled" : {
+
     },
-    "Edit": {
-      "comment": "Title of the Edit menu",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Edit"
+    "Error" : {
+      "comment" : "Accessibility severity word for an error diagnostic",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Error"
           }
         }
       }
     },
-    "Editor group": {
-      "comment": "Accessibility label for an editor group's root view",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Editor group"
+    "Exact filenames (comma-separated)" : {
+
+    },
+    "Exclude (e.g. Generated/**)" : {
+      "comment" : "Placeholder text for the exclude-glob filter field in workspace search",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exclude (e.g. Generated/**)"
           }
         }
       }
     },
-    "Enable opt-in crash reporting. Off by default. Kod has no usage telemetry.": {
-      "comment": "Accessibility label for the crash-reporting opt-in toggle in Settings",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enable opt-in crash reporting. Off by default. Kod has no usage telemetry."
+    "Executable path" : {
+
+    },
+    "Explorer" : {
+      "comment" : "Sidebar mode segment title for the file Explorer",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Explorer"
           }
         }
       }
+    },
+    "Export Support Bundle..." : {
+
+    },
+    "Extensions (comma-separated)" : {
+
+    },
+    "Fallback Families" : {
+
+    },
+    "Family" : {
+
     },
-    "Error": {
-      "comment": "Accessibility severity word for an error diagnostic",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error"
+    "File" : {
+      "comment" : "Title of the File menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File"
           }
         }
       }
     },
-    "Exclude (e.g. Generated/**)": {
-      "comment": "Placeholder text for the exclude-glob filter field in workspace search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Exclude (e.g. Generated/**)"
+    "File Associations" : {
+
+    },
+    "Files" : {
+      "comment" : "Column title for the workspace Explorer's file tree (header is hidden but title remains accessible)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Files"
           }
         }
       }
+    },
+    "Find a Language Server..." : {
+
+    },
+    "Find a Server..." : {
+      "comment" : "Button title opening the public language-server directory from the missing-server banner"
     },
-    "Explorer": {
-      "comment": "Sidebar mode segment title for the file Explorer",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Explorer"
+    "Find in File" : {
+      "comment" : "Command palette entry that opens in-file find",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Find in File"
           }
         }
       }
     },
-    "File": {
-      "comment": "Title of the File menu",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "File"
+    "Find in File..." : {
+      "comment" : "Edit menu item that opens in-file find",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Find in File..."
           }
         }
       }
     },
-    "Files": {
-      "comment": "Column title for the workspace Explorer's file tree (header is hidden but title remains accessible)",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Files"
+    "Fit" : {
+      "comment" : "Button title to fit the image preview to the window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fit"
           }
         }
       }
     },
-    "Find in File": {
-      "comment": "Command palette entry that opens in-file find",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Find in File"
+    "Fit to Window" : {
+      "comment" : "Accessibility label for the fit-to-window image preview button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fit to Window"
           }
         }
       }
     },
-    "Find in File...": {
-      "comment": "Edit menu item that opens in-file find",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Find in File..."
+    "Font" : {
+
+    },
+    "Font size" : {
+      "comment" : "Accessibility label for the font size stepper in Settings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Font size"
           }
         }
       }
     },
-    "Fit": {
-      "comment": "Button title to fit the image preview to the window",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fit"
+    "Forward" : {
+      "comment" : "Navigate menu item that goes forward in navigation history",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forward"
           }
         }
       }
     },
-    "Fit to Window": {
-      "comment": "Accessibility label for the fit-to-window image preview button",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fit to Window"
+    "Git diff loading failed" : {
+      "comment" : "Diagnostics log message recorded when loading a Git diff fails",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Git diff loading failed"
           }
         }
       }
     },
-    "Font size": {
-      "comment": "Accessibility label for the font size stepper in Settings",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Font size"
+    "Git status refresh failed" : {
+      "comment" : "Diagnostics log message recorded when a Git status refresh fails",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Git status refresh failed"
           }
         }
       }
     },
-    "Forward": {
-      "comment": "Navigate menu item that goes forward in navigation history",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forward"
+    "Go" : {
+      "comment" : "Submit button title in the Go to Line panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go"
           }
         }
       }
+    },
+    "Go to Definition" : {
+      "comment" : "Command palette entry that navigates to the selected symbol's definition\nNavigate menu item that opens the selected symbol's definition"
     },
-    "Git diff loading failed": {
-      "comment": "Diagnostics log message recorded when loading a Git diff fails",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git diff loading failed"
+    "Go to Line" : {
+      "comment" : "Title of the Go to Line panel window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Line"
           }
         }
       }
     },
-    "Git status refresh failed": {
-      "comment": "Diagnostics log message recorded when a Git status refresh fails",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git status refresh failed"
+    "Go to Line..." : {
+      "comment" : "File menu item that opens the Go to Line panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Line..."
           }
         }
       }
     },
-    "Go": {
-      "comment": "Submit button title in the Go to Line panel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go"
+    "Go to Matching Bracket" : {
+      "comment" : "Navigate menu item that jumps to the matching bracket",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Matching Bracket"
           }
         }
       }
     },
-    "Go to Line": {
-      "comment": "Title of the Go to Line panel window",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go to Line"
+    "Grammar Details..." : {
+
+    },
+    "Help" : {
+      "comment" : "Title of the Help menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Help"
           }
         }
       }
     },
-    "Go to Line...": {
-      "comment": "File menu item that opens the Go to Line panel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go to Line..."
+    "Hidden" : {
+      "comment" : "Checkbox toggling inclusion of hidden files in workspace search",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hidden"
           }
         }
       }
     },
-    "Go to Matching Bracket": {
-      "comment": "Navigate menu item that jumps to the matching bracket",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go to Matching Bracket"
+    "Hide Kod" : {
+      "comment" : "Application menu item that hides the app",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Kod"
           }
         }
       }
     },
-    "Help": {
-      "comment": "Title of the Help menu",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+    "Hide Others" : {
+      "comment" : "Application menu item that hides all other apps",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Others"
           }
         }
       }
     },
-    "Hidden": {
-      "comment": "Checkbox toggling inclusion of hidden files in workspace search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hidden"
+    "Hierarchy" : {
+      "comment" : "Column title for the call/type hierarchy outline view",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hierarchy"
           }
         }
       }
     },
-    "Hide Kod": {
-      "comment": "Application menu item that hides the app",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hide Kod"
+    "Hint" : {
+      "comment" : "Accessibility severity word for a hint diagnostic",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hint"
           }
         }
       }
     },
-    "Hide Others": {
-      "comment": "Application menu item that hides all other apps",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hide Others"
+    "Ignored" : {
+      "comment" : "Checkbox toggling inclusion of ignored files in workspace search",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignored"
           }
         }
       }
     },
-    "Hierarchy": {
-      "comment": "Column title for the call/type hierarchy outline view",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hierarchy"
+    "Ignored Files" : {
+      "comment" : "Source Control sidebar section title for ignored files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignored Files"
           }
         }
       }
+    },
+    "Import VS Code Theme..." : {
+
     },
-    "Hint": {
-      "comment": "Accessibility severity word for a hint diagnostic",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hint"
+    "Inactive editor group" : {
+      "comment" : "Accessibility value indicating this editor group is not currently active",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inactive editor group"
           }
         }
       }
     },
-    "Ignored": {
-      "comment": "Checkbox toggling inclusion of ignored files in workspace search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ignored"
+    "Include (e.g. *.swift)" : {
+      "comment" : "Placeholder text for the include-glob filter field in workspace search",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Include (e.g. *.swift)"
           }
         }
       }
     },
-    "Ignored Files": {
-      "comment": "Source Control sidebar section title for ignored files",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ignored Files"
+    "Increase Text Size" : {
+      "comment" : "View menu item that increases the editor font size",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Increase Text Size"
           }
         }
       }
     },
-    "Inactive editor group": {
-      "comment": "Accessibility value indicating this editor group is not currently active",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inactive editor group"
+    "Information" : {
+      "comment" : "Accessibility severity word for an informational diagnostic",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Information"
           }
         }
       }
     },
-    "Include (e.g. *.swift)": {
-      "comment": "Placeholder text for the include-glob filter field in workspace search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Include (e.g. *.swift)"
+    "Installation Documentation" : {
+      "comment" : "Link title opening a language server's official installation documentation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installation Documentation"
           }
         }
       }
     },
-    "Increase Text Size": {
-      "comment": "View menu item that increases the editor font size",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Increase Text Size"
+    "Installation Help..." : {
+      "comment" : "Button title opening a known language server's official installation documentation from the missing-server banner",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installation Help..."
           }
         }
       }
     },
-    "Information": {
-      "comment": "Accessibility severity word for an informational diagnostic",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Information"
+    "Key" : {
+      "comment" : "Column title for the structured-data preview's key column",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Key"
           }
         }
       }
     },
-    "Key": {
-      "comment": "Column title for the structured-data preview's key column",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Key"
+    "Kod" : {
+      "comment" : "Title of the Welcome window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod"
           }
         }
       }
     },
-    "Kod": {
-      "comment": "Title of the Welcome window",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kod"
+    "Kod Settings" : {
+      "comment" : "Title of the Settings window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod Settings"
           }
         }
       }
     },
-    "Kod Settings": {
-      "comment": "Title of the Settings window",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kod Settings"
+    "Kod bundles syntax grammars; language servers stay installed and controlled by you." : {
+      "comment" : "Caption under the Language Profiles settings header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kod bundles syntax grammars; language servers stay installed and controlled by you."
           }
         }
       }
     },
-    "Language server status": {
-      "comment": "Accessibility label describing what the language server state value represents",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Language server status"
+    "LSP Missing" : {
+
+    },
+    "LSP Ready" : {
+
+    },
+    "LSP language ID" : {
+
+    },
+    "Language Profiles" : {
+
+    },
+    "Language Server" : {
+
+    },
+    "Language Support..." : {
+      "comment" : "Button title opening Language Support settings from the missing-server banner"
+    },
+    "Language server disabled; syntax remains available." : {
+
+    },
+    "Language server status" : {
+      "comment" : "Accessibility label describing what the language server state value represents",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Language server status"
           }
         }
       }
     },
-    "Language servers stopped after workspace trust was revoked": {
-      "comment": "Diagnostics log message recorded when language servers are stopped due to trust revocation",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Language servers stopped after workspace trust was revoked"
+    "Language servers stopped after workspace trust was revoked" : {
+      "comment" : "Diagnostics log message recorded when language servers are stopped due to trust revocation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Language servers stopped after workspace trust was revoked"
           }
         }
       }
+    },
+    "Languages" : {
+
+    },
+    "Letter Spacing: %arg" : {
+
     },
-    "Letter spacing": {
-      "comment": "Accessibility label for the letter spacing slider in Settings",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Letter spacing"
+    "Letter spacing" : {
+      "comment" : "Accessibility label for the letter spacing slider in Settings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letter spacing"
           }
         }
       }
     },
-    "Line height": {
-      "comment": "Accessibility label for the line height slider in Settings",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Line height"
+    "Ligatures" : {
+
+    },
+    "Line Height: %argx" : {
+
+    },
+    "Line height" : {
+      "comment" : "Accessibility label for the line height slider in Settings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Line height"
           }
         }
       }
     },
-    "Line number:": {
-      "comment": "Label preceding the line-number field in the Go to Line panel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Line number:"
+    "Line number:" : {
+      "comment" : "Label preceding the line-number field in the Go to Line panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Line number:"
           }
         }
       }
     },
-    "M": {
-      "comment": "Single-letter Explorer badge for a modified file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "M"
+    "M" : {
+      "comment" : "Single-letter Explorer badge for a modified file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "M"
           }
         }
       }
     },
-    "Managed Language Servers": {
-      "comment": "Section header for the managed language server provenance list in Settings",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Managed Language Servers"
+    "Merge Conflicts" : {
+      "comment" : "Source Control sidebar section title for merge-conflicted files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Merge Conflicts"
           }
         }
       }
     },
-    "Merge Conflicts": {
-      "comment": "Source Control sidebar section title for merge-conflicted files",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Merge Conflicts"
+    "Minimize" : {
+      "comment" : "Window menu item that minimizes the frontmost window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minimize"
           }
         }
       }
+    },
+    "Minimum Level" : {
+
+    },
+    "Missing language server" : {
+      "comment" : "Accessibility description for the icon in the missing language-server banner"
     },
-    "Minimize": {
-      "comment": "Window menu item that minimizes the frontmost window",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Minimize"
+    "Modified" : {
+      "comment" : "Accessibility description for a modified file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modified"
           }
         }
       }
     },
-    "Modified": {
-      "comment": "Accessibility description for a modified file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modified"
+    "Name" : {
+
+    },
+    "Navigate" : {
+      "comment" : "Title of the Navigate menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigate"
           }
         }
       }
     },
-    "Navigate": {
-      "comment": "Title of the Navigate menu",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Navigate"
+    "Navigate Back" : {
+      "comment" : "Command palette entry that navigates back in history",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigate Back"
           }
         }
       }
     },
-    "Navigate Back": {
-      "comment": "Command palette entry that navigates back in history",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Navigate Back"
+    "Navigate Forward" : {
+      "comment" : "Command palette entry that navigates forward in history",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigate Forward"
           }
         }
       }
     },
-    "Navigate Forward": {
-      "comment": "Command palette entry that navigates forward in history",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Navigate Forward"
+    "No changes." : {
+      "comment" : "Status text shown in the Source Control sidebar when there are no changes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No changes."
           }
         }
       }
     },
-    "No changes.": {
-      "comment": "Status text shown in the Source Control sidebar when there are no changes",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No changes."
+    "No compatible language server was found." : {
+
+    },
+    "No diagnostic events recorded yet at this level." : {
+      "comment" : "Empty-state message shown when the diagnostics log has no events at the selected minimum level",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No diagnostic events recorded yet at this level."
           }
         }
       }
     },
-    "No diagnostic events recorded yet at this level.": {
-      "comment": "Empty-state message shown when the diagnostics log has no events at the selected minimum level",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No diagnostic events recorded yet at this level."
+    "No diff." : {
+      "comment" : "Status text shown when there is no Git diff to display",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No diff."
           }
         }
       }
     },
-    "No diff.": {
-      "comment": "Status text shown when there is no Git diff to display",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No diff."
+    "No metadata available" : {
+      "comment" : "Metadata line shown when no image metadata could be determined",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No metadata available"
           }
         }
       }
     },
-    "No metadata available": {
-      "comment": "Metadata line shown when no image metadata could be determined",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No metadata available"
+    "No problems." : {
+      "comment" : "Status label shown in the Problems panel when there are no diagnostics",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No problems."
           }
         }
       }
     },
-    "No problems.": {
-      "comment": "Status label shown in the Problems panel when there are no diagnostics",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No problems."
+    "No repository." : {
+      "comment" : "Status text shown in the Source Control sidebar when the workspace has no Git repository",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No repository."
           }
         }
       }
     },
-    "No repository.": {
-      "comment": "Status text shown in the Source Control sidebar when the workspace has no Git repository",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No repository."
+    "No results." : {
+      "comment" : "Status label shown when a workspace search finds no matches",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No results."
           }
         }
       }
+    },
+    "None" : {
+
     },
-    "No results.": {
-      "comment": "Status label shown when a workspace search finds no matches",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No results."
+    "Not Now" : {
+      "comment" : "Button title dismissing the missing language-server banner for this session"
+    },
+    "Not committed yet" : {
+      "comment" : "Git blame gutter text for a line with no committed history yet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not committed yet"
           }
         }
       }
     },
-    "Not committed yet": {
-      "comment": "Git blame gutter text for a line with no committed history yet",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not committed yet"
+    "OK" : {
+      "comment" : "Button title dismissing the theme-import report alert",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
           }
         }
       }
     },
-    "Not installed (last install attempt failed).": {
-      "comment": "Managed language server provenance text when the last install attempt failed",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not installed (last install attempt failed)."
+    "Off" : {
+      "comment" : "Accessibility value indicating the transparency checkerboard background is disabled",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off"
           }
         }
       }
     },
-    "Not installed.": {
-      "comment": "Managed language server provenance text when the server has never been installed",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not installed."
+    "On" : {
+      "comment" : "Accessibility value indicating the transparency checkerboard background is enabled",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On"
           }
         }
       }
     },
-    "Not yet installed.": {
-      "comment": "Managed language server provenance text when installation is pending/in-progress",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not yet installed."
+    "Open" : {
+      "comment" : "Button title confirming opening the external link",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open"
           }
         }
       }
     },
-    "OK": {
-      "comment": "Button title dismissing the theme-import report alert",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK"
+    "Open File..." : {
+      "comment" : "File menu item that opens a file-selection panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open File..."
           }
         }
       }
     },
-    "Off": {
-      "comment": "Accessibility value indicating the transparency checkerboard background is disabled",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Off"
+    "Open Folder..." : {
+      "comment" : "File menu item that opens a folder-selection panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Folder..."
           }
         }
       }
     },
-    "On": {
-      "comment": "Accessibility value indicating the transparency checkerboard background is enabled",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "On"
+    "Open Link?" : {
+      "comment" : "Alert title asking whether to open an external link from an untrusted workspace",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Link?"
           }
         }
       }
     },
-    "Open": {
-      "comment": "Button title confirming opening the external link",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open"
+    "Open Recent" : {
+      "comment" : "File menu item exposing the recently opened workspaces submenu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Recent"
           }
         }
       }
     },
-    "Open File...": {
-      "comment": "File menu item that opens a file-selection panel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open File..."
+    "Open a repository or source file to view it without editing." : {
+
+    },
+    "Open the public LSP server directory." : {
+      "comment" : "Tooltip for the missing language-server Find a Server button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the public LSP server directory."
           }
         }
       }
     },
-    "Open Folder...": {
-      "comment": "File menu item that opens a folder-selection panel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Folder..."
+    "Opening the workspace's Git repository failed or found none" : {
+      "comment" : "Diagnostics log message recorded when opening a workspace's Git repository fails or finds none",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening the workspace's Git repository failed or found none"
           }
         }
       }
     },
-    "Open Link?": {
-      "comment": "Alert title asking whether to open an external link from an untrusted workspace",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Link?"
+    "Opens %@'s official installation documentation." : {
+      "comment" : "Tooltip for the missing language-server Installation Help button, where %@ is the language display name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens %@'s official installation documentation."
           }
         }
       }
     },
-    "Open Recent": {
-      "comment": "File menu item exposing the recently opened workspaces submenu",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Recent"
+    "Opens the public LSP server directory." : {
+      "comment" : "Tooltip for the settings 'Find a Language Server...' button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens the public LSP server directory."
           }
         }
       }
+    },
+    "Overlapping file associations; the most recently edited enabled profile takes precedence." : {
+
     },
-    "Opening the workspace's Git repository failed or found none": {
-      "comment": "Diagnostics log message recorded when opening a workspace's Git repository fails or finds none",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opening the workspace's Git repository failed or found none"
+    "Parse error" : {
+      "comment" : "Accessibility label for the structured-data preview's parse-error diagnostic text",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parse error"
           }
         }
       }
     },
-    "Parse error": {
-      "comment": "Accessibility label for the structured-data preview's parse-error diagnostic text",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Parse error"
+    "Path" : {
+      "comment" : "Column title for the Quick Open panel's results table",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Path"
           }
         }
       }
     },
-    "Path": {
-      "comment": "Column title for the Quick Open panel's results table",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Path"
+    "Pause" : {
+      "comment" : "Initial title of the animated-image play/pause button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause"
           }
         }
       }
     },
-    "Pause": {
-      "comment": "Initial title of the animated-image play/pause button",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pause"
+    "Pause Animation" : {
+      "comment" : "Accessibility label for the play/pause button when the animation is playing",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause Animation"
           }
         }
       }
     },
-    "Pause Animation": {
-      "comment": "Accessibility label for the play/pause button when the animation is playing",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pause Animation"
+    "Paused" : {
+      "comment" : "Accessibility value indicating the animated image is currently paused",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paused"
           }
         }
       }
     },
-    "Paused": {
-      "comment": "Accessibility value indicating the animated image is currently paused",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paused"
+    "Peek Definition" : {
+      "comment" : "Title of the Peek Definition panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Peek Definition"
           }
         }
       }
     },
-    "Peek Definition": {
-      "comment": "Title of the Peek Definition panel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Peek Definition"
+    "Pin Tab" : {
+      "comment" : "Generic accessibility description for the pin-tab image, overridden per-tab below",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pin Tab"
           }
         }
       }
     },
-    "Pin Tab": {
-      "comment": "Generic accessibility description for the pin-tab image, overridden per-tab below",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pin Tab"
+    "Pinned tab" : {
+      "comment" : "Accessibility value component indicating a tab chip is pinned",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pinned tab"
           }
         }
       }
     },
-    "Pinned tab": {
-      "comment": "Accessibility value component indicating a tab chip is pinned",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pinned tab"
+    "Plain Text" : {
+
+    },
+    "Plain Text (no tokenizer)" : {
+
+    },
+    "Play" : {
+      "comment" : "Play/pause button title when the animated image is currently paused",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play"
           }
         }
       }
     },
-    "Play": {
-      "comment": "Play/pause button title when the animated image is currently paused",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Play"
+    "Play Animation" : {
+      "comment" : "Accessibility label for the play/pause button when the animation is paused",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play Animation"
           }
         }
       }
     },
-    "Play Animation": {
-      "comment": "Accessibility label for the play/pause button when the animation is paused",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Play Animation"
+    "Playing" : {
+      "comment" : "Accessibility value indicating the animated image is currently playing",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Playing"
           }
         }
       }
     },
-    "Playing": {
-      "comment": "Accessibility value indicating the animated image is currently playing",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Playing"
+    "Preview" : {
+      "comment" : "Initial title of the editor group's preview/source toggle button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview"
           }
         }
       }
     },
-    "Preview": {
-      "comment": "Initial title of the editor group's preview/source toggle button",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preview"
+    "Preview tab" : {
+      "comment" : "Accessibility value component indicating a tab chip is an unpinned preview tab",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview tab"
           }
         }
       }
     },
-    "Preview tab": {
-      "comment": "Accessibility value component indicating a tab chip is an unpinned preview tab",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preview tab"
+    "Privacy" : {
+      "comment" : "Section header for the privacy controls in Settings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy"
           }
         }
       }
     },
-    "Privacy": {
-      "comment": "Section header for the privacy controls in Settings",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privacy"
+    "Problem" : {
+      "comment" : "Accessibility severity word used when a diagnostic has no explicit severity",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Problem"
           }
         }
       }
     },
-    "Problem": {
-      "comment": "Accessibility severity word used when a diagnostic has no explicit severity",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Problem"
+    "Problems" : {
+      "comment" : "Column title for the Problems outline view (header is hidden but title remains accessible)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Problems"
           }
         }
       }
+    },
+    "Profile ID" : {
+
     },
-    "Problems": {
-      "comment": "Column title for the Problems outline view (header is hidden but title remains accessible)",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Problems"
+    "Quick Open" : {
+      "comment" : "Title of the Quick Open panel window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Open"
           }
         }
       }
     },
-    "Quick Open": {
-      "comment": "Title of the Quick Open panel window",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quick Open"
+    "Quick Open..." : {
+      "comment" : "File menu item that opens the Quick Open panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Open..."
           }
         }
       }
     },
-    "Quick Open...": {
-      "comment": "File menu item that opens the Quick Open panel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quick Open..."
+    "Quit Kod" : {
+      "comment" : "Application menu item that quits the app",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit Kod"
           }
         }
       }
     },
-    "Quit Kod": {
-      "comment": "Application menu item that quits the app",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quit Kod"
+    "R" : {
+      "comment" : "Single-letter Explorer badge for a renamed file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "R"
           }
         }
       }
     },
-    "R": {
-      "comment": "Single-letter Explorer badge for a renamed file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "R"
+    "Refresh" : {
+
+    },
+    "Regex" : {
+      "comment" : "Checkbox toggling regular-expression matching in workspace search",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regex"
           }
         }
       }
+    },
+    "Remove Association" : {
+
+    },
+    "Remove Imported Theme" : {
+
+    },
+    "Remove argument" : {
+
     },
-    "Regex": {
-      "comment": "Checkbox toggling regular-expression matching in workspace search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Regex"
+    "Renamed" : {
+      "comment" : "Accessibility description for a renamed file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renamed"
           }
         }
       }
     },
-    "Renamed": {
-      "comment": "Accessibility description for a renamed file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Renamed"
+    "Replace Existing File Associations?" : {
+
+    },
+    "Reset Default" : {
+
+    },
+    "Restart" : {
+      "comment" : "Button title to restart the language server",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restart"
           }
         }
       }
     },
-    "Restart": {
-      "comment": "Button title to restart the language server",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restart"
+    "Restart Language Server" : {
+      "comment" : "Accessibility label for the language server restart button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restart Language Server"
           }
         }
       }
     },
-    "Restart Language Server": {
-      "comment": "Accessibility label for the language server restart button",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restart Language Server"
+    "Restricted mode" : {
+      "comment" : "Accessibility description for the lock icon shown when a workspace is untrusted",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restricted mode"
           }
         }
       }
     },
-    "Restricted mode": {
-      "comment": "Accessibility description for the lock icon shown when a workspace is untrusted",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restricted mode"
+    "Restricted mode: language servers and repository tools are disabled." : {
+      "comment" : "Trust banner message shown when the current workspace is untrusted",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restricted mode: language servers and repository tools are disabled."
           }
         }
       }
     },
-    "Restricted mode: language servers and repository tools are disabled.": {
-      "comment": "Trust banner message shown when the current workspace is untrusted",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restricted mode: language servers and repository tools are disabled."
+    "Results" : {
+      "comment" : "Column title for the Peek panel's results table",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Results"
           }
         }
       }
     },
-    "Results": {
-      "comment": "Column title for the Peek panel's results table",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Results"
+    "Revoke Trust" : {
+      "comment" : "Trust banner and confirmation alert title/button for revoking trust for the current workspace",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revoke Trust"
           }
         }
       }
     },
-    "Revoke Trust": {
-      "comment": "Trust banner and confirmation alert title/button for revoking trust for the current workspace",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revoke Trust"
+    "Revoke trust for this workspace, disabling language servers" : {
+      "comment" : "Accessibility label/help for controls that revoke workspace trust",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revoke trust for this workspace, disabling language servers"
           }
         }
       }
     },
-    "Revoke trust for this workspace, disabling language servers": {
-      "comment": "Accessibility label/help for controls that revoke workspace trust",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revoke trust for this workspace, disabling language servers"
+    "Revoking trust disables repository tools and stops running language servers for this workspace." : {
+      "comment" : "Explanation in the confirmation alert for revoking workspace trust",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revoking trust disables repository tools and stops running language servers for this workspace."
           }
         }
       }
     },
-    "Revoking trust disables repository tools and stops running language servers for this workspace.": {
-      "comment": "Explanation in the confirmation alert for revoking workspace trust",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revoking trust disables repository tools and stops running language servers for this workspace."
+    "Sanitizer diagnostics" : {
+      "comment" : "Accessibility label for the Markdown sanitizer diagnostics text",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sanitizer diagnostics"
           }
         }
       }
+    },
+    "Save" : {
+
     },
-    "Sanitizer diagnostics": {
-      "comment": "Accessibility label for the Markdown sanitizer diagnostics text",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sanitizer diagnostics"
+    "Save and Take Precedence" : {
+
+    },
+    "Search" : {
+      "comment" : "Sidebar mode segment title for workspace Search",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search"
           }
         }
       }
     },
-    "Search": {
-      "comment": "Sidebar mode segment title for workspace Search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search"
+    "Search Symbols" : {
+      "comment" : "Placeholder text for the Symbols sidebar's search field",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search Symbols"
           }
         }
       }
     },
-    "Search Symbols": {
-      "comment": "Placeholder text for the Symbols sidebar's search field",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search Symbols"
+    "Search Workspace" : {
+      "comment" : "Placeholder text in the workspace search field",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search Workspace"
           }
         }
       }
     },
-    "Search Workspace": {
-      "comment": "Placeholder text in the workspace search field",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search Workspace"
+    "Search Workspace..." : {
+      "comment" : "Edit menu item that opens workspace-wide search",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search Workspace..."
           }
         }
       }
     },
-    "Search Workspace...": {
-      "comment": "Edit menu item that opens workspace-wide search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search Workspace..."
+    "Search keys and values" : {
+      "comment" : "Placeholder text for the structured-data preview's search field",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search keys and values"
           }
         }
       }
     },
-    "Search keys and values": {
-      "comment": "Placeholder text for the structured-data preview's search field",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search keys and values"
+    "Searching…" : {
+      "comment" : "Status label shown while a workspace search is in progress",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Searching…"
           }
         }
       }
     },
-    "Searching…": {
-      "comment": "Status label shown while a workspace search is in progress",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Searching…"
+    "Select All" : {
+      "comment" : "Edit menu item that selects all content",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select All"
           }
         }
       }
     },
-    "Select All": {
-      "comment": "Edit menu item that selects all content",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Select All"
+    "Select a file in the Explorer or press Command-P." : {
+      "comment" : "Placeholder text shown in an editor group before any tab is open",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select a file in the Explorer or press Command-P."
           }
         }
       }
     },
-    "Select a file in the Explorer or press Command-P.": {
-      "comment": "Placeholder text shown in an editor group before any tab is open",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Select a file in the Explorer or press Command-P."
+    "Selected" : {
+      "comment" : "Accessibility value component indicating a tab chip is the currently selected tab",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selected"
           }
         }
       }
     },
-    "Selected": {
-      "comment": "Accessibility value component indicating a tab chip is the currently selected tab",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Selected"
+    "Services" : {
+      "comment" : "Application menu item exposing the system Services submenu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Services"
           }
         }
       }
     },
-    "Services": {
-      "comment": "Application menu item exposing the system Services submenu",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Services"
+    "Settings..." : {
+      "comment" : "Application menu item that opens the Settings window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings..."
           }
         }
       }
     },
-    "Settings...": {
-      "comment": "Application menu item that opens the Settings window",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Settings..."
+    "Show All" : {
+      "comment" : "Application menu item that unhides all apps",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show All"
           }
         }
       }
     },
-    "Show All": {
-      "comment": "Application menu item that unhides all apps",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show All"
+    "Show Call Hierarchy" : {
+      "comment" : "Command palette entry that shows the Call Hierarchy panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Call Hierarchy"
           }
         }
       }
     },
-    "Show Call Hierarchy": {
-      "comment": "Command palette entry that shows the Call Hierarchy panel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Call Hierarchy"
+    "Show Git Blame" : {
+      "comment" : "Edit menu item that shows Git blame for the selected file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Git Blame"
           }
         }
       }
     },
-    "Show Git Blame": {
-      "comment": "Edit menu item that shows Git blame for the selected file",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Git Blame"
+    "Show Problems" : {
+      "comment" : "Edit menu item that reveals the Problems panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Problems"
           }
         }
       }
     },
-    "Show Problems": {
-      "comment": "Edit menu item that reveals the Problems panel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Problems"
+    "Show Source Control" : {
+      "comment" : "Edit menu item that reveals the Source Control sidebar",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Source Control"
           }
         }
       }
     },
-    "Show Source Control": {
-      "comment": "Edit menu item that reveals the Source Control sidebar",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Source Control"
+    "Show Symbols" : {
+      "comment" : "Edit menu item that reveals the Symbols panel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Symbols"
           }
         }
       }
     },
-    "Show Symbols": {
-      "comment": "Edit menu item that reveals the Symbols panel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Symbols"
+    "Showing Preview" : {
+      "comment" : "Accessibility value for the preview/source toggle button when a preview is currently shown",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Showing Preview"
           }
         }
       }
     },
-    "Showing Preview": {
-      "comment": "Accessibility value for the preview/source toggle button when a preview is currently shown",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Showing Preview"
+    "Showing Source" : {
+      "comment" : "Accessibility value for the preview/source toggle button when source is currently shown",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Showing Source"
           }
         }
       }
     },
-    "Showing Source": {
-      "comment": "Accessibility value for the preview/source toggle button when source is currently shown",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Showing Source"
+    "Side by Side" : {
+      "comment" : "Diff view mode segment: side-by-side diff layout",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Side by Side"
           }
         }
       }
+    },
+    "Size: %arg pt" : {
+
     },
-    "Side by Side": {
-      "comment": "Diff view mode segment: side-by-side diff layout",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Side by Side"
+    "Source Control" : {
+      "comment" : "Column title for the Source Control sidebar's outline view",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source Control"
           }
         }
       }
     },
-    "Source Control": {
-      "comment": "Column title for the Source Control sidebar's outline view",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Source Control"
+    "Split Down" : {
+      "comment" : "Accessibility description for the split-editor-down button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Split Down"
           }
         }
       }
     },
-    "Split Down": {
-      "comment": "Accessibility description for the split-editor-down button",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Split Down"
+    "Split Editor" : {
+      "comment" : "Label for the grouped titlebar split-editor controls"
+    },
+    "Split Editor Down" : {
+      "comment" : "View menu item that splits the active editor group downward",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Split Editor Down"
           }
         }
       }
     },
-    "Split Editor Down": {
-      "comment": "View menu item that splits the active editor group downward",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Split Editor Down"
+    "Split Editor Right" : {
+      "comment" : "View menu item that splits the active editor group to the right",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Split Editor Right"
           }
         }
       }
     },
-    "Split Editor Right": {
-      "comment": "View menu item that splits the active editor group to the right",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Split Editor Right"
+    "Split Right" : {
+      "comment" : "Accessibility description for the split-editor-right button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Split Right"
           }
         }
       }
     },
-    "Split Right": {
-      "comment": "Accessibility description for the split-editor-right button",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Split Right"
+    "Staged Changes" : {
+      "comment" : "Source Control sidebar section title for staged changes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Staged Changes"
           }
         }
       }
     },
-    "Staged Changes": {
-      "comment": "Source Control sidebar section title for staged changes",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Staged Changes"
+    "Suggested Installation" : {
+      "comment" : "Section header for the copyable installation guidance shown under a missing default-profile language server",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suggested Installation"
           }
         }
       }
     },
-    "Swift language server stopped after workspace trust was revoked": {
-      "comment": "Diagnostics log message recorded when the Swift language server is stopped due to trust revocation",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Swift language server stopped after workspace trust was revoked"
+    "Swift language server stopped after workspace trust was revoked" : {
+      "comment" : "Diagnostics log message recorded when the Swift language server is stopped due to trust revocation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swift language server stopped after workspace trust was revoked"
           }
         }
       }
     },
-    "Symbols": {
-      "comment": "Column title for the Symbols sidebar's outline view",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Symbols"
+    "Symbols" : {
+      "comment" : "Column title for the Symbols sidebar's outline view",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Symbols"
           }
         }
       }
     },
-    "Symbols are unavailable until the language server is ready.": {
-      "comment": "Status label shown when a symbol search cannot run because its language server is unavailable",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Symbols are unavailable until the language server is ready."
+    "Symbols are unavailable until the language server is ready." : {
+      "comment" : "Status label shown when a symbol search cannot run because its language server is unavailable",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Symbols are unavailable until the language server is ready."
           }
         }
       }
+    },
+    "Syntax" : {
+
     },
-    "Theme": {
-      "comment": "Section header above the theme picker in Settings",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Theme"
+    "Syntax Only" : {
+
+    },
+    "The selected file is not executable: %arg" : {
+
+    },
+    "Theme" : {
+      "comment" : "Section header above the theme picker in Settings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Theme"
           }
         }
       }
     },
-    "This workspace is trusted: language servers and repository tools are enabled.": {
-      "comment": "Trust banner message shown when the current workspace is trusted",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This workspace is trusted: language servers and repository tools are enabled."
+    "This workspace is trusted: language servers and repository tools are enabled." : {
+      "comment" : "Trust banner message shown when the current workspace is trusted",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This workspace is trusted: language servers and repository tools are enabled."
           }
         }
       }
     },
-    "Toggle Fold": {
-      "comment": "View menu item that toggles the code fold at the current line",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Fold"
+    "Toggle Fold" : {
+      "comment" : "View menu item that toggles the code fold at the current line",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Fold"
           }
         }
       }
+    },
+    "Toggle Sidebar" : {
+      "comment" : "Accessibility description for the workspace titlebar button that shows or hides the sidebar\nAccessibility label for the workspace titlebar button that shows or hides the sidebar\nLabel for the workspace titlebar sidebar toggle item"
     },
-    "Toggle Source and Preview": {
-      "comment": "View menu item that toggles between source and rendered preview",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Source and Preview"
+    "Toggle Source and Preview" : {
+      "comment" : "View menu item that toggles between source and rendered preview",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Source and Preview"
           }
         }
       }
     },
-    "Toggle Word Wrap": {
-      "comment": "Command palette entry that toggles word wrap",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Word Wrap"
+    "Toggle Word Wrap" : {
+      "comment" : "Command palette entry that toggles word wrap",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Word Wrap"
           }
         }
       }
     },
-    "Transparency Checkerboard Background": {
-      "comment": "Accessibility label for the transparency checkerboard background toggle",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transparency Checkerboard Background"
+    "Transparency Checkerboard Background" : {
+      "comment" : "Accessibility label for the transparency checkerboard background toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transparency Checkerboard Background"
           }
         }
       }
     },
-    "Trust Workspace": {
-      "comment": "Trust banner and confirmation alert title/button for trusting the current workspace",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trust Workspace"
+    "Trust Workspace" : {
+      "comment" : "Trust banner and confirmation alert title/button for trusting the current workspace",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trust Workspace"
           }
         }
       }
     },
-    "Trust this workspace, enabling language servers and repository tools": {
-      "comment": "Accessibility label/help for controls that grant workspace trust",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trust this workspace, enabling language servers and repository tools"
+    "Trust this workspace, enabling language servers and repository tools" : {
+      "comment" : "Accessibility label/help for controls that grant workspace trust",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trust this workspace, enabling language servers and repository tools"
           }
         }
       }
     },
-    "Trusting this workspace enables language servers and repository tools, which may execute code from this directory.": {
-      "comment": "Explanation in the confirmation alert for trusting a workspace",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trusting this workspace enables language servers and repository tools, which may execute code from this directory."
+    "Trusting this workspace enables language servers and repository tools, which may execute code from this directory." : {
+      "comment" : "Explanation in the confirmation alert for trusting a workspace",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trusting this workspace enables language servers and repository tools, which may execute code from this directory."
           }
         }
       }
     },
-    "Type a command": {
-      "comment": "Placeholder text for the Command Palette's search field",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Type a command"
+    "Type a command" : {
+      "comment" : "Placeholder text for the Command Palette's search field",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type a command"
           }
         }
       }
     },
-    "Type a file name or path": {
-      "comment": "Placeholder text for the Quick Open panel's search field",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Type a file name or path"
+    "Type a file name or path" : {
+      "comment" : "Placeholder text for the Quick Open panel's search field",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type a file name or path"
           }
         }
       }
     },
-    "U": {
-      "comment": "Single-letter Explorer badge for an untracked file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "U"
+    "U" : {
+      "comment" : "Single-letter Explorer badge for an untracked file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "U"
           }
         }
       }
     },
-    "Unavailable": {
-      "comment": "Accessibility value component indicating a tab chip's file is no longer available",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unavailable"
+    "Unavailable" : {
+      "comment" : "Accessibility value component indicating a tab chip's file is no longer available",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unavailable"
           }
         }
       }
     },
-    "Unified": {
-      "comment": "Diff view mode segment: unified diff layout",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unified"
+    "Unified" : {
+      "comment" : "Diff view mode segment: unified diff layout",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unified"
           }
         }
       }
     },
-    "Untracked": {
-      "comment": "Accessibility description for an untracked file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Untracked"
+    "Untracked" : {
+      "comment" : "Accessibility description for an untracked file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Untracked"
           }
         }
       }
     },
-    "Untracked Files": {
-      "comment": "Source Control sidebar section title for untracked files",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Untracked Files"
+    "Untracked Files" : {
+      "comment" : "Source Control sidebar section title for untracked files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Untracked Files"
           }
         }
       }
     },
-    "Value": {
-      "comment": "Column title for the structured-data preview's value column",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Value"
+    "Upstream provenance and license" : {
+
+    },
+    "Use Auto-Detected" : {
+
+    },
+    "Value" : {
+      "comment" : "Column title for the structured-data preview's value column",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Value"
           }
         }
       }
     },
-    "View": {
-      "comment": "Title of the View menu",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "View"
+    "View" : {
+      "comment" : "Title of the View menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View"
           }
         }
       }
     },
-    "View Preview": {
-      "comment": "Preview/source toggle button title when currently showing the source, offering to switch to preview",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "View Preview"
+    "View Preview" : {
+      "comment" : "Preview/source toggle button title when currently showing the source, offering to switch to preview",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View Preview"
           }
         }
       }
     },
-    "View Source": {
-      "comment": "Preview/source toggle button title when currently showing the preview, offering to switch to source",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "View Source"
+    "View Source" : {
+      "comment" : "Preview/source toggle button title when currently showing the preview, offering to switch to source",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View Source"
           }
         }
       }
     },
-    "Warning": {
-      "comment": "Accessibility severity word for a warning diagnostic",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Warning"
+    "Warning" : {
+      "comment" : "Accessibility severity word for a warning diagnostic",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warning"
           }
         }
       }
     },
-    "Window": {
-      "comment": "Title of the Window menu",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Window"
+    "Weight" : {
+
+    },
+    "Window" : {
+      "comment" : "Title of the Window menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Window"
           }
         }
       }
     },
-    "Word": {
-      "comment": "Checkbox toggling whole-word matching in workspace search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Word"
+    "Word" : {
+      "comment" : "Checkbox toggling whole-word matching in workspace search",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Word"
           }
         }
       }
     },
-    "Word Wrap": {
-      "comment": "View menu item that toggles word wrap",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Word Wrap"
+    "Word Wrap" : {
+      "comment" : "View menu item that toggles word wrap",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Word Wrap"
           }
         }
       }
     },
-    "Workspace search engine failed to initialize": {
-      "comment": "Diagnostics log message recorded when the workspace text search engine fails to start",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace search engine failed to initialize"
+    "Workspace search engine failed to initialize" : {
+      "comment" : "Diagnostics log message recorded when the workspace text search engine fails to start",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace search engine failed to initialize"
           }
         }
       }
     },
-    "Workspace search failed": {
-      "comment": "Diagnostics log message recorded when a workspace search fails",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace search failed"
+    "Workspace search failed" : {
+      "comment" : "Diagnostics log message recorded when a workspace search fails",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace search failed"
           }
         }
       }
     },
-    "Workspace trust granted": {
-      "comment": "Diagnostics log message recorded when a workspace is trusted",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace trust granted"
+    "Workspace trust granted" : {
+      "comment" : "Diagnostics log message recorded when a workspace is trusted",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace trust granted"
           }
         }
       }
     },
-    "Workspace trust revoked": {
-      "comment": "Diagnostics log message recorded when a workspace's trust is revoked",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace trust revoked"
+    "Workspace trust revoked" : {
+      "comment" : "Diagnostics log message recorded when a workspace's trust is revoked",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace trust revoked"
           }
         }
       }
     },
-    "Zoom": {
-      "comment": "Window menu item that zooms the frontmost window",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom"
+    "Zoom" : {
+      "comment" : "Window menu item that zooms the frontmost window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom"
           }
         }
       }
     },
-    "Zoom In": {
-      "comment": "Accessibility label for the zoom-in image preview button",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom In"
+    "Zoom In" : {
+      "comment" : "Accessibility label for the zoom-in image preview button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom In"
           }
         }
       }
     },
-    "Zoom Out": {
-      "comment": "Accessibility label for the zoom-out image preview button",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom Out"
+    "Zoom Out" : {
+      "comment" : "Accessibility label for the zoom-out image preview button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom Out"
           }
         }
       }
     },
-    "Zoom level": {
-      "comment": "Accessibility label for the zoom-level readout in image preview",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom level"
+    "Zoom level" : {
+      "comment" : "Accessibility label for the zoom-level readout in image preview",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom level"
           }
         }
       }
     },
-    "Zoom: Actual Size": {
-      "comment": "Zoom-level readout when the image preview is shown at actual size",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom: Actual Size"
+    "Zoom: Actual Size" : {
+      "comment" : "Zoom-level readout when the image preview is shown at actual size",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom: Actual Size"
           }
         }
       }
     },
-    "Zoom: Fit to Window": {
-      "comment": "Zoom-level readout when the image preview is fit to the window",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zoom: Fit to Window"
+    "Zoom: Fit to Window" : {
+      "comment" : "Zoom-level readout when the image preview is fit to the window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom: Fit to Window"
           }
         }
       }
     },
-    "alpha": {
-      "comment": "Metadata line component indicating the image has an alpha channel",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "alpha"
+    "alpha" : {
+      "comment" : "Metadata line component indicating the image has an alpha channel",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "alpha"
           }
         }
       }
+    },
+    "content matcher" : {
+
     },
-    "file": {
-      "comment": "Accessibility kind description for a file row in the workspace Explorer",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "file"
+    "file" : {
+      "comment" : "Accessibility kind description for a file row in the workspace Explorer",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "file"
           }
         }
       }
     },
-    "folder": {
-      "comment": "Accessibility kind description for a directory row in the workspace Explorer",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "folder"
+    "folder" : {
+      "comment" : "Accessibility kind description for a directory row in the workspace Explorer",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "folder"
           }
         }
       }
     },
-    "root": {
-      "comment": "Display key shown for the root node of a JSON/plist structured-data preview tree",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "root"
+    "root" : {
+      "comment" : "Display key shown for the root node of a JSON/plist structured-data preview tree",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "root"
           }
         }
       }
     },
-    "symbolic link": {
-      "comment": "Accessibility kind description for a symbolic-link row in the workspace Explorer",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "symbolic link"
+    "symbolic link" : {
+      "comment" : "Accessibility kind description for a symbolic-link row in the workspace Explorer",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "symbolic link"
           }
         }
       }
     }
   },
-  "version": "1.1"
+  "version" : "1.1"
 }

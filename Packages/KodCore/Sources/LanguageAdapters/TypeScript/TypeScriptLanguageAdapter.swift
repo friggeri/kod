@@ -1,4 +1,5 @@
 import Foundation
+import SyntaxCore
 import WorkspaceCore
 
 /// TypeScript/JavaScript adapter using TypeScript 7's native LSP when
@@ -9,7 +10,11 @@ import WorkspaceCore
 public enum TypeScriptLanguageAdapter: LanguageAdapter {
     public static let languageKey = "typescript"
     public static let displayName = "TypeScript/JavaScript"
-    public static let fileExtensions: Set<String> = ["ts", "tsx", "js", "jsx", "mjs", "cjs"]
+    public static let syntaxLanguages: Set<SyntaxLanguage> = [.typescript, .tsx, .javascript]
+    public static let executableProfiles = [
+        LanguageServerExecutableProfile(executableNames: ["tsc"], arguments: ["--lsp", "--stdio"]),
+        LanguageServerExecutableProfile(executableNames: ["typescript-language-server"], arguments: ["--stdio"])
+    ]
     public static let semanticTokenTypes = StandardSemanticTokenLegend.tokenTypes
     public static let semanticTokenModifiers = StandardSemanticTokenLegend.tokenModifiers
 
@@ -36,13 +41,7 @@ public enum TypeScriptLanguageAdapter: LanguageAdapter {
             overrideStore: overrideStore,
             identity: identity,
             loginShellPath: { LoginShellPathCapture.capture() },
-            packageManagerDirectories: LanguageServerDiscoveryEngine.defaultPackageManagerDirectories(),
-            managedInstallProbe: {
-                ManagedInstallDiscoverySource.discover(
-                    serverID: "typescript-language-server",
-                    controller: ManagedInstallDiscoverySource.shared
-                )
-            }
+            packageManagerDirectories: LanguageServerDiscoveryEngine.defaultPackageManagerDirectories()
         )
     }
 
@@ -50,8 +49,7 @@ public enum TypeScriptLanguageAdapter: LanguageAdapter {
         overrideStore: LanguageServerOverrideStore,
         identity: WorkspaceIdentity?,
         loginShellPath: @escaping @Sendable () -> String?,
-        packageManagerDirectories: [URL],
-        managedInstallProbe: @escaping @Sendable () -> DiscoveredExecutable?
+        packageManagerDirectories: [URL]
     ) throws -> DiscoveredExecutable {
         let legacyResult = Result {
             try LanguageServerDiscoveryEngine.resolve(
@@ -60,7 +58,6 @@ public enum TypeScriptLanguageAdapter: LanguageAdapter {
                 executableNames: ["typescript-language-server"],
                 arguments: ["--stdio"],
                 versionArguments: ["--version"],
-                managedInstallProbe: managedInstallProbe,
                 overrideStore: overrideStore,
                 identity: identity,
                 loginShellPath: loginShellPath,

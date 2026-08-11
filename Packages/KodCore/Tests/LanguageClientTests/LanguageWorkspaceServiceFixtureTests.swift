@@ -6,7 +6,7 @@ import XCTest
 
 /// Exercises `LanguageWorkspaceService` directly — the language-agnostic
 /// engine every non-Swift adapter (TypeScript/JavaScript, HTML, CSS,
-/// Python, Rust) uses as-is via `LanguageAdapterRegistry.makeService` —
+/// Python, Rust) uses as-is via `LanguageProfileServiceFactory` —
 /// against the deterministic `FakeLanguageServer` fixture, independent
 /// of `SwiftWorkspaceLanguageService`'s thin wrapper. This proves the
 /// crash/restart, capability-gating, and invalid-range-discard

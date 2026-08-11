@@ -40,6 +40,8 @@ public actor LanguageServerConnection {
         public var restartBudget: RestartBudget
         public var semanticTokenTypes: [String]
         public var semanticTokenModifiers: [String]
+        public var initializationOptions: JSONValue?
+        public var workspaceConfiguration: [String: JSONValue]
         public var maxHeaderByteCount: Int
         public var maxMessageByteCount: Int
 
@@ -55,6 +57,8 @@ public actor LanguageServerConnection {
             restartBudget: RestartBudget = RestartBudget(),
             semanticTokenTypes: [String] = [],
             semanticTokenModifiers: [String] = [],
+            initializationOptions: JSONValue? = nil,
+            workspaceConfiguration: [String: JSONValue] = [:],
             maxHeaderByteCount: Int = 8 * 1_024,
             maxMessageByteCount: Int = 64 * 1_024 * 1_024
         ) {
@@ -69,6 +73,8 @@ public actor LanguageServerConnection {
             self.restartBudget = restartBudget
             self.semanticTokenTypes = semanticTokenTypes
             self.semanticTokenModifiers = semanticTokenModifiers
+            self.initializationOptions = initializationOptions
+            self.workspaceConfiguration = workspaceConfiguration
             self.maxHeaderByteCount = maxHeaderByteCount
             self.maxMessageByteCount = maxMessageByteCount
         }
@@ -235,7 +241,8 @@ public actor LanguageServerConnection {
                     uri: DocumentURI(fileURL: configuration.rootURL),
                     name: configuration.rootURL.lastPathComponent
                 )
-            ]
+            ],
+            initializationOptions: configuration.initializationOptions
         )
 
         let result: InitializeResult = try await sendRequest(.initialize, params: params)
@@ -657,7 +664,13 @@ public actor LanguageServerConnection {
         switch method {
         case .workspaceConfiguration:
             if case .object(let fields)? = params, case .array(let items)? = fields["items"] {
-                return .array(Array(repeating: .null, count: items.count))
+                return .array(items.map { item in
+                    guard case .object(let itemFields) = item,
+                          case .string(let section)? = itemFields["section"] else {
+                        return .null
+                    }
+                    return configuration.workspaceConfiguration[section] ?? .null
+                })
             }
             return .array([])
         case .workspaceFolders:

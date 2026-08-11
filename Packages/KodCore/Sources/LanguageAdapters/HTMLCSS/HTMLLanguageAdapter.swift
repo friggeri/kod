@@ -1,4 +1,5 @@
 import Foundation
+import SyntaxCore
 import WorkspaceCore
 
 /// HTML adapter using `vscode-html-language-server` (from the
@@ -7,7 +8,14 @@ import WorkspaceCore
 public enum HTMLLanguageAdapter: LanguageAdapter {
     public static let languageKey = "html"
     public static let displayName = "HTML (vscode-html-language-server)"
-    public static let fileExtensions: Set<String> = ["html", "htm"]
+    public static let syntaxLanguages: Set<SyntaxLanguage> = [.html]
+    public static let executableProfiles = [
+        LanguageServerExecutableProfile(
+            executableNames: ["vscode-html-language-server"],
+            arguments: ["--stdio"],
+            versionArguments: nil
+        )
+    ]
     public static let semanticTokenTypes = StandardSemanticTokenLegend.tokenTypes
     public static let semanticTokenModifiers = StandardSemanticTokenLegend.tokenModifiers
 
@@ -31,9 +39,6 @@ public enum HTMLLanguageAdapter: LanguageAdapter {
             // handshake / recorded compatibility metadata rather than a
             // standalone version probe.
             versionArguments: nil,
-            managedInstallProbe: {
-                ManagedInstallDiscoverySource.discover(serverID: "vscode-html-language-server", controller: ManagedInstallDiscoverySource.shared)
-            },
             overrideStore: overrideStore,
             identity: identity
         )
