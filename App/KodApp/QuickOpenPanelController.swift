@@ -3,6 +3,8 @@ import WorkspaceCore
 
 @MainActor
 final class QuickOpenPanelController: NSWindowController {
+    private static let contentSize = NSSize(width: 620, height: 360)
+
     private let filenameIndex: FilenameIndex
     private let onSelect: @MainActor (WorkspaceFileEntry) -> Void
     private let searchField = NSSearchField()
@@ -18,16 +20,20 @@ final class QuickOpenPanelController: NSWindowController {
         self.onSelect = onSelect
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 360),
+            contentRect: NSRect(origin: .zero, size: Self.contentSize),
             styleMask: [.titled],
             backing: .buffered,
             defer: false
         )
         panel.title = Localized.string("Quick Open", comment: "Title of the Quick Open panel window")
         panel.isReleasedWhenClosed = false
+        panel.contentMinSize = Self.contentSize
 
         super.init(window: panel)
-        panel.contentViewController = makeContentViewController()
+        let contentViewController = makeContentViewController()
+        contentViewController.preferredContentSize = Self.contentSize
+        panel.contentViewController = contentViewController
+        panel.setContentSize(Self.contentSize)
     }
 
     @available(*, unavailable)
@@ -43,6 +49,8 @@ final class QuickOpenPanelController: NSWindowController {
         guard let window else {
             return
         }
+        window.setContentSize(Self.contentSize)
+        window.contentView?.layoutSubtreeIfNeeded()
         parent.beginSheet(window)
         window.makeFirstResponder(searchField)
         updateResults(for: "")
@@ -50,7 +58,7 @@ final class QuickOpenPanelController: NSWindowController {
 
     private func makeContentViewController() -> NSViewController {
         let controller = NSViewController()
-        let container = NSView()
+        let container = NSView(frame: NSRect(origin: .zero, size: Self.contentSize))
 
         searchField.placeholderString = Localized.string("Type a file name or path", comment: "Placeholder text for the Quick Open panel's search field")
         searchField.identifier = NSUserInterfaceItemIdentifier("quickOpen.search")
@@ -83,7 +91,9 @@ final class QuickOpenPanelController: NSWindowController {
             scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 10),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            container.widthAnchor.constraint(equalToConstant: Self.contentSize.width),
+            container.heightAnchor.constraint(equalToConstant: Self.contentSize.height)
         ])
 
         controller.view = container

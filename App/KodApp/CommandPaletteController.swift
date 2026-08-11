@@ -12,6 +12,8 @@ struct PaletteCommand {
 /// `QuickOpenPanelController`'s search-field + table-view sheet pattern.
 @MainActor
 final class CommandPaletteController: NSWindowController {
+    private static let contentSize = NSSize(width: 480, height: 320)
+
     private let commands: [PaletteCommand]
     private let searchField = NSSearchField()
     private let tableView = NSTableView()
@@ -22,16 +24,20 @@ final class CommandPaletteController: NSWindowController {
         self.filtered = commands
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            contentRect: NSRect(origin: .zero, size: Self.contentSize),
             styleMask: [.titled],
             backing: .buffered,
             defer: false
         )
         panel.title = Localized.string("Command Palette", comment: "Title of the Command Palette panel window")
         panel.isReleasedWhenClosed = false
+        panel.contentMinSize = Self.contentSize
 
         super.init(window: panel)
-        panel.contentViewController = makeContentViewController()
+        let contentViewController = makeContentViewController()
+        contentViewController.preferredContentSize = Self.contentSize
+        panel.contentViewController = contentViewController
+        panel.setContentSize(Self.contentSize)
     }
 
     @available(*, unavailable)
@@ -43,6 +49,8 @@ final class CommandPaletteController: NSWindowController {
         guard let window else {
             return
         }
+        window.setContentSize(Self.contentSize)
+        window.contentView?.layoutSubtreeIfNeeded()
         parent.beginSheet(window)
         window.makeFirstResponder(searchField)
         updateResults(for: "")
@@ -50,7 +58,7 @@ final class CommandPaletteController: NSWindowController {
 
     private func makeContentViewController() -> NSViewController {
         let controller = NSViewController()
-        let container = NSView()
+        let container = NSView(frame: NSRect(origin: .zero, size: Self.contentSize))
 
         searchField.placeholderString = Localized.string("Type a command", comment: "Placeholder text for the Command Palette's search field")
         searchField.identifier = NSUserInterfaceItemIdentifier("commandPalette.search")
@@ -83,7 +91,9 @@ final class CommandPaletteController: NSWindowController {
             scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 10),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            container.widthAnchor.constraint(equalToConstant: Self.contentSize.width),
+            container.heightAnchor.constraint(equalToConstant: Self.contentSize.height)
         ])
 
         controller.view = container
@@ -189,7 +199,7 @@ extension CommandPaletteController: NSTableViewDataSource, NSTableViewDelegate {
         }
 
         cell.textField?.stringValue = filtered[row].title
-        cell.identifier = NSUserInterfaceItemIdentifier(filtered[row].id)
+        cell.setAccessibilityIdentifier(filtered[row].id)
         return cell
     }
 }
