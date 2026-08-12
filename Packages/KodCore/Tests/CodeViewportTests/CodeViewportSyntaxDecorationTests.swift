@@ -382,4 +382,67 @@ final class CodeViewportStickyHeaderTests: XCTestCase {
         XCTAssertFalse(headers.isEmpty)
         withExtendedLifetime(window) {}
     }
+
+    func testStickyScopeUsesEditorBackground() async throws {
+        let source = "func outer() {\n    let first = 1\n    let second = 2\n    let third = 3\n}\n"
+        let snapshot = SourceSnapshot(text: source, url: URL(fileURLWithPath: "/tmp/sample.swift"))
+        var theme = BundledThemes.dark
+        theme.editor.background = ThemeColor(red: 1, green: 0, blue: 0)
+        theme.editor.stickyScopeBackground = ThemeColor(red: 0, green: 1, blue: 0)
+        let viewport = CodeViewport(snapshot: snapshot, theme: theme)
+        let size = NSSize(width: 400, height: 40)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let scrollView = NSScrollView(frame: NSRect(origin: .zero, size: size))
+        scrollView.documentView = viewport
+        window.contentView = scrollView
+        window.layoutIfNeeded()
+        viewport.setMinimumViewportWidth(size.width)
+
+        let tree = try await SyntaxEngine().parse(snapshot: snapshot, language: .swift)
+        viewport.applySyntaxTree(tree)
+        viewport.scrollSourceLineToTop(2)
+        XCTAssertFalse(viewport.stickyScopeHeaders().isEmpty)
+
+        let visibleRect = viewport.visibleRect
+        let bitmap = try XCTUnwrap(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(visibleRect.width),
+                pixelsHigh: Int(visibleRect.height),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        )
+        let graphicsContext = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: bitmap))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphicsContext
+        graphicsContext.cgContext.translateBy(
+            x: -visibleRect.minX,
+            y: visibleRect.height + visibleRect.minY
+        )
+        graphicsContext.cgContext.scaleBy(x: 1, y: -1)
+        viewport.draw(visibleRect)
+        NSGraphicsContext.restoreGraphicsState()
+
+        for y in [1, bitmap.pixelsHigh - 2] {
+            let color = try XCTUnwrap(
+                bitmap.colorAt(x: bitmap.pixelsWide - 2, y: y)?
+                    .usingColorSpace(.sRGB)
+            )
+            XCTAssertEqual(color.redComponent, 1, accuracy: 0.01)
+            XCTAssertEqual(color.greenComponent, 0, accuracy: 0.01)
+            XCTAssertEqual(color.blueComponent, 0, accuracy: 0.01)
+        }
+        withExtendedLifetime(window) {}
+    }
 }

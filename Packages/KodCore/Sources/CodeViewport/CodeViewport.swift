@@ -1711,7 +1711,7 @@ public final class CodeViewport: NSView {
             }
             let rowOriginY = top + (CGFloat(index) * lineHeight)
 
-            theme.editor.stickyScopeBackground.nsColor.setFill()
+            theme.editor.background.nsColor.setFill()
             NSRect(x: 0, y: rowOriginY, width: max(bounds.width, visibleRect.width), height: lineHeight).fill()
 
             let ctLine = CTLineCreateWithAttributedString(

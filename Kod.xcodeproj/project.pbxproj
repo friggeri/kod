@@ -378,6 +378,7 @@
 				D00000000000000000000001 /* Sources */,
 				D00000000000000000000002 /* Frameworks */,
 				D00000000000000000000003 /* Resources */,
+				D0000000000000000000000A /* Build Complete AppIcon.icns */,
 			);
 			buildRules = (
 			);
@@ -526,6 +527,39 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		D0000000000000000000000A /* Build Complete AppIcon.icns */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-16.png",
+				"$(SRCROOT)/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-16@2x.png",
+				"$(SRCROOT)/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-32.png",
+				"$(SRCROOT)/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-32@2x.png",
+				"$(SRCROOT)/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-128.png",
+				"$(SRCROOT)/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-128@2x.png",
+				"$(SRCROOT)/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-256.png",
+				"$(SRCROOT)/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-256@2x.png",
+				"$(SRCROOT)/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-512.png",
+				"$(SRCROOT)/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png",
+			);
+			name = "Build Complete AppIcon.icns";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/AppIcon.icns",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n\nsource_dir=\"${SRCROOT}/App/KodApp/Assets.xcassets/AppIcon.appiconset\"\niconset_dir=\"${TEMP_DIR}/KodAppIcon.iconset\"\nicon_file=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/AppIcon.icns\"\n\nrm -rf \"${iconset_dir}\"\nmkdir -p \"${iconset_dir}\"\n\ncp \"${source_dir}/AppIcon-16.png\" \"${iconset_dir}/icon_16x16.png\"\ncp \"${source_dir}/AppIcon-16@2x.png\" \"${iconset_dir}/icon_16x16@2x.png\"\ncp \"${source_dir}/AppIcon-32.png\" \"${iconset_dir}/icon_32x32.png\"\ncp \"${source_dir}/AppIcon-32@2x.png\" \"${iconset_dir}/icon_32x32@2x.png\"\ncp \"${source_dir}/AppIcon-128.png\" \"${iconset_dir}/icon_128x128.png\"\ncp \"${source_dir}/AppIcon-128@2x.png\" \"${iconset_dir}/icon_128x128@2x.png\"\ncp \"${source_dir}/AppIcon-256.png\" \"${iconset_dir}/icon_256x256.png\"\ncp \"${source_dir}/AppIcon-256@2x.png\" \"${iconset_dir}/icon_256x256@2x.png\"\ncp \"${source_dir}/AppIcon-512.png\" \"${iconset_dir}/icon_512x512.png\"\ncp \"${source_dir}/AppIcon-512@2x.png\" \"${iconset_dir}/icon_512x512@2x.png\"\n\niconutil -c icns -o \"${icon_file}\" \"${iconset_dir}\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		D00000000000000000000001 /* Sources */ = {
