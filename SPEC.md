@@ -108,7 +108,7 @@ Kod's LSP client must remain protocol-generic. "Supported" means the listed comb
 A standard window contains:
 
 1. **Toolbar:** sidebar toggle, back/forward, repository name, current relative path, global quick-open/search entry point, and LSP status.
-2. **Sidebar:** mutually exclusive Explorer, Search, Source Control, Symbols, and Problems views.
+2. **Sidebar:** mutually exclusive Explorer, Search, Source Control, and Problems views.
 3. **Content area:** one or more split groups containing tabs and a code or preview surface.
 4. **Breadcrumb bar:** path and symbol ancestry for the active code view.
 5. **Status bar:** language, encoding, line ending, cursor/selection location, Git branch as read-only context, and language-server state.
@@ -380,9 +380,11 @@ Git integration is read-only and optional for non-Git folders.
 - Non-deleted descendant changes color parent folders and add a subtle trailing indicator. Deleted paths remain available in Source Control but do not propagate to parents or create synthetic Explorer rows.
 - Source Control rows use Material file icons, basename plus muted parent path, rename context, a theme-colored trailing status, and strikethrough for deletions. Section expansion state survives status refreshes.
 - Git status decoration state is indexed once per snapshot for constant-time file and parent-folder lookup. Status and theme/appearance changes repaint visible rows without rerunning workspace discovery.
-- Inline added/modified/deleted gutter markers.
-- File diff against HEAD, index, or working tree as applicable.
-- Unified and side-by-side diff modes.
+- Ordinary code views show VS Code-style Quick Diff chrome: green added bars, blue modified bars, and red deletion triangles in a dedicated gutter lane. Selecting a marker opens one bounded inline hunk peek with explicit `+`/`-` rows, stronger block-level intraline highlights, previous/next navigation, close, and **Open Full Diff**.
+- Source Control opens Quick Diff by default and reveals the first hunk. Changes use the working snapshot against the index; staged rows use an exact virtual index snapshot against `HEAD`, including when the working file also has unstaged edits. Deleted files use an empty modified-side snapshot with removed content in the peek.
+- Visible ordinary source tabs show working-tree-vs-index changes as the primary provider and `HEAD`-relative staged changes as a secondary provider, suppressing secondary marks that overlap primary changes. Superseded async results cannot update a replaced snapshot or editor.
+- Binary, conflicted, unavailable, and failed diff states are explicit in the editor rather than silently retaining stale markers.
+- Unified and side-by-side full diff modes remain available from the inline peek.
 - Per-line blame with author, commit, timestamp, and summary.
 - Commit metadata popover for a blamed line.
 
@@ -703,7 +705,7 @@ Milestones are gated by exit criteria rather than dates.
 
 - Streaming workspace search.
 - Language client, editable profiles, local executable discovery, and trust gate.
-- Full read-only LSP feature surface and Problems/Symbols views.
+- Full read-only LSP feature surface and Problems view.
 - Server failure, cancellation, logging, and recovery UX.
 
 **Exit:** Every launch language passes the pinned LSP compatibility suite.

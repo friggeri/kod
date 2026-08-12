@@ -5,8 +5,8 @@ import XCTest
 /// SPEC 9.2's central safety guarantee: every Git workflow Kod runs is
 /// truly read-only. These tests take a full SHA-256 (content + mtime +
 /// type) manifest of both the working tree and the entire `.git`
-/// directory before and after running status/diff/blame/repository-
-/// location, and require byte-for-byte equality — including files Git
+/// directory before and after running status/diff/blame/revision-content/
+/// repository-location, and require byte-for-byte equality — including files Git
 /// would normally opportunistically rewrite (the index refresh a plain
 /// `git status` performs). Any metadata Git might normally update is
 /// handled by hardening the invocation (`--no-optional-locks` +
@@ -111,6 +111,16 @@ final class GitImmutabilityTests: XCTestCase {
         let blameService = GitBlameService(executableURL: executableURL, repositoryRoot: fixture.rootURL, environment: environment)
         _ = try await blameService.blame(path: "keep.txt")
         _ = try await blameService.blame(path: "keep.txt", revision: firstCommit)
+
+        let revisionContentService = GitRevisionContentService(
+            executableURL: executableURL,
+            repositoryRoot: fixture.rootURL,
+            environment: environment
+        )
+        let headExists = try await revisionContentService.headExists()
+        XCTAssertTrue(headExists)
+        _ = try await revisionContentService.revisionContent(source: .head, path: "keep.txt")
+        _ = try await revisionContentService.revisionContent(source: .index, path: "keep.txt")
 
         _ = try await locator.locate(startingAt: fixture.rootURL)
 

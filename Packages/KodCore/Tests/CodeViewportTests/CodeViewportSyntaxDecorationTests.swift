@@ -178,13 +178,80 @@ final class CodeViewportSyntaxDecorationTests: XCTestCase {
 
 @MainActor
 final class CodeViewportFoldingTests: XCTestCase {
-    func testFoldIndicatorIsVisiblyLargerThanLineNumberText() {
-        let editorFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        let lineNumberFont = CodeViewport.lineNumberFont(for: editorFont)
-        let foldIndicatorFont = CodeViewport.foldIndicatorFont(for: editorFont)
+    func testFoldIndicatorsUseCompactDownAndRightChevronGeometry() {
+        let center = NSPoint(x: 10, y: 10)
 
-        XCTAssertGreaterThan(foldIndicatorFont.pointSize, lineNumberFont.pointSize)
-        XCTAssertGreaterThanOrEqual(foldIndicatorFont.pointSize, 14)
+        XCTAssertEqual(
+            CodeViewport.foldChevronPoints(isFolded: false, center: center),
+            [
+                NSPoint(x: 6, y: 7.5),
+                NSPoint(x: 10, y: 12.5),
+                NSPoint(x: 14, y: 7.5)
+            ]
+        )
+        XCTAssertEqual(
+            CodeViewport.foldChevronPoints(isFolded: true, center: center),
+            [
+                NSPoint(x: 7.5, y: 6),
+                NSPoint(x: 12.5, y: 10),
+                NSPoint(x: 7.5, y: 14)
+            ]
+        )
+    }
+
+    func testFoldIndicatorsOnlyShowAndToggleInTheFoldingLane() async throws {
+        let snapshot = SourceSnapshot(
+            text: "func f() {\n    let x = 1\n}\n",
+            url: URL(fileURLWithPath: "/tmp/sample.swift")
+        )
+        let viewport = CodeViewport(snapshot: snapshot)
+        let engine = SyntaxEngine()
+        let tree = try await engine.parse(snapshot: snapshot, language: .swift)
+        viewport.applySyntaxTree(tree)
+        viewport.frame = NSRect(x: 0, y: 0, width: 500, height: viewport.frame.height)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 200),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let scrollView = NSScrollView(frame: window.contentView?.bounds ?? .zero)
+        scrollView.documentView = viewport
+        window.contentView = scrollView
+
+        func event(type: NSEvent.EventType, at point: NSPoint) throws -> NSEvent {
+            try XCTUnwrap(
+                NSEvent.mouseEvent(
+                    with: type,
+                    location: viewport.convert(point, to: nil),
+                    modifierFlags: [],
+                    timestamp: 0,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 1,
+                    clickCount: type == .leftMouseDown ? 1 : 0,
+                    pressure: 0
+                )
+            )
+        }
+
+        let lanes = viewport.gutterLaneLayout
+        let lineY = viewport.lineHeight / 2
+        let foldPoint = NSPoint(x: lanes.folding.midX, y: lineY)
+        let lineNumberPoint = NSPoint(x: lanes.lineNumbers.midX, y: lineY)
+
+        XCTAssertFalse(viewport.shouldDrawFoldIndicator(atLine: 0))
+        viewport.mouseMoved(with: try event(type: .mouseMoved, at: foldPoint))
+        XCTAssertTrue(viewport.shouldDrawFoldIndicator(atLine: 0))
+
+        viewport.mouseDown(with: try event(type: .leftMouseDown, at: lineNumberPoint))
+        XCTAssertFalse(viewport.isFolded(atLine: 0))
+        viewport.mouseDown(with: try event(type: .leftMouseDown, at: foldPoint))
+        XCTAssertTrue(viewport.isFolded(atLine: 0))
+
+        viewport.mouseMoved(with: try event(type: .mouseMoved, at: lineNumberPoint))
+        XCTAssertFalse(viewport.shouldDrawFoldIndicator(atLine: 0))
     }
 
     func testFoldingHidesLinesAndReducesContentHeight() async throws {

@@ -64,7 +64,12 @@ final class ThemeStoreTests: XCTestCase {
         )
         var storedTheme = array[0]
         var git = try XCTUnwrap(storedTheme["git"] as? [String: Any])
-        ["renamed", "untracked", "ignored", "stagedModified", "stagedDeleted"].forEach {
+        [
+            "renamed", "untracked", "ignored", "stagedModified", "stagedDeleted",
+            "gutterAdded", "gutterModified", "gutterDeleted",
+            "insertedBackground", "removedBackground",
+            "insertedTextBackground", "removedTextBackground"
+        ].forEach {
             git.removeValue(forKey: $0)
         }
         storedTheme["git"] = git
@@ -84,5 +89,8 @@ final class ThemeStoreTests: XCTestCase {
         XCTAssertEqual(restored.git.ignored, restored.git.modified)
         XCTAssertEqual(restored.git.stagedModified, restored.git.modified)
         XCTAssertEqual(restored.git.stagedDeleted, restored.git.deleted)
+        XCTAssertEqual(restored.git.gutterAdded, restored.git.added)
+        XCTAssertEqual(restored.git.gutterModified, restored.git.modified)
+        XCTAssertEqual(restored.git.gutterDeleted, restored.git.deleted)
     }
 }

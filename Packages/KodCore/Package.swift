@@ -351,7 +351,7 @@ let package = Package(
         ),
         .target(
             name: "GitCore",
-            dependencies: ["SourceModel", "WorkspaceCore", "SyntaxCore", "ThemeCore"]
+            dependencies: ["WorkspaceCore"]
         ),
         .executableTarget(
             name: "GitProcessSpy"

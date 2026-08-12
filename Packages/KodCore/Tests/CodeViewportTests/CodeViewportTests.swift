@@ -1,7 +1,7 @@
 import AppKit
-import CodeViewport
 import SourceModel
 import XCTest
+@testable import CodeViewport
 
 final class CodeViewportTests: XCTestCase {
     func testVisibleLineRangeIncludesBoundedOverscan() {
@@ -189,5 +189,161 @@ final class CodeViewportTests: XCTestCase {
         XCTAssertTrue(hoverExited)
         XCTAssertEqual(viewport.focusedUTF8Offset, commandClickOffset)
         XCTAssertEqual(snapshot.text, "const client = api;\n")
+    }
+
+    @MainActor
+    func testGutterChangesHitTestWithoutTakingOverTheFoldLane() throws {
+        let snapshot = SourceSnapshot(text: "first\nsecond\nthird\n")
+        let viewport = CodeViewport(snapshot: snapshot)
+        viewport.frame = NSRect(x: 0, y: 0, width: 500, height: viewport.frame.height)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 200),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let scrollView = NSScrollView(frame: window.contentView?.bounds ?? .zero)
+        scrollView.documentView = viewport
+        window.contentView = scrollView
+
+        XCTAssertTrue(viewport.applyGutterChanges(
+            [
+                CodeGutterChange(
+                    id: "added",
+                    kind: .added,
+                    location: .lines(1..<2),
+                    accessibilityLabel: "Added line 2"
+                ),
+                CodeGutterChange(
+                    id: "deleted",
+                    kind: .deleted,
+                    location: .deletion(afterLine: -1),
+                    accessibilityLabel: "Deleted before line 1"
+                )
+            ],
+            snapshotVersion: snapshot.version,
+            layerVersion: 1
+        ))
+
+        let lanes = viewport.gutterLaneLayout
+        XCTAssertLessThan(lanes.lineNumbers.maxX, lanes.gitStatus.minX)
+        XCTAssertLessThan(lanes.gitStatus.maxX, lanes.folding.minX)
+
+        XCTAssertEqual(
+            viewport.gutterChange(
+                at: NSPoint(x: lanes.gitStatus.midX, y: viewport.lineHeight * 1.5)
+            )?.id,
+            "added"
+        )
+        XCTAssertEqual(
+            viewport.gutterChange(at: NSPoint(x: lanes.gitStatus.midX, y: 1))?.id,
+            "deleted"
+        )
+        XCTAssertNil(
+            viewport.gutterChange(
+                at: NSPoint(x: lanes.lineNumbers.midX, y: viewport.lineHeight * 1.5)
+            ),
+            "the line-number lane is not part of the Git-status hit target"
+        )
+        XCTAssertNil(
+            viewport.gutterChange(
+                at: NSPoint(x: lanes.folding.midX, y: viewport.lineHeight * 1.5)
+            ),
+            "the folding lane is not part of the Git-status hit target"
+        )
+
+        XCTAssertEqual(
+            CodeViewport.gitMarkerRect(
+                in: lanes.gitStatus,
+                layer: .primary,
+                y: 0,
+                height: viewport.lineHeight
+            ).width,
+            4
+        )
+        XCTAssertEqual(
+            CodeViewport.gitMarkerRect(
+                in: lanes.gitStatus,
+                layer: .secondary,
+                y: 0,
+                height: viewport.lineHeight
+            ).width,
+            3
+        )
+    }
+
+    @MainActor
+    func testEmbeddedViewZoneShiftsFollowingSourceRowsWithoutChangingOffsets() throws {
+        let snapshot = SourceSnapshot(text: "first\nsecond\nthird\n")
+        let viewport = CodeViewport(snapshot: snapshot)
+        viewport.setMinimumViewportWidth(400)
+        let originalHeight = viewport.frame.height
+        let zoneView = NSView()
+        let zoneID = CodeViewZoneID("hunk-1")
+
+        XCTAssertTrue(viewport.installViewZone(
+            id: zoneID,
+            afterLine: 0,
+            heightInLines: 4,
+            view: zoneView
+        ))
+        XCTAssertEqual(viewport.activeViewZoneID, zoneID)
+        XCTAssertEqual(viewport.frame.height, originalHeight + (4 * viewport.lineHeight), accuracy: 0.01)
+        XCTAssertEqual(
+            try XCTUnwrap(viewport.embeddedViewZoneFrame).minY,
+            viewport.lineHeight,
+            accuracy: 0.01
+        )
+        XCTAssertTrue(viewport.scrollViewZoneToTop(id: zoneID))
+        XCTAssertFalse(viewport.scrollViewZoneToTop(id: CodeViewZoneID("other")))
+
+        let secondLinePoint = NSPoint(
+            x: 80,
+            y: (5 * viewport.lineHeight) + (viewport.lineHeight / 2)
+        )
+        let offset = viewport.sourceOffset(at: secondLinePoint)
+        XCTAssertEqual(
+            try snapshot.position(forUTF8Offset: offset, encoding: .utf8).line,
+            1,
+            "rows after the zone must still map to their original source line"
+        )
+
+        viewport.removeViewZone(id: zoneID)
+        XCTAssertNil(viewport.activeViewZoneID)
+        XCTAssertEqual(viewport.frame.height, originalHeight, accuracy: 0.01)
+    }
+
+    @MainActor
+    func testGutterChangeApplicationsRejectStaleAndInvalidLocations() {
+        let snapshot = SourceSnapshot(text: "one\ntwo\n")
+        let viewport = CodeViewport(snapshot: snapshot)
+        let valid = CodeGutterChange(
+            id: "valid",
+            kind: .modified,
+            location: .lines(0..<1),
+            accessibilityLabel: "Modified line 1"
+        )
+        XCTAssertTrue(viewport.applyGutterChanges(
+            [valid],
+            snapshotVersion: snapshot.version,
+            layerVersion: 2
+        ))
+        XCTAssertFalse(viewport.applyGutterChanges(
+            [valid],
+            snapshotVersion: snapshot.version,
+            layerVersion: 1
+        ))
+        XCTAssertFalse(viewport.applyGutterChanges(
+            [
+                CodeGutterChange(
+                    id: "invalid",
+                    kind: .added,
+                    location: .lines(3..<4),
+                    accessibilityLabel: "Invalid"
+                )
+            ],
+            snapshotVersion: snapshot.version,
+            layerVersion: 3
+        ))
     }
 }

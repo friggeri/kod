@@ -213,6 +213,23 @@ final class CodeViewportAccessibilityTests: XCTestCase {
         XCTAssertFalse(lineNumbers.isEmpty)
     }
 
+    func testAccessibilityChildrenIncludeEmbeddedViewZone() {
+        let snapshot = SourceSnapshot(text: "first\nsecond\n")
+        let viewport = hostedViewport(snapshot: snapshot, size: NSSize(width: 400, height: 200))
+        let zoneView = NSView()
+        zoneView.setAccessibilityElement(true)
+        zoneView.setAccessibilityLabel("Inline diff")
+        viewport.installViewZone(
+            id: CodeViewZoneID("hunk"),
+            afterLine: 0,
+            heightInLines: 4,
+            view: zoneView
+        )
+
+        let children = viewport.accessibilityChildren() ?? []
+        XCTAssertTrue(children.contains { ($0 as AnyObject) === zoneView })
+    }
+
     // MARK: - Custom rotor navigation
 
     func testRotorForwardNavigationWalksAnnotationsInDocumentOrderThenStops() throws {

@@ -11,6 +11,26 @@ private struct InMemoryReadOnlyFileSystem: ReadOnlyFileSystem {
 }
 
 final class SourceSnapshotTests: XCTestCase {
+    func testRawDataLoaderUsesFilesystemDecodingSemantics() throws {
+        let loader = SourceSnapshotLoader()
+        let url = URL(fileURLWithPath: "/virtual/index.swift")
+        let data = Data([0xEF, 0xBB, 0xBF]) + Data("one\r\ntwo\r\n".utf8)
+
+        let snapshot = try loader.load(
+            data: data,
+            url: url,
+            version: 42,
+            modificationDate: Date(timeIntervalSince1970: 1)
+        )
+
+        XCTAssertEqual(snapshot.url, url)
+        XCTAssertEqual(snapshot.version, 42)
+        XCTAssertEqual(snapshot.originalData, data)
+        XCTAssertEqual(snapshot.encoding, .utf8)
+        XCTAssertEqual(snapshot.lineEnding, .carriageReturnLineFeed)
+        XCTAssertEqual(snapshot.text, "one\r\ntwo\r\n")
+        XCTAssertEqual(snapshot.utf8Data, Data("one\r\ntwo\r\n".utf8))
+    }
     func testIndexesMixedLineEndingsWithoutNormalizingContent() throws {
         let snapshot = SourceSnapshot(text: "one\r\ntwo\nthree\rfour")
 
@@ -119,4 +139,3 @@ final class SourceSnapshotTests: XCTestCase {
         }
     }
 }
-

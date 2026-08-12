@@ -30,6 +30,13 @@ final class VSCodeThemeImportTests: XCTestCase {
         XCTAssertEqual(theme.git.stagedModified, ThemeColor(hex: "#DDAA55"))
         XCTAssertEqual(theme.git.stagedDeleted, ThemeColor(hex: "#EE6677"))
         XCTAssertEqual(theme.git.conflict, ThemeColor(hex: "#FF33AA"))
+        XCTAssertEqual(theme.git.gutterAdded, ThemeColor(hex: "#12AB34"))
+        XCTAssertEqual(theme.git.gutterModified, ThemeColor(hex: "#3456CD"))
+        XCTAssertEqual(theme.git.gutterDeleted, ThemeColor(hex: "#DC3456"))
+        XCTAssertEqual(theme.git.insertedBackground, ThemeColor(hex: "#12AB3433"))
+        XCTAssertEqual(theme.git.removedBackground, ThemeColor(hex: "#DC345633"))
+        XCTAssertEqual(theme.git.insertedTextBackground, ThemeColor(hex: "#12AB3466"))
+        XCTAssertEqual(theme.git.removedTextBackground, ThemeColor(hex: "#DC345666"))
 
         XCTAssertTrue(report.unmappedColorKeys.contains("editor.someTotallyMadeUpKey"))
         XCTAssertTrue(report.unsupportedTopLevelKeys.contains("someTopLevelKeyKodDoesNotUnderstand"))

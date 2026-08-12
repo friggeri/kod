@@ -155,7 +155,43 @@ extension CodeViewport {
     /// All annotations — caller-supplied plus fold-derived — that custom
     /// rotors search over.
     private func allAccessibilityAnnotations() -> [CodeAccessibilityAnnotation] {
-        accessibilityAnnotations + foldAccessibilityAnnotations()
+        accessibilityAnnotations
+            + gutterChangeAccessibilityAnnotations()
+            + foldAccessibilityAnnotations()
+    }
+
+    private func gutterChangeAccessibilityAnnotations() -> [CodeAccessibilityAnnotation] {
+        var seenIDs: Set<String> = []
+        return gutterChanges.compactMap { change in
+            guard seenIDs.insert(change.id).inserted else {
+                return nil
+            }
+            let line: Int
+            let range: Range<Int>
+            switch change.location {
+            case .lines(let lines):
+                line = lines.lowerBound
+                guard let firstRange = snapshot.utf8RangeForLine(lines.lowerBound),
+                      let lastRange = snapshot.utf8RangeForLine(lines.upperBound - 1) else {
+                    return nil
+                }
+                range = firstRange.lowerBound..<lastRange.upperBound
+            case .deletion(let afterLine):
+                line = max(0, min(afterLine, max(0, snapshot.lineCount - 1)))
+                guard let lineRange = snapshot.utf8RangeForLine(line) else {
+                    return nil
+                }
+                range = lineRange
+            }
+            guard line >= 0 else {
+                return nil
+            }
+            return CodeAccessibilityAnnotation(
+                kind: .gitChange(changeType: change.kind.rawValue),
+                utf8Range: range,
+                label: change.accessibilityLabel
+            )
+        }
     }
 
     // MARK: - Read-only semantics
@@ -259,6 +295,10 @@ extension CodeViewport {
         guard bounds.contains(viewPoint) else {
             return super.accessibilityHitTest(point)
         }
+        if let embeddedViewZone,
+           embeddedViewZone.view.frame.contains(viewPoint) {
+            return embeddedViewZone.view.accessibilityHitTest(point)
+        }
         let offset = sourceOffset(at: viewPoint)
         guard let position = try? snapshot.position(forUTF8Offset: offset, encoding: .utf8) else {
             return super.accessibilityHitTest(point)
@@ -269,12 +309,11 @@ extension CodeViewport {
     // MARK: - Per-visible-line accessibility children
 
     /// One `CodeLineAccessibilityElement` per currently *visible* source
-    /// line (virtualized, matching the rest of this codebase's rendering
-    /// philosophy — see the file-level doc comment for the identity
-    /// tradeoff this implies).
+    /// line, plus native children hosted by an embedded view zone.
     public override func accessibilityChildren() -> [Any]? {
+        let embeddedChildren = super.accessibilityChildren() ?? []
         guard snapshot.lineCount > 0 else {
-            return []
+            return embeddedChildren
         }
         let byteRange = visibleUTF8Range
         guard !byteRange.isEmpty,
@@ -283,13 +322,14 @@ extension CodeViewport {
                 encoding: .utf8
               ).line,
               let lastLine = try? snapshot.position(
-                forUTF8Offset: max(byteRange.lowerBound, byteRange.upperBound - 1),
-                encoding: .utf8
+                  forUTF8Offset: max(byteRange.lowerBound, byteRange.upperBound - 1),
+                  encoding: .utf8
               ).line,
               firstLine <= lastLine else {
-            return []
+            return embeddedChildren
         }
         return (firstLine...lastLine).map { lineAccessibilityElement(forLine: $0) }
+            + embeddedChildren
     }
 
     private func lineAccessibilityElement(forLine line: Int) -> CodeLineAccessibilityElement {

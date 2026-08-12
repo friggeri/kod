@@ -41,7 +41,12 @@ final class ThemeSchemaTests: XCTestCase {
             JSONSerialization.jsonObject(with: data) as? [String: Any]
         )
         var git = try XCTUnwrap(object["git"] as? [String: Any])
-        ["renamed", "untracked", "ignored", "stagedModified", "stagedDeleted"].forEach {
+        [
+            "renamed", "untracked", "ignored", "stagedModified", "stagedDeleted",
+            "gutterAdded", "gutterModified", "gutterDeleted",
+            "insertedBackground", "removedBackground",
+            "insertedTextBackground", "removedTextBackground"
+        ].forEach {
             git.removeValue(forKey: $0)
         }
         object["git"] = git
@@ -54,6 +59,13 @@ final class ThemeSchemaTests: XCTestCase {
         XCTAssertEqual(decoded.git.ignored, decoded.git.modified)
         XCTAssertEqual(decoded.git.stagedModified, decoded.git.modified)
         XCTAssertEqual(decoded.git.stagedDeleted, decoded.git.deleted)
+        XCTAssertEqual(decoded.git.gutterAdded, decoded.git.added)
+        XCTAssertEqual(decoded.git.gutterModified, decoded.git.modified)
+        XCTAssertEqual(decoded.git.gutterDeleted, decoded.git.deleted)
+        XCTAssertEqual(decoded.git.insertedBackground.alpha, 0.16, accuracy: 0.001)
+        XCTAssertEqual(decoded.git.removedBackground.alpha, 0.16, accuracy: 0.001)
+        XCTAssertEqual(decoded.git.insertedTextBackground.alpha, 77.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(decoded.git.removedTextBackground.alpha, 77.0 / 255.0, accuracy: 0.001)
     }
 
     func testLegacyGitColorInitializerSuppliesBackwardCompatibleRoles() throws {
@@ -78,6 +90,13 @@ final class ThemeSchemaTests: XCTestCase {
         XCTAssertEqual(colors.ignored, modified)
         XCTAssertEqual(colors.stagedModified, modified)
         XCTAssertEqual(colors.stagedDeleted, deleted)
+        XCTAssertEqual(colors.gutterAdded, added)
+        XCTAssertEqual(colors.gutterModified, modified)
+        XCTAssertEqual(colors.gutterDeleted, deleted)
+        XCTAssertEqual(colors.insertedBackground.alpha, 0.16, accuracy: 0.001)
+        XCTAssertEqual(colors.removedBackground.alpha, 0.16, accuracy: 0.001)
+        XCTAssertEqual(colors.insertedTextBackground.alpha, 77.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(colors.removedTextBackground.alpha, 77.0 / 255.0, accuracy: 0.001)
     }
 
     func testDecodingRejectsNonObjectJSON() {

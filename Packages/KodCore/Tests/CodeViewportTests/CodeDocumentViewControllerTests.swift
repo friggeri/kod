@@ -81,6 +81,12 @@ final class CodeDocumentViewControllerTests: XCTestCase {
         XCTAssertFalse(controller.isFindBarShown)
     }
 
+    func testScrollingRedrawsViewportRelativeStickyHeaders() {
+        let controller = makeController(text: "func outer() {\n    let value = 1\n}\n")
+        XCTAssertFalse(controller.usesScrollCopying)
+        XCTAssertTrue(controller.postsScrollBoundsChanges)
+    }
+
     func testFindHighlightsFirstMatchAndNavigatesToNext() throws {
         let controller = makeController(text: "foo bar foo baz foo")
         controller.toggleFindBar()

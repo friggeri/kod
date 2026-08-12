@@ -101,6 +101,25 @@ public enum VSCodeThemeImporter {
         ),
         WorkbenchColorTarget(key: "editor.selectionBackground", assign: { $0.selectionBackground = $1 }),
         WorkbenchColorTarget(key: "editorBracketMatch.background", assign: { $0.matchingBracket = $1 }),
+        WorkbenchColorTarget(key: "editorGutter.addedBackground", assign: { $0.gitGutterAdded = $1 }),
+        WorkbenchColorTarget(key: "editorGutter.modifiedBackground", assign: { $0.gitGutterModified = $1 }),
+        WorkbenchColorTarget(key: "editorGutter.deletedBackground", assign: { $0.gitGutterDeleted = $1 }),
+        WorkbenchColorTarget(
+            key: "diffEditor.insertedLineBackground",
+            assign: { $0.gitInsertedBackground = $1 }
+        ),
+        WorkbenchColorTarget(
+            key: "diffEditor.removedLineBackground",
+            assign: { $0.gitRemovedBackground = $1 }
+        ),
+        WorkbenchColorTarget(
+            key: "diffEditor.insertedTextBackground",
+            assign: { $0.gitInsertedTextBackground = $1 }
+        ),
+        WorkbenchColorTarget(
+            key: "diffEditor.removedTextBackground",
+            assign: { $0.gitRemovedTextBackground = $1 }
+        ),
         WorkbenchColorTarget(key: "sideBar.background", assign: { $0.sidebarBackground = $1 }),
         WorkbenchColorTarget(key: "sideBar.foreground", assign: { $0.sidebarForeground = $1 }),
         WorkbenchColorTarget(key: "tab.activeBackground", assign: { $0.tabActiveBackground = $1 }),
@@ -273,7 +292,16 @@ public enum VSCodeThemeImporter {
                 ignored: mutable.gitIgnored ?? base.git.ignored,
                 stagedModified: mutable.gitStagedModified ?? base.git.stagedModified,
                 stagedDeleted: mutable.gitStagedDeleted ?? base.git.stagedDeleted,
-                conflict: mutable.gitConflict ?? base.git.conflict
+                conflict: mutable.gitConflict ?? base.git.conflict,
+                gutterAdded: mutable.gitGutterAdded ?? base.git.gutterAdded,
+                gutterModified: mutable.gitGutterModified ?? base.git.gutterModified,
+                gutterDeleted: mutable.gitGutterDeleted ?? base.git.gutterDeleted,
+                insertedBackground: mutable.gitInsertedBackground ?? base.git.insertedBackground,
+                removedBackground: mutable.gitRemovedBackground ?? base.git.removedBackground,
+                insertedTextBackground: mutable.gitInsertedTextBackground
+                    ?? base.git.insertedTextBackground,
+                removedTextBackground: mutable.gitRemovedTextBackground
+                    ?? base.git.removedTextBackground
             )
         )
 
@@ -410,6 +438,13 @@ struct MutableWorkbenchColors {
     var gitStagedModified: ThemeColor?
     var gitStagedDeleted: ThemeColor?
     var gitConflict: ThemeColor?
+    var gitGutterAdded: ThemeColor?
+    var gitGutterModified: ThemeColor?
+    var gitGutterDeleted: ThemeColor?
+    var gitInsertedBackground: ThemeColor?
+    var gitRemovedBackground: ThemeColor?
+    var gitInsertedTextBackground: ThemeColor?
+    var gitRemovedTextBackground: ThemeColor?
 }
 
 struct WorkbenchColorTarget: @unchecked Sendable {

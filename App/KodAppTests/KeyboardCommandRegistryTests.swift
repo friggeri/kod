@@ -79,6 +79,12 @@ final class KeyboardCommandRegistryTests: XCTestCase {
         XCTAssertEqual(command(titled: "Go to Definition")?.keyEquivalent, expectedF12)
         XCTAssertEqual(command(titled: "Go to Definition")?.modifierMask, [])
 
+        let expectedF3 = UnicodeScalar(NSF3FunctionKey).map(String.init)
+        XCTAssertEqual(command(titled: "Previous Git Change")?.keyEquivalent, expectedF3)
+        XCTAssertEqual(command(titled: "Previous Git Change")?.modifierMask, [.option, .shift])
+        XCTAssertEqual(command(titled: "Next Git Change")?.keyEquivalent, expectedF3)
+        XCTAssertEqual(command(titled: "Next Git Change")?.modifierMask, [.option])
+
         XCTAssertEqual(command(titled: "Toggle Source and Preview")?.keyEquivalent, "\r")
         XCTAssertEqual(command(titled: "Toggle Source and Preview")?.modifierMask, [.command])
 

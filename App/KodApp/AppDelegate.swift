@@ -295,11 +295,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ""
         )
         menu.addItem(
-            withTitle: Localized.string("Show Symbols", comment: "Edit menu item that reveals the Symbols panel"),
-            action: #selector(WorkspaceViewController.showSymbols(_:)),
-            keyEquivalent: ""
-        )
-        menu.addItem(
             withTitle: Localized.string("Show Git Blame", comment: "Edit menu item that shows Git blame for the selected file"),
             action: #selector(WorkspaceViewController.showGitBlameForSelectedFile(_:)),
             keyEquivalent: ""
@@ -407,6 +402,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             action: #selector(CodeViewport.jumpToMatchingBracket(_:)),
             keyEquivalent: "m"
         ).keyEquivalentModifierMask = [.command, .control]
+        menu.addItem(.separator())
+        let previousChange = NSMenuItem(
+            title: Localized.string("Previous Git Change", comment: "Navigate menu item that opens the previous inline Git change"),
+            action: #selector(WorkspaceViewController.showPreviousGitChange(_:)),
+            keyEquivalent: Self.functionKeyEquivalent(NSF3FunctionKey)
+        )
+        previousChange.keyEquivalentModifierMask = [.option, .shift]
+        menu.addItem(previousChange)
+        let nextChange = NSMenuItem(
+            title: Localized.string("Next Git Change", comment: "Navigate menu item that opens the next inline Git change"),
+            action: #selector(WorkspaceViewController.showNextGitChange(_:)),
+            keyEquivalent: Self.functionKeyEquivalent(NSF3FunctionKey)
+        )
+        nextChange.keyEquivalentModifierMask = [.option]
+        menu.addItem(nextChange)
 
         return root
     }

@@ -1,17 +1,13 @@
 import ThemeCore
 
-/// The highlighting pipeline layers from SPEC 7.1 plus SPEC 9.1's inline
-/// Git change markers, in ascending precedence order: later layers
-/// override earlier ones' attributes where they set a value. `gitChange`
-/// sits just above `base` (a low-precedence, background-only full-line
-/// tint per SPEC 9.1's "inline added/modified/deleted gutter markers")
-/// so syntax/semantic foreground colors, search/diagnostic highlights,
-/// and selection always paint over it rather than the reverse.
+/// The highlighting pipeline layers from SPEC 7.1 in ascending precedence
+/// order: later layers override earlier ones' attributes where they set a
+/// value. Git changes are editor gutter chrome and intentionally do not
+/// participate in source-text decoration composition.
 /// `Comparable` conformance follows raw-value order so a compositor can
 /// iterate `DecorationLayerKind.allCases` to apply overlays correctly.
 public enum DecorationLayerKind: Int, CaseIterable, Sendable, Comparable {
     case base = 0
-    case gitChange = 1
     case lexical = 2
     case semantic = 3
     case search = 4

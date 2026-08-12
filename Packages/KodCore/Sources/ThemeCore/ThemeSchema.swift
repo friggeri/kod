@@ -180,6 +180,13 @@ public struct GitDecorationColors: Codable, Equatable, Sendable {
     public var stagedModified: ThemeColor
     public var stagedDeleted: ThemeColor
     public var conflict: ThemeColor
+    public var gutterAdded: ThemeColor
+    public var gutterModified: ThemeColor
+    public var gutterDeleted: ThemeColor
+    public var insertedBackground: ThemeColor
+    public var removedBackground: ThemeColor
+    public var insertedTextBackground: ThemeColor
+    public var removedTextBackground: ThemeColor
 
     /// Preserves source compatibility with Kod's original four-color public
     /// API. New roles inherit the same nearest legacy colors used when
@@ -214,6 +221,42 @@ public struct GitDecorationColors: Codable, Equatable, Sendable {
         stagedDeleted: ThemeColor,
         conflict: ThemeColor
     ) {
+        self.init(
+            added: added,
+            modified: modified,
+            deleted: deleted,
+            renamed: renamed,
+            untracked: untracked,
+            ignored: ignored,
+            stagedModified: stagedModified,
+            stagedDeleted: stagedDeleted,
+            conflict: conflict,
+            gutterAdded: added,
+            gutterModified: modified,
+            gutterDeleted: deleted,
+            insertedBackground: Self.withAlpha(added, 41.0 / 255.0),
+            removedBackground: Self.withAlpha(deleted, 41.0 / 255.0)
+        )
+    }
+
+    public init(
+        added: ThemeColor,
+        modified: ThemeColor,
+        deleted: ThemeColor,
+        renamed: ThemeColor,
+        untracked: ThemeColor,
+        ignored: ThemeColor,
+        stagedModified: ThemeColor,
+        stagedDeleted: ThemeColor,
+        conflict: ThemeColor,
+        gutterAdded: ThemeColor,
+        gutterModified: ThemeColor,
+        gutterDeleted: ThemeColor,
+        insertedBackground: ThemeColor,
+        removedBackground: ThemeColor,
+        insertedTextBackground: ThemeColor? = nil,
+        removedTextBackground: ThemeColor? = nil
+    ) {
         self.added = added
         self.modified = modified
         self.deleted = deleted
@@ -223,6 +266,15 @@ public struct GitDecorationColors: Codable, Equatable, Sendable {
         self.stagedModified = stagedModified
         self.stagedDeleted = stagedDeleted
         self.conflict = conflict
+        self.gutterAdded = gutterAdded
+        self.gutterModified = gutterModified
+        self.gutterDeleted = gutterDeleted
+        self.insertedBackground = insertedBackground
+        self.removedBackground = removedBackground
+        self.insertedTextBackground = insertedTextBackground
+            ?? Self.withAlpha(added, 77.0 / 255.0)
+        self.removedTextBackground = removedTextBackground
+            ?? Self.withAlpha(deleted, 77.0 / 255.0)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -235,6 +287,13 @@ public struct GitDecorationColors: Codable, Equatable, Sendable {
         case stagedModified
         case stagedDeleted
         case conflict
+        case gutterAdded
+        case gutterModified
+        case gutterDeleted
+        case insertedBackground
+        case removedBackground
+        case insertedTextBackground
+        case removedTextBackground
     }
 
     /// Themes persisted by older Kod builds contain only the original four
@@ -251,6 +310,29 @@ public struct GitDecorationColors: Codable, Equatable, Sendable {
         ignored = try container.decodeIfPresent(ThemeColor.self, forKey: .ignored) ?? modified
         stagedModified = try container.decodeIfPresent(ThemeColor.self, forKey: .stagedModified) ?? modified
         stagedDeleted = try container.decodeIfPresent(ThemeColor.self, forKey: .stagedDeleted) ?? deleted
+        gutterAdded = try container.decodeIfPresent(ThemeColor.self, forKey: .gutterAdded) ?? added
+        gutterModified = try container.decodeIfPresent(ThemeColor.self, forKey: .gutterModified) ?? modified
+        gutterDeleted = try container.decodeIfPresent(ThemeColor.self, forKey: .gutterDeleted) ?? deleted
+        insertedBackground = try container.decodeIfPresent(
+            ThemeColor.self,
+            forKey: .insertedBackground
+        ) ?? Self.withAlpha(added, 41.0 / 255.0)
+        removedBackground = try container.decodeIfPresent(
+            ThemeColor.self,
+            forKey: .removedBackground
+        ) ?? Self.withAlpha(deleted, 41.0 / 255.0)
+        insertedTextBackground = try container.decodeIfPresent(
+            ThemeColor.self,
+            forKey: .insertedTextBackground
+        ) ?? Self.withAlpha(added, 77.0 / 255.0)
+        removedTextBackground = try container.decodeIfPresent(
+            ThemeColor.self,
+            forKey: .removedTextBackground
+        ) ?? Self.withAlpha(deleted, 77.0 / 255.0)
+    }
+
+    private static func withAlpha(_ color: ThemeColor, _ alpha: Double) -> ThemeColor {
+        ThemeColor(red: color.red, green: color.green, blue: color.blue, alpha: alpha)
     }
 }
 

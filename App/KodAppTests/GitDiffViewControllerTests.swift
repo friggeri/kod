@@ -1,5 +1,7 @@
+import CodeViewport
 import GitCore
 import SourceModel
+import ThemeCore
 import WorkspaceCore
 import XCTest
 @testable import Kod
@@ -126,5 +128,265 @@ final class GitDiffViewControllerTests: XCTestCase {
         XCTAssertEqual(editor.displayedContentKind(forTabID: tabID), .source)
         XCTAssertNil(editor.diffController(forTabID: tabID))
         XCTAssertEqual(editor.currentDocumentController?.snapshot.text, "current contents")
+    }
+
+    func testQuickDiffProjectsGutterMarkAndRevealsFirstHunkInline() throws {
+        let snapshot = SourceSnapshot(text: "same\nnew\n", version: 7)
+        let documentController = CodeDocumentViewController(snapshot: snapshot)
+        let diff = GitFileDiff(
+            change: GitDiffFileChange(kind: .modified, oldPath: nil, newPath: "f.txt"),
+            content: .text(hunks: [makeHunk()])
+        )
+        let controller = GitQuickDiffController(documentController: documentController)
+        controller.update(
+            sources: [
+                GitQuickDiffSource(
+                    label: "Working Tree",
+                    diff: diff,
+                    projection: GitQuickDiffProjection.project(diff, provider: .workingTree),
+                    layer: .primary
+                )
+            ],
+            revealFirstHunk: true
+        )
+
+        XCTAssertEqual(documentController.viewport.activeGutterChanges.count, 1)
+        XCTAssertEqual(documentController.viewport.activeGutterChanges.first?.kind, .modified)
+        XCTAssertEqual(documentController.viewport.activeGutterChanges.first?.location, .lines(1..<2))
+        XCTAssertEqual(controller.selectedHunkID, GitQuickDiffHunkID(provider: .workingTree, index: 0))
+        XCTAssertNotNil(documentController.viewport.activeViewZoneID)
+
+        documentController.viewport.cancelOperation(nil)
+
+        XCTAssertNil(controller.selectedHunkID)
+        XCTAssertNil(documentController.viewport.activeViewZoneID)
+    }
+
+    func testQuickDiffPeekUsesCompactVSCodeStyleHeaderAndFullRowTints() {
+        let controller = GitDiffViewController.GitQuickDiffPeekViewController(
+            hunk: makeHunk(),
+            fileName: "README.md",
+            providerLabel: "Working Tree",
+            hunkIndex: 0,
+            hunkCount: 2,
+            theme: BundledThemes.light,
+            onPrevious: {},
+            onNext: {},
+            onOpenFullDiff: {},
+            onClose: {}
+        )
+        controller.loadViewIfNeeded()
+
+        XCTAssertTrue(controller.renderedTitle.contains("README.md"))
+        XCTAssertTrue(controller.renderedTitle.contains("Git Local Changes"))
+        XCTAssertTrue(controller.renderedTitle.contains("Working Tree"))
+        XCTAssertEqual(controller.renderedColoredRowCount, 2)
+        XCTAssertEqual(Set(controller.renderedIntralineHighlights), ["old", "new"])
+    }
+
+    func testDeletedFileAnchorsBeforeEmptySnapshotAndRevealsHunk() {
+        let snapshot = SourceSnapshot(text: "", version: 8)
+        let documentController = CodeDocumentViewController(snapshot: snapshot)
+        let hunk = GitDiffHunk(
+            oldStart: 1,
+            oldCount: 1,
+            newStart: 0,
+            newCount: 0,
+            sectionHeading: nil,
+            lines: [
+                GitDiffLine(
+                    kind: .removed,
+                    oldLineNumber: 1,
+                    newLineNumber: nil,
+                    text: "deleted"
+                )
+            ]
+        )
+        let diff = GitFileDiff(
+            change: GitDiffFileChange(kind: .deleted, oldPath: nil, newPath: "gone.txt"),
+            content: .text(hunks: [hunk])
+        )
+        let controller = GitQuickDiffController(documentController: documentController)
+
+        controller.update(
+            sources: [
+                GitQuickDiffSource(
+                    label: "Index",
+                    diff: diff,
+                    projection: GitQuickDiffProjection.project(diff, provider: .staged),
+                    layer: .primary
+                )
+            ],
+            revealFirstHunk: true
+        )
+
+        XCTAssertEqual(documentController.viewport.activeGutterChanges.count, 1)
+        XCTAssertEqual(
+            documentController.viewport.activeGutterChanges.first?.location,
+            .deletion(afterLine: -1)
+        )
+        XCTAssertEqual(
+            controller.selectedHunkID,
+            GitQuickDiffHunkID(provider: .staged, index: 0)
+        )
+        XCTAssertNotNil(documentController.viewport.activeViewZoneID)
+    }
+
+    func testEditorGroupQuickDiffUsesVirtualSnapshotAndFullDiffActionStaysReachable() throws {
+        let editor = EditorGroupViewController(
+            groupID: EditorGroupID(),
+            state: EditorGroupState()
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = editor
+
+        let diff = GitFileDiff(
+            change: GitDiffFileChange(kind: .modified, oldPath: nil, newPath: "f.txt"),
+            content: .text(hunks: [makeHunk()])
+        )
+        let indexSnapshot = SourceSnapshot(
+            text: "same\nindex contents\n",
+            url: URL(fileURLWithPath: "/workspace/f.txt"),
+            version: 11
+        )
+        editor.openQuickDiffTab(
+            relativePath: "f.txt",
+            snapshot: indexSnapshot,
+            sources: [
+                GitQuickDiffSource(
+                    label: "Index",
+                    diff: diff,
+                    projection: GitQuickDiffProjection.project(diff, provider: .staged),
+                    layer: .primary
+                )
+            ],
+            revealFirstHunk: true
+        )
+        let tabID = try XCTUnwrap(editor.state.selectedTabID)
+
+        XCTAssertEqual(editor.displayedContentKind(forTabID: tabID), .quickDiff)
+        XCTAssertNil(editor.currentDocumentController, "virtual index content must not enter normal source/LSP state")
+        XCTAssertNil(editor.currentVisibleDocumentController)
+        XCTAssertNotNil(editor.currentQuickDiffController)
+        XCTAssertEqual(editor.currentQuickDiffController?.selectedHunkID, GitQuickDiffHunkID(provider: .staged, index: 0))
+
+        editor.currentQuickDiffController?.openFullDiff()
+
+        XCTAssertEqual(editor.displayedContentKind(forTabID: tabID), .diff)
+        XCTAssertEqual(editor.diffController(forTabID: tabID)?.diff, diff)
+    }
+
+    func testWorkingTreeReloadDoesNotReplaceVirtualQuickDiffSnapshot() throws {
+        let editor = EditorGroupViewController(
+            groupID: EditorGroupID(),
+            state: EditorGroupState()
+        )
+        editor.loadViewIfNeeded()
+        editor.openTab(
+            relativePath: "f.txt",
+            pinned: true,
+            snapshot: SourceSnapshot(text: "working tree before\n", version: 10)
+        )
+        let diff = GitFileDiff(
+            change: GitDiffFileChange(kind: .modified, oldPath: nil, newPath: "f.txt"),
+            content: .text(hunks: [makeHunk()])
+        )
+        editor.openQuickDiffTab(
+            relativePath: "f.txt",
+            snapshot: SourceSnapshot(text: "same\nindex contents\n", version: 11),
+            sources: [
+                GitQuickDiffSource(
+                    label: "Index",
+                    diff: diff,
+                    projection: GitQuickDiffProjection.project(diff, provider: .staged),
+                    layer: .primary
+                )
+            ],
+            revealFirstHunk: true
+        )
+        let tabID = try XCTUnwrap(editor.state.selectedTabID)
+        let quickDiffController = try XCTUnwrap(editor.currentQuickDiffController)
+
+        editor.reloadTab(
+            relativePath: "f.txt",
+            with: SourceSnapshot(text: "working tree contents\n", version: 12)
+        )
+
+        XCTAssertEqual(editor.displayedContentKind(forTabID: tabID), .quickDiff)
+        XCTAssertTrue(editor.currentQuickDiffController === quickDiffController)
+        XCTAssertNil(editor.currentDocumentController)
+        XCTAssertEqual(
+            editor.currentQuickDiffController?.selectedHunkID,
+            GitQuickDiffHunkID(provider: .staged, index: 0)
+        )
+
+        editor.openTab(
+            relativePath: "f.txt",
+            pinned: true,
+            snapshot: SourceSnapshot(text: "working tree contents\n", version: 12)
+        )
+        XCTAssertEqual(editor.currentDocumentController?.snapshot.text, "working tree contents\n")
+    }
+
+    func testQuickDiffKeyboardNavigationMovesBetweenHunks() {
+        let secondHunk = GitDiffHunk(
+            oldStart: 4,
+            oldCount: 1,
+            newStart: 4,
+            newCount: 1,
+            sectionHeading: nil,
+            lines: [
+                GitDiffLine(kind: .removed, oldLineNumber: 4, newLineNumber: nil, text: "before"),
+                GitDiffLine(kind: .added, oldLineNumber: nil, newLineNumber: 4, text: "after")
+            ]
+        )
+        let snapshot = SourceSnapshot(text: "same\nnew\nthird\nafter\n")
+        let documentController = CodeDocumentViewController(snapshot: snapshot)
+        let diff = GitFileDiff(
+            change: GitDiffFileChange(kind: .modified, oldPath: nil, newPath: "f.txt"),
+            content: .text(hunks: [makeHunk(), secondHunk])
+        )
+        let controller = GitQuickDiffController(documentController: documentController)
+        controller.update(
+            sources: [
+                GitQuickDiffSource(
+                    label: "Working Tree",
+                    diff: diff,
+                    projection: GitQuickDiffProjection.project(diff, provider: .workingTree),
+                    layer: .primary
+                )
+            ],
+            revealFirstHunk: true
+        )
+
+        controller.showNextHunk()
+        XCTAssertEqual(controller.selectedHunkID, GitQuickDiffHunkID(provider: .workingTree, index: 1))
+
+        controller.showPreviousHunk()
+        XCTAssertEqual(controller.selectedHunkID, GitQuickDiffHunkID(provider: .workingTree, index: 0))
+    }
+
+    func testQuickDiffUnavailableStateIsExplicitAndCanOpenFallbackDiff() {
+        let snapshot = SourceSnapshot(text: "", version: 3)
+        let documentController = CodeDocumentViewController(snapshot: snapshot)
+        let diff = GitFileDiff(
+            change: GitDiffFileChange(kind: .modified, oldPath: nil, newPath: "image.bin"),
+            content: .binary
+        )
+        let controller = GitQuickDiffController(documentController: documentController)
+        var openedDiff: GitFileDiff?
+        controller.onOpenFullDiff = { openedDiff = $0 }
+
+        controller.showUnavailable(message: "Binary files do not have an inline text diff.", diff: diff)
+
+        XCTAssertTrue(documentController.viewport.activeGutterChanges.isEmpty)
+        XCTAssertEqual(documentController.viewport.activeViewZoneID, CodeViewZoneID("git-quick-diff:unavailable"))
+        controller.openFullDiff()
+        XCTAssertEqual(openedDiff, diff)
     }
 }

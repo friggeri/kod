@@ -147,6 +147,49 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         XCTAssertFalse(sidebar is NSVisualEffectView)
     }
 
+    func testSidebarOmitsSymbolsAndUsesReadableExplorerFont() throws {
+        let (controller, _, _, _) = try makeFixture()
+        let modeControl = try XCTUnwrap(
+            findView(
+                identifier: "workspace.sidebarMode",
+                in: controller.view
+            ) as? NSSegmentedControl
+        )
+
+        XCTAssertEqual(modeControl.segmentCount, 4)
+        XCTAssertEqual(
+            (0..<modeControl.segmentCount).compactMap { modeControl.label(forSegment: $0) },
+            ["Explorer", "Search", "Problems", "Source Control"]
+        )
+
+        controller.showSourceControl(nil)
+        XCTAssertEqual(modeControl.selectedSegment, 3)
+
+        let outline = try XCTUnwrap(
+            findView(identifier: "workspace.explorer", in: controller.view) as? NSOutlineView
+        )
+        XCTAssertEqual(outline.rowSizeStyle, .medium)
+        controller.entriesByParent[""] = [
+            WorkspaceFileEntry(
+                url: controller.identity.root.appendingPathComponent("Example.swift"),
+                relativePath: "Example.swift",
+                kind: .file,
+                isHidden: false,
+                isIgnored: false
+            )
+        ]
+        let item = controller.outlineView(outline, child: 0, ofItem: nil)
+        let cell = try XCTUnwrap(
+            controller.outlineView(
+                outline,
+                viewFor: outline.outlineTableColumn,
+                item: item
+            ) as? NSTableCellView
+        )
+
+        XCTAssertEqual(cell.textField?.font?.pointSize, NSFont.systemFontSize + 3)
+    }
+
     func testTrustBannerOnlyAppearsWhenWorkspaceIsFirstOpened() throws {
         let (firstController, _, _, defaults) = try makeFixture()
         let firstBanner = try XCTUnwrap(

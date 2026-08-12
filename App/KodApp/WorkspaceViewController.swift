@@ -435,7 +435,6 @@ final class WorkspaceViewController: NSViewController {
             Localized.string("Explorer", comment: "Sidebar mode segment title for the file Explorer"),
             Localized.string("Search", comment: "Sidebar mode segment title for workspace Search"),
             Localized.string("Problems", comment: "Sidebar mode segment title for the Problems panel"),
-            Localized.string("Symbols", comment: "Sidebar mode segment title for the Symbols panel"),
             Localized.string("Source Control", comment: "Sidebar mode segment title for the Source Control panel")
         ],
         trackingMode: .selectOne,
@@ -449,7 +448,6 @@ final class WorkspaceViewController: NSViewController {
     private var explorerContainer: NSView!
     private var searchSidebarController: SearchSidebarViewController!
     private var problemsViewController: ProblemsViewController!
-    private var symbolsViewController: SymbolsViewController!
     private var sourceControlSidebarController: SourceControlSidebarViewController!
     /// Read-only Git context for this workspace (SPEC 9): `nil` for
     /// non-Git folders, kept fresh from the same FSEvents pipeline that
@@ -470,6 +468,16 @@ final class WorkspaceViewController: NSViewController {
     private var discoveryOptions = WorkspaceDiscoveryOptions()
     private var discoveryGeneration = 0
     private var sourceLoadTask: Task<Void, Never>?
+    private var sourceControlQuickDiffTask: Task<Void, Never>?
+    private var visibleQuickDiffRefreshTask: Task<Void, Never>?
+    private var quickDiffGeneration = 0
+    private var visibleQuickDiffGeneration = 0
+    private var visibleQuickDiffControllers: [ObjectIdentifier: GitQuickDiffController] = [:]
+    private struct SourceControlQuickDiffState {
+        let selection: SourceControlSidebarViewController.FileSelection
+        let groupID: EditorGroupID
+    }
+    private var sourceControlQuickDiffState: SourceControlQuickDiffState?
     private var quickOpenController: QuickOpenPanelController?
     private var commandPaletteController: CommandPaletteController?
     private var goToLinePanelController: GoToLinePanelController?
@@ -577,6 +585,8 @@ final class WorkspaceViewController: NSViewController {
     deinit {
         discoveryTask?.cancel()
         sourceLoadTask?.cancel()
+        sourceControlQuickDiffTask?.cancel()
+        visibleQuickDiffRefreshTask?.cancel()
         externalReloadTask?.cancel()
         fileWatcher?.stop()
         NotificationCenter.default.removeObserver(self)
@@ -1135,6 +1145,8 @@ final class WorkspaceViewController: NSViewController {
             presentationIndex: gitCoordinator.presentationIndex
         )
         reloadVisibleExplorerDecorations()
+        refreshVisibleQuickDiff(snapshot: snapshot)
+        refreshSourceControlQuickDiff(snapshot: snapshot)
     }
 
     private func reloadVisibleExplorerDecorations() {
@@ -1154,14 +1166,19 @@ final class WorkspaceViewController: NSViewController {
     }
 
     private func refreshGitDecorationAppearance() {
-        gitDecorationColors = AppearanceSettings.currentTheme().git
+        let theme = AppearanceSettings.currentTheme()
+        gitDecorationColors = theme.git
+        splitContainer?.allGroupControllers.compactMap(\.currentDocumentController).forEach {
+            $0.theme = theme
+        }
+        visibleQuickDiffControllers.values.forEach { $0.refreshTheme() }
         reloadVisibleExplorerDecorations()
     }
 
     /// Reveals the Source Control sidebar (mirrors `searchWorkspace(_:)`).
     @objc
     func showSourceControl(_ sender: Any?) {
-        sidebarModeControl.selectedSegment = 4
+        sidebarModeControl.selectedSegment = 3
         sidebarModeChanged(nil)
     }
 
@@ -1175,13 +1192,6 @@ final class WorkspaceViewController: NSViewController {
         sidebarModeChanged(nil)
     }
 
-    /// Reveals the Symbols sidebar (mirrors `showProblems(_:)`).
-    @objc
-    func showSymbols(_ sender: Any?) {
-        sidebarModeControl.selectedSegment = 3
-        sidebarModeChanged(nil)
-    }
-
     /// Toggles the active tab's Source/Preview mode from the window toolbar,
     /// main menu, or keyboard shortcut (SPEC 5.7).
     @objc
@@ -1189,20 +1199,193 @@ final class WorkspaceViewController: NSViewController {
         activeGroupController?.togglePreviewSource(sender)
     }
 
-    private func openDiff(for selection: SourceControlSidebarViewController.FileSelection) {
-        guard let context = gitCoordinator.context, let groupController = activeGroupController else {
+    @objc
+    func showPreviousGitChange(_ sender: Any?) {
+        activeGitQuickDiffController?.showPreviousHunk()
+    }
+
+    @objc
+    func showNextGitChange(_ sender: Any?) {
+        activeGitQuickDiffController?.showNextHunk()
+    }
+
+    private var activeGitQuickDiffController: GitQuickDiffController? {
+        guard let groupController = activeGroupController else {
+            return nil
+        }
+        if let controller = groupController.currentQuickDiffController {
+            return controller
+        }
+        guard let documentController = groupController.currentVisibleDocumentController else {
+            return nil
+        }
+        return visibleQuickDiffControllers[ObjectIdentifier(documentController)]
+    }
+
+    private func openQuickDiff(for selection: SourceControlSidebarViewController.FileSelection) {
+        guard let groupController = activeGroupController else {
             return
         }
-        Task {
+        sourceControlQuickDiffState = SourceControlQuickDiffState(
+            selection: selection,
+            groupID: groupController.groupID
+        )
+        loadSourceControlQuickDiff(selection, in: groupController)
+    }
+
+    private func loadSourceControlQuickDiff(
+        _ selection: SourceControlSidebarViewController.FileSelection,
+        in groupController: EditorGroupViewController
+    ) {
+        guard let context = gitCoordinator.context else {
+            return
+        }
+        sourceControlQuickDiffTask?.cancel()
+        quickDiffGeneration += 1
+        let generation = quickDiffGeneration
+        let groupID = groupController.groupID
+        sourceControlQuickDiffTask = Task { [weak self, weak groupController] in
+            guard let self, let groupController else {
+                return
+            }
             do {
+                if self.gitCoordinator.latestStatus?.entry(forPath: selection.path)?.isConflicted == true {
+                    let snapshot = try await self.loadSnapshot(
+                        relativePath: selection.path,
+                        bumpingVersion: true
+                    )
+                    try Task.checkCancellation()
+                    guard generation == self.quickDiffGeneration,
+                          self.splitContainer.controller(for: groupID) === groupController else {
+                        return
+                    }
+                    groupController.openQuickDiffTab(
+                        relativePath: selection.path,
+                        snapshot: snapshot,
+                        sources: [],
+                        revealFirstHunk: false,
+                        unavailableMessage: Localized.string(
+                            "Inline Git changes are unavailable while this file has unresolved conflicts.",
+                            comment: "Message shown instead of Quick Diff for a merge-conflicted file"
+                        )
+                    )
+                    return
+                }
                 let diff = try await context.diff(
                     path: selection.path,
                     target: selection.target,
                     isUntracked: selection.isUntracked,
                     knownOldPath: selection.originalPath
                 )
-                groupController.openDiffTab(relativePath: selection.path, diff: diff)
+                try Task.checkCancellation()
+                let snapshot: SourceSnapshot
+                let isGitlink = diff.change.oldMode == "160000" || diff.change.newMode == "160000"
+                if diff.content == .binary || isGitlink {
+                    snapshot = SourceSnapshot(
+                        text: "",
+                        url: self.identity.root.appendingPathComponent(selection.path),
+                        version: self.nextVersion()
+                    )
+                } else {
+                    snapshot = try await self.quickDiffSnapshot(
+                        for: diff,
+                        target: selection.target,
+                        relativePath: selection.path,
+                        context: context
+                    )
+                }
+                try Task.checkCancellation()
+                guard generation == self.quickDiffGeneration,
+                      self.splitContainer.controller(for: groupID) === groupController else {
+                    return
+                }
+
+                if case .binary = diff.content {
+                    groupController.openQuickDiffTab(
+                        relativePath: selection.path,
+                        snapshot: snapshot,
+                        sources: [],
+                        revealFirstHunk: false,
+                        unavailableMessage: Localized.string(
+                            "Binary files do not have an inline text diff.",
+                            comment: "Message shown when Quick Diff cannot render a binary file"
+                        ),
+                        fallbackDiff: diff
+                    )
+                    return
+                }
+                if diff.hunks.isEmpty {
+                    groupController.openQuickDiffTab(
+                        relativePath: selection.path,
+                        snapshot: snapshot,
+                        sources: [],
+                        revealFirstHunk: false,
+                        unavailableMessage: Localized.string(
+                            "This change has no inline line differences.",
+                            comment: "Message shown when a Git change has metadata but no textual hunks"
+                        ),
+                        fallbackDiff: diff
+                    )
+                    return
+                }
+
+                let provider: GitQuickDiffProvider
+                let label: String
+                switch selection.target {
+                case .indexVsHead:
+                    provider = .staged
+                    label = Localized.string(
+                        "Index",
+                        comment: "Quick Diff provider label for staged index changes"
+                    )
+                case .workingTreeVsIndex:
+                    provider = .workingTree
+                    label = Localized.string(
+                        "Working Tree",
+                        comment: "Quick Diff provider label for unstaged working-tree changes"
+                    )
+                case .workingTreeVsHead:
+                    provider = GitQuickDiffProvider(id: "working-tree-head", source: .head)
+                    label = Localized.string(
+                        "Working Tree",
+                        comment: "Quick Diff provider label for working-tree changes against HEAD"
+                    )
+                }
+                let projection = GitQuickDiffProjection.project(diff, provider: provider)
+                let source = GitQuickDiffSource(
+                    label: label,
+                    diff: diff,
+                    projection: projection,
+                    layer: .primary
+                )
+                groupController.openQuickDiffTab(
+                    relativePath: selection.path,
+                    snapshot: snapshot,
+                    sources: [source],
+                    revealFirstHunk: true
+                )
+            } catch is CancellationError {
+                return
             } catch {
+                guard generation == self.quickDiffGeneration,
+                      self.splitContainer.controller(for: groupID) === groupController else {
+                    return
+                }
+                let snapshot = SourceSnapshot(
+                    text: "",
+                    url: self.identity.root.appendingPathComponent(selection.path),
+                    version: self.nextVersion()
+                )
+                groupController.openQuickDiffTab(
+                    relativePath: selection.path,
+                    snapshot: snapshot,
+                    sources: [],
+                    revealFirstHunk: false,
+                    unavailableMessage: Localized.string(
+                        "Git diff could not be loaded.",
+                        comment: "Message shown when an inline Git diff fails to load"
+                    )
+                )
                 await diagnosticsLog.record(
                     subsystem: .git,
                     level: .warning,
@@ -1222,6 +1405,277 @@ final class WorkspaceViewController: NSViewController {
                 )
             }
         }
+    }
+
+    private func refreshSourceControlQuickDiff(snapshot: GitStatusSnapshot?) {
+        guard let state = sourceControlQuickDiffState,
+              let groupController = splitContainer?.controller(for: state.groupID) else {
+            return
+        }
+        guard let entry = snapshot?.entry(forPath: state.selection.path),
+              sourceControlSelection(state.selection, stillAppliesTo: entry) else {
+            sourceControlQuickDiffTask?.cancel()
+            quickDiffGeneration += 1
+            groupController.currentQuickDiffController?.clear()
+            sourceControlQuickDiffState = nil
+            return
+        }
+        loadSourceControlQuickDiff(state.selection, in: groupController)
+    }
+
+    private func sourceControlSelection(
+        _ selection: SourceControlSidebarViewController.FileSelection,
+        stillAppliesTo entry: GitStatusEntry
+    ) -> Bool {
+        switch selection.target {
+        case .indexVsHead:
+            return entry.isStaged
+        case .workingTreeVsIndex:
+            return entry.isUnstaged || entry.isUntracked || entry.isConflicted
+        case .workingTreeVsHead:
+            return entry.isStaged || entry.isUnstaged || entry.isUntracked || entry.isConflicted
+        }
+    }
+
+    private func quickDiffSnapshot(
+        for diff: GitFileDiff,
+        target: GitDiffTarget,
+        relativePath: String,
+        context: GitContext
+    ) async throws -> SourceSnapshot {
+        let url = identity.root.appendingPathComponent(relativePath)
+        let version = nextVersion()
+        if case .binary = diff.content {
+            return SourceSnapshot(text: "", url: url, version: version)
+        }
+        if diff.change.kind == .deleted {
+            return SourceSnapshot(text: "", url: url, version: version)
+        }
+
+        switch target {
+        case .indexVsHead:
+            let content = try await context.revisionContent(
+                source: .index,
+                target: target,
+                diff: diff
+            )
+            guard let bytes = content.bytes else {
+                throw GitRevisionContentError.contentUnavailable(source: .index, path: relativePath)
+            }
+            return try await Task.detached(priority: .userInitiated) {
+                try SourceSnapshotLoader().load(data: bytes, url: url, version: version)
+            }.value
+        case .workingTreeVsIndex, .workingTreeVsHead:
+            return try await Task.detached(priority: .userInitiated) {
+                try SourceSnapshotLoader().load(url: url, version: version)
+            }.value
+        }
+    }
+
+    private enum VisibleQuickDiffResult {
+        case sources([GitQuickDiffSource])
+        case unavailable(message: String, diff: GitFileDiff?)
+    }
+
+    private struct VisibleQuickDiffDocument {
+        let groupController: EditorGroupViewController
+        let documentController: CodeDocumentViewController
+        let relativePath: String
+        let snapshotVersion: Int
+    }
+
+    private func refreshVisibleQuickDiff(snapshot: GitStatusSnapshot?) {
+        guard isViewLoaded, splitContainer != nil else {
+            return
+        }
+        visibleQuickDiffRefreshTask?.cancel()
+        visibleQuickDiffGeneration += 1
+        let generation = visibleQuickDiffGeneration
+
+        let visibleDocuments: [VisibleQuickDiffDocument] = splitContainer.allGroupControllers.compactMap { groupController in
+            guard let documentController = groupController.currentVisibleDocumentController,
+                  let relativePath = groupController.currentTabRelativePath else {
+                return nil
+            }
+            return VisibleQuickDiffDocument(
+                groupController: groupController,
+                documentController: documentController,
+                relativePath: relativePath,
+                snapshotVersion: documentController.snapshot.version
+            )
+        }
+        let visibleIDs = Set(visibleDocuments.map { ObjectIdentifier($0.documentController) })
+        let staleIDs = visibleQuickDiffControllers.keys.filter { !visibleIDs.contains($0) }
+        for identifier in staleIDs {
+            visibleQuickDiffControllers.removeValue(forKey: identifier)?.clear()
+        }
+
+        guard let context = gitCoordinator.context, let snapshot else {
+            for item in visibleDocuments {
+                visibleQuickDiffControllers
+                    .removeValue(forKey: ObjectIdentifier(item.documentController))?
+                    .clear()
+            }
+            return
+        }
+
+        visibleQuickDiffRefreshTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            for item in visibleDocuments {
+                guard !Task.isCancelled, generation == self.visibleQuickDiffGeneration else {
+                    return
+                }
+                let identifier = ObjectIdentifier(item.documentController)
+                guard let entry = snapshot.entry(forPath: item.relativePath), !entry.isIgnored else {
+                    self.visibleQuickDiffControllers.removeValue(forKey: identifier)?.clear()
+                    item.documentController.viewport.clearGutterChanges()
+                    continue
+                }
+
+                let controller = self.visibleQuickDiffControllers[identifier]
+                    ?? GitQuickDiffController(documentController: item.documentController)
+                controller.onOpenFullDiff = { [weak groupController = item.groupController] diff in
+                    groupController?.openDiffTab(relativePath: item.relativePath, diff: diff)
+                }
+                self.visibleQuickDiffControllers[identifier] = controller
+
+                do {
+                    let result = try await self.visibleQuickDiffResult(
+                        entry: entry,
+                        relativePath: item.relativePath,
+                        context: context
+                    )
+                    guard !Task.isCancelled,
+                          generation == self.visibleQuickDiffGeneration,
+                          item.groupController.currentVisibleDocumentController === item.documentController,
+                          item.groupController.currentTabRelativePath == item.relativePath,
+                          item.documentController.snapshot.version == item.snapshotVersion else {
+                        return
+                    }
+                    switch result {
+                    case .sources(let sources):
+                        controller.update(sources: sources)
+                    case .unavailable(let message, let diff):
+                        controller.showUnavailable(message: message, diff: diff)
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard generation == self.visibleQuickDiffGeneration,
+                          item.groupController.currentVisibleDocumentController === item.documentController else {
+                        return
+                    }
+                    controller.showUnavailable(
+                        message: Localized.string(
+                            "Git diff could not be loaded.",
+                            comment: "Message shown in a source editor when Quick Diff fails to load"
+                        )
+                    )
+                    await self.diagnosticsLog.record(
+                        subsystem: .git,
+                        level: .warning,
+                        message: Localized.string(
+                            "Git Quick Diff refresh failed",
+                            comment: "Diagnostics log message when editor gutter Git changes fail to refresh"
+                        ),
+                        context: [
+                            DiagnosticContextField(
+                                name: "path",
+                                category: .fullPath,
+                                value: self.identity.root.appendingPathComponent(item.relativePath).path
+                            ),
+                            DiagnosticContextField(
+                                name: "reason",
+                                category: .diagnosticMessage,
+                                value: String(describing: error)
+                            )
+                        ]
+                    )
+                }
+            }
+        }
+    }
+
+    private func visibleQuickDiffResult(
+        entry: GitStatusEntry,
+        relativePath: String,
+        context: GitContext
+    ) async throws -> VisibleQuickDiffResult {
+        if entry.isConflicted {
+            return .unavailable(
+                message: Localized.string(
+                    "Inline Git changes are unavailable while this file has unresolved conflicts.",
+                    comment: "Message shown instead of Quick Diff for a merge-conflicted file"
+                ),
+                diff: nil
+            )
+        }
+
+        var primarySource: GitQuickDiffSource?
+        if entry.isUnstaged || entry.isUntracked {
+            let diff = try await context.diff(
+                path: relativePath,
+                target: .workingTreeVsIndex,
+                isUntracked: entry.isUntracked,
+                knownOldPath: entry.originalPath
+            )
+            if case .binary = diff.content {
+                return .unavailable(
+                    message: Localized.string(
+                        "Binary files do not have an inline text diff.",
+                        comment: "Message shown when Quick Diff cannot render a binary file"
+                    ),
+                    diff: diff
+                )
+            }
+            primarySource = GitQuickDiffSource(
+                label: Localized.string(
+                    "Working Tree",
+                    comment: "Quick Diff provider label for unstaged working-tree changes"
+                ),
+                diff: diff,
+                projection: GitQuickDiffProjection.project(diff, provider: .workingTree),
+                layer: .primary
+            )
+        }
+
+        var sources = primarySource.map { [$0] } ?? []
+        if entry.isStaged {
+            let hasHead = try await context.headExists()
+            let diff = try await context.diff(
+                path: relativePath,
+                target: hasHead ? .workingTreeVsHead : .workingTreeVsIndex,
+                isUntracked: !hasHead,
+                knownOldPath: entry.originalPath
+            )
+            if case .binary = diff.content {
+                return .unavailable(
+                    message: Localized.string(
+                        "Binary files do not have an inline text diff.",
+                        comment: "Message shown when Quick Diff cannot render a binary file"
+                    ),
+                    diff: diff
+                )
+            }
+            var projection = GitQuickDiffProjection.project(diff, provider: .staged)
+            if let primarySource {
+                projection = projection.suppressingMarks(overlapping: primarySource.projection)
+            }
+            sources.append(
+                GitQuickDiffSource(
+                    label: Localized.string(
+                        "Index",
+                        comment: "Quick Diff provider label for staged index changes"
+                    ),
+                    diff: diff,
+                    projection: projection,
+                    layer: primarySource == nil ? .primary : .secondary
+                )
+            )
+        }
+        return .sources(sources)
     }
 
     /// Shows blame for the currently selected Explorer file (wired to the
@@ -1246,16 +1700,6 @@ final class WorkspaceViewController: NSViewController {
     }
 
     // MARK: - Language services (LSP)
-
-    private func workspaceSymbols(query: String) async throws -> [WorkspaceSymbolLocation] {
-        guard let url = activeGroupController?.currentDocumentController?.snapshot.url else {
-            return []
-        }
-        return try await multiLanguageServicesCoordinator.workspaceSymbols(
-            forURL: url,
-            query: query
-        )
-    }
 
     private func configureLanguageServicesCoordinator() {
         multiLanguageServicesCoordinator.onStateChange = { [weak self] in
@@ -2135,8 +2579,8 @@ final class WorkspaceViewController: NSViewController {
                 }
             }
         }
-        controller.onStateChange = { [weak self] groupID, state in
-            guard let self else {
+        controller.onStateChange = { [weak self, weak controller] groupID, state in
+            guard let self, let controller else {
                 return
             }
             self.layoutState.groups[groupID] = state
@@ -2145,6 +2589,14 @@ final class WorkspaceViewController: NSViewController {
             } else {
                 self.persistLayout()
             }
+            if self.sourceControlQuickDiffState?.groupID == groupID,
+               (controller.currentQuickDiffController == nil
+                   || controller.currentTabRelativePath != self.sourceControlQuickDiffState?.selection.path) {
+                self.sourceControlQuickDiffTask?.cancel()
+                self.quickDiffGeneration += 1
+                self.sourceControlQuickDiffState = nil
+            }
+            self.refreshVisibleQuickDiff(snapshot: self.gitCoordinator.latestStatus)
         }
         controller.onActivate = { [weak self] groupID in
             self?.layoutState.activeGroupID = groupID
@@ -2171,18 +2623,33 @@ final class WorkspaceViewController: NSViewController {
             self?.clearTabDropPreviews()
         }
         controller.onPreviewSourceControlChange = { [weak self] groupID, state in
-            guard let self, self.layoutState.activeGroupID == groupID else {
+            guard let self else {
+                return
+            }
+            self.refreshVisibleQuickDiff(snapshot: self.gitCoordinator.latestStatus)
+            guard self.layoutState.activeGroupID == groupID else {
                 return
             }
             self.previewSourceControlView?.update(state)
         }
         controller.onDocumentReady = { [weak self] relativePath, documentController in
-            self?.configureLanguageInteractions(for: documentController)
-            self?.multiLanguageServicesCoordinator.handleDocumentReady(
+            guard let self else {
+                return
+            }
+            if controller.currentQuickDiffController == nil,
+               self.sourceControlQuickDiffState?.groupID == id,
+               self.sourceControlQuickDiffState?.selection.path == relativePath {
+                self.sourceControlQuickDiffTask?.cancel()
+                self.quickDiffGeneration += 1
+                self.sourceControlQuickDiffState = nil
+            }
+            self.configureLanguageInteractions(for: documentController)
+            self.multiLanguageServicesCoordinator.handleDocumentReady(
                 relativePath: relativePath,
                 controller: documentController
             )
-            self?.refreshLanguageServerStateUI()
+            self.refreshLanguageServerStateUI()
+            self.refreshVisibleQuickDiff(snapshot: self.gitCoordinator.latestStatus)
         }
         controller.onActiveDocumentChange = { [weak self] _ in
             self?.cancelHover()
@@ -2536,25 +3003,9 @@ final class WorkspaceViewController: NSViewController {
         problemsController.view.translatesAutoresizingMaskIntoConstraints = false
         problemsController.view.isHidden = true
 
-        let symbolsController = SymbolsViewController(
-            search: { [weak self] query in
-                guard let self else {
-                    return []
-                }
-                return try await self.workspaceSymbols(query: query)
-            },
-            onSelectSymbol: { [weak self] symbol in
-                self?.navigateToLSPLocation(url: symbol.url, range: symbol.range)
-            }
-        )
-        symbolsViewController = symbolsController
-        addChild(symbolsController)
-        symbolsController.view.translatesAutoresizingMaskIntoConstraints = false
-        symbolsController.view.isHidden = true
-
         let sourceControlController = SourceControlSidebarViewController(
             onSelectFile: { [weak self] selection in
-                self?.openDiff(for: selection)
+                self?.openQuickDiff(for: selection)
             }
         )
         sourceControlSidebarController = sourceControlController
@@ -2566,7 +3017,6 @@ final class WorkspaceViewController: NSViewController {
         container.addSubview(explorerContainer)
         container.addSubview(searchController.view)
         container.addSubview(problemsController.view)
-        container.addSubview(symbolsController.view)
         container.addSubview(sourceControlController.view)
         NSLayoutConstraint.activate([
             sidebarModeControl.topAnchor.constraint(
@@ -2590,11 +3040,6 @@ final class WorkspaceViewController: NSViewController {
             problemsController.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             problemsController.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             problemsController.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-
-            symbolsController.view.topAnchor.constraint(equalTo: sidebarModeControl.bottomAnchor, constant: 6),
-            symbolsController.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            symbolsController.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            symbolsController.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
             sourceControlController.view.topAnchor.constraint(equalTo: sidebarModeControl.bottomAnchor, constant: 6),
             sourceControlController.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -2669,7 +3114,7 @@ final class WorkspaceViewController: NSViewController {
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
         outlineView.headerView = nil
-        outlineView.rowSizeStyle = .small
+        outlineView.rowSizeStyle = .medium
         outlineView.indentationPerLevel = 14
         outlineView.dataSource = self
         outlineView.delegate = self
@@ -2740,16 +3185,12 @@ final class WorkspaceViewController: NSViewController {
         explorerContainer.isHidden = segment != 0
         searchSidebarController.view.isHidden = segment != 1
         problemsViewController.view.isHidden = segment != 2
-        symbolsViewController.view.isHidden = segment != 3
-        sourceControlSidebarController.view.isHidden = segment != 4
+        sourceControlSidebarController.view.isHidden = segment != 3
         if segment == 0 {
             refreshGitDecorationAppearance()
         } else if segment == 1 {
             searchSidebarController.focusSearchField()
         } else if segment == 3 {
-            symbolsViewController.focusSearchField()
-            symbolsViewController.refresh()
-        } else if segment == 4 {
             sourceControlSidebarController.refreshAppearance()
         }
     }
@@ -3284,6 +3725,8 @@ extension WorkspaceViewController: NSMenuItemValidation {
             return activeGroupController?.canGoBack ?? false
         case #selector(navigateForward(_:)):
             return activeGroupController?.canGoForward ?? false
+        case #selector(showPreviousGitChange(_:)), #selector(showNextGitChange(_:)):
+            return activeGitQuickDiffController != nil
         case #selector(closeActiveGroup(_:)):
             return layoutState.groups.count > 1
         default:
@@ -3412,6 +3855,7 @@ private final class WorkspaceExplorerCellView: NSTableCellView {
 
         let textField = NSTextField(labelWithString: "")
         textField.lineBreakMode = .byTruncatingMiddle
+        textField.font = .systemFont(ofSize: NSFont.systemFontSize + 3, weight: .medium)
         textField.translatesAutoresizingMaskIntoConstraints = false
         self.textField = textField
 

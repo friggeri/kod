@@ -1,10 +1,128 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "\"%@\" is not monospaced; column alignment may vary." : {
+
+    },
     "\"%arg\" is not monospaced; column alignment may vary." : {
 
     },
+    "%@" : {
+
+    },
+    "%@ (binary)" : {
+
+    },
+    "%@ <%@>\n%@ %@\n%@ — %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ <%2$@>\n%3$@ %4$@\n%5$@ — %6$@"
+          }
+        }
+      }
+    },
+    "%@ Git Local Changes (%@) — %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ Git Local Changes (%2$@) — %3$lld of %4$lld"
+          }
+        }
+      }
+    },
     "%@ Syntax" : {
+
+    },
+    "%@ language server entered %@ state" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ language server entered %2$@ state"
+          }
+        }
+      }
+    },
+    "%@ lines %@, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ lines %2$@, %3$@"
+          }
+        }
+      }
+    },
+    "%@ times" : {
+
+    },
+    "%@, %@ • %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@ • %3$@"
+          }
+        }
+      }
+    },
+    "%@, %lld match%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$lld match%3$@"
+          }
+        }
+      }
+    },
+    "%@, %lld problem%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$lld problem%3$@"
+          }
+        }
+      }
+    },
+    "%@, change %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, change %2$lld of %3$lld"
+          }
+        }
+      }
+    },
+    "%@, line %lld: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, line %2$lld: %3$@"
+          }
+        }
+      }
+    },
+    "%@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "%arg earlier event(s) dropped (the log is bounded)." : {
+
+    },
+    "%lld bytes" : {
 
     },
     "%lld changes." : {
@@ -19,8 +137,53 @@
         }
       }
     },
-    "%arg earlier event(s) dropped (the log is bounded)." : {
+    "%lld earlier event(s) dropped (the log is bounded)." : {
 
+    },
+    "%lld files" : {
+
+    },
+    "%lld frames" : {
+
+    },
+    "%lld matches in %lld files." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld matches in %2$lld files."
+          }
+        }
+      }
+    },
+    "%lld points" : {
+
+    },
+    "%lld problem%@ in %lld file%@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld problem%2$@ in %3$lld file%4$@."
+          }
+        }
+      }
+    },
+    "%lld symbols." : {
+
+    },
+    "%lld unsafe construct(s) removed while rendering this document." : {
+
+    },
+    "%lld×%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld×%2$lld"
+          }
+        }
+      }
     },
     "1 change." : {
       "comment" : "Status text shown in the Source Control sidebar when there is exactly one changed file",
@@ -124,6 +287,9 @@
     "Argument %lld" : {
 
     },
+    "Arguments" : {
+
+    },
     "Back" : {
       "comment" : "Navigate menu item that goes back in navigation history",
       "extractionState" : "manual",
@@ -147,6 +313,9 @@
           }
         }
       }
+    },
+    "Binary files do not have an inline text diff." : {
+
     },
     "Blame" : {
       "comment" : "Column title for the Git blame gutter table",
@@ -307,6 +476,9 @@
         }
       }
     },
+    "Close %@" : {
+
+    },
     "Close Editor Group" : {
       "comment" : "View menu item that closes the active editor group",
       "extractionState" : "manual",
@@ -330,6 +502,9 @@
           }
         }
       }
+    },
+    "Close Inline Diff" : {
+
     },
     "Close Tab" : {
       "comment" : "File menu item that closes the active editor tab",
@@ -553,6 +728,12 @@
         }
       }
     },
+    "Deleted lines, %@" : {
+
+    },
+    "Details" : {
+
+    },
     "Diagnostics" : {
 
     },
@@ -568,6 +749,16 @@
         }
       }
     },
+    "Diff for %@, %@ mode" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Diff for %1$@, %2$@ mode"
+          }
+        }
+      }
+    },
     "Discovering files..." : {
       "comment" : "Status label shown in the workspace Explorer while the initial file scan is in progress",
       "extractionState" : "manual",
@@ -579,6 +770,9 @@
           }
         }
       }
+    },
+    "Discovery failed: %@" : {
+
     },
     "Dismiss Workspace Trust Banner" : {
       "comment" : "Accessibility label and description for the button that dismisses the workspace trust banner",
@@ -667,6 +861,9 @@
         }
       }
     },
+    "Executable" : {
+
+    },
     "Executable path" : {
 
     },
@@ -683,6 +880,9 @@
       }
     },
     "Export Support Bundle..." : {
+
+    },
+    "Export failed: %@" : {
 
     },
     "Extensions (comma-separated)" : {
@@ -813,6 +1013,12 @@
           }
         }
       }
+    },
+    "Git Quick Diff refresh failed" : {
+
+    },
+    "Git diff could not be loaded." : {
+
     },
     "Git diff loading failed" : {
       "comment" : "Diagnostics log message recorded when loading a Git diff fails",
@@ -979,6 +1185,9 @@
     "Import VS Code Theme..." : {
 
     },
+    "Imported \"%@\" with Some Unsupported Fields" : {
+
+    },
     "Inactive editor group" : {
       "comment" : "Accessibility value indicating this editor group is not currently active",
       "extractionState" : "manual",
@@ -1015,6 +1224,9 @@
         }
       }
     },
+    "Index" : {
+
+    },
     "Information" : {
       "comment" : "Accessibility severity word for an informational diagnostic",
       "extractionState" : "manual",
@@ -1026,6 +1238,12 @@
           }
         }
       }
+    },
+    "Inline Git changes are unavailable while this file has unresolved conflicts." : {
+
+    },
+    "Inline diff for %@" : {
+
     },
     "Installation Documentation" : {
       "comment" : "Link title opening a language server's official installation documentation",
@@ -1062,6 +1280,9 @@
           }
         }
       }
+    },
+    "Key: %@" : {
+
     },
     "Kod" : {
       "comment" : "Title of the Welcome window",
@@ -1147,6 +1368,9 @@
     "Languages" : {
 
     },
+    "Letter Spacing: %@" : {
+
+    },
     "Letter Spacing: %arg" : {
 
     },
@@ -1163,6 +1387,32 @@
       }
     },
     "Ligatures" : {
+
+    },
+    "Line %lld, %@, %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Line %1$lld, %2$@, %3$@: %4$@"
+          }
+        }
+      }
+    },
+    "Line %lld, not committed yet" : {
+
+    },
+    "Line %lld: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Line %1$lld: %2$@"
+          }
+        }
+      }
+    },
+    "Line Height: %@x" : {
 
     },
     "Line Height: %argx" : {
@@ -1191,6 +1441,15 @@
           }
         }
       }
+    },
+    "Load Remote Images (%@)" : {
+
+    },
+    "Load remote images for this document. %@" : {
+
+    },
+    "Loading Remote Images…" : {
+
     },
     "M" : {
       "comment" : "Single-letter Git status badge for a modified file",
@@ -1246,6 +1505,9 @@
         }
       }
     },
+    "More" : {
+
+    },
     "Name" : {
 
     },
@@ -1285,6 +1547,15 @@
         }
       }
     },
+    "Next Change" : {
+
+    },
+    "Next Git Change" : {
+
+    },
+    "No %@ server was found. Syntax highlighting remains available." : {
+
+    },
     "No changes." : {
       "comment" : "Status text shown in the Source Control sidebar when there are no changes",
       "extractionState" : "manual",
@@ -1323,6 +1594,9 @@
           }
         }
       }
+    },
+    "No language profile matches *.%@. Plain Text remains available." : {
+
     },
     "No metadata available" : {
       "comment" : "Metadata line shown when no image metadata could be determined",
@@ -1461,6 +1735,9 @@
           }
         }
       }
+    },
+    "Open Full Diff" : {
+
     },
     "Open Link?" : {
       "comment" : "Alert title asking whether to open an external link from an untrusted workspace",
@@ -1612,6 +1889,9 @@
         }
       }
     },
+    "Pin %@" : {
+
+    },
     "Pin Tab" : {
       "comment" : "Generic accessibility description for the pin-tab image, overridden per-tab below",
       "extractionState" : "manual",
@@ -1701,6 +1981,12 @@
           }
         }
       }
+    },
+    "Previous Change" : {
+
+    },
+    "Previous Git Change" : {
+
     },
     "Privacy" : {
       "comment" : "Section header for the privacy controls in Settings",
@@ -1927,6 +2213,16 @@
         }
       }
     },
+    "SVG • %@×%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "SVG • %1$@×%2$@"
+          }
+        }
+      }
+    },
     "Sanitizer diagnostics" : {
       "comment" : "Accessibility label for the Markdown sanitizer diagnostics text",
       "extractionState" : "manual",
@@ -1992,6 +2288,12 @@
           }
         }
       }
+    },
+    "Search failed: %@" : {
+
+    },
+    "Search is unavailable: %@." : {
+
     },
     "Search keys and values" : {
       "comment" : "Placeholder text for the structured-data preview's search field",
@@ -2137,18 +2439,6 @@
         }
       }
     },
-    "Show Symbols" : {
-      "comment" : "Edit menu item that reveals the Symbols panel",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show Symbols"
-          }
-        }
-      }
-    },
     "Showing Preview" : {
       "comment" : "Accessibility value for the preview/source toggle button when a preview is currently shown",
       "extractionState" : "manual",
@@ -2173,6 +2463,9 @@
         }
       }
     },
+    "Showing first %lld matches (more available)." : {
+
+    },
     "Side by Side" : {
       "comment" : "Diff view mode segment: side-by-side diff layout",
       "extractionState" : "manual",
@@ -2186,6 +2479,12 @@
       }
     },
     "Size: %arg pt" : {
+
+    },
+    "Size: %lld pt" : {
+
+    },
+    "Source" : {
 
     },
     "Source Control" : {
@@ -2317,6 +2616,21 @@
     "Syntax Only" : {
 
     },
+    "T" : {
+      "comment" : "Single-letter Git status badge for a type-changed file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "T"
+          }
+        }
+      }
+    },
+    "The selected file is not executable: %@" : {
+
+    },
     "The selected file is not executable: %arg" : {
 
     },
@@ -2331,6 +2645,12 @@
           }
         }
       }
+    },
+    "This change has no inline line differences." : {
+
+    },
+    "This workspace is not trusted. Open %@ in your default browser?" : {
+
     },
     "This workspace is trusted: language servers and repository tools are enabled." : {
       "comment" : "Trust banner message shown when the current workspace is trusted",
@@ -2467,18 +2787,6 @@
         }
       }
     },
-    "T" : {
-      "comment" : "Single-letter Git status badge for a type-changed file",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "T"
-          }
-        }
-      }
-    },
     "U" : {
       "comment" : "Single-letter Git status badge for an untracked file",
       "extractionState" : "manual",
@@ -2503,6 +2811,16 @@
         }
       }
     },
+    "Uncommitted change\n%@, line %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Uncommitted change\n%1$@, line %2$lld"
+          }
+        }
+      }
+    },
     "Unified" : {
       "comment" : "Diff view mode segment: unified diff layout",
       "extractionState" : "manual",
@@ -2514,6 +2832,18 @@
           }
         }
       }
+    },
+    "Unmapped workbench colors: %@" : {
+
+    },
+    "Unparsable entries: %@" : {
+
+    },
+    "Unsupported token/semantic settings: %@" : {
+
+    },
+    "Unsupported top-level keys: %@" : {
+
     },
     "Untracked" : {
       "comment" : "Accessibility description for an untracked file's Git status",
@@ -2544,6 +2874,12 @@
           }
         }
       }
+    },
+    "Value: %@" : {
+
+    },
+    "Version" : {
+
     },
     "View" : {
       "comment" : "Title of the View menu",
@@ -2631,6 +2967,9 @@
           }
         }
       }
+    },
+    "Working Tree" : {
+
     },
     "Workspace search engine failed to initialize" : {
       "comment" : "Diagnostics log message recorded when the workspace text search engine fails to start",
@@ -2727,6 +3066,9 @@
           }
         }
       }
+    },
+    "Zoom: %lld%%" : {
+
     },
     "Zoom: Actual Size" : {
       "comment" : "Zoom-level readout when the image preview is shown at actual size",

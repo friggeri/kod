@@ -427,8 +427,26 @@ public struct SourceSnapshotLoader: Sendable {
         fallbackEncodingRawValue: UInt? = nil
     ) throws -> SourceSnapshot {
         let payload = try fileSystem.readFile(at: url)
+        return try load(
+            data: payload.data,
+            url: url,
+            version: version,
+            modificationDate: payload.modificationDate,
+            fallbackEncodingRawValue: fallbackEncodingRawValue
+        )
+    }
+
+    /// Decodes virtual or revision content with precisely the same BOM,
+    /// encoding, line-ending, and safety handling as filesystem content.
+    public func load(
+        data: Data,
+        url: URL,
+        version: Int = 1,
+        modificationDate: Date? = nil,
+        fallbackEncodingRawValue: UInt? = nil
+    ) throws -> SourceSnapshot {
         let decoded = try SourceDecoder.decode(
-            payload.data,
+            data,
             url: url,
             fallbackEncodingRawValue: fallbackEncodingRawValue
         )
@@ -436,8 +454,8 @@ public struct SourceSnapshotLoader: Sendable {
         return SourceSnapshot(
             url: url,
             version: version,
-            originalData: payload.data,
-            modificationDate: payload.modificationDate,
+            originalData: data,
+            modificationDate: modificationDate,
             encoding: decoded.encoding,
             text: decoded.text,
             normalizedUTF8: decoded.normalizedUTF8,

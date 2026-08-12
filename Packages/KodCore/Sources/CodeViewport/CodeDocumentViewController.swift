@@ -180,6 +180,17 @@ public final class CodeDocumentViewController: NSViewController {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
+        // Sticky headers are painted relative to the clip view's visible
+        // origin. Scroll blitting would preserve those pixels at their old
+        // document coordinates, producing repeated header bands.
+        scrollView.contentView.copiesOnScroll = false
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(clipViewBoundsDidChange(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView,
+        )
         scrollView.documentView = viewport
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -198,6 +209,19 @@ public final class CodeDocumentViewController: NSViewController {
         ])
 
         view = container
+    }
+
+    var usesScrollCopying: Bool {
+        scrollView.contentView.copiesOnScroll
+    }
+
+    var postsScrollBoundsChanges: Bool {
+        scrollView.contentView.postsBoundsChangedNotifications
+    }
+
+    @objc
+    private func clipViewBoundsDidChange(_ notification: Notification) {
+        viewport.needsDisplay = true
     }
 
     public override func viewDidLayout() {

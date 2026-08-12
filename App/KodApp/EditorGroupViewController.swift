@@ -36,6 +36,8 @@ struct EditorTabTransferPayload {
     let documentController: CodeDocumentViewController?
     let previewController: PreviewViewController?
     let diffController: GitDiffViewController?
+    let quickDiffDocumentController: CodeDocumentViewController?
+    let quickDiffController: GitQuickDiffController?
     let previewKind: PreviewKind?
     let usesPreviewMode: Bool
     let isImageOnly: Bool
@@ -124,6 +126,7 @@ final class EditorGroupViewController: NSViewController {
                 return
             }
             documentControllers.values.forEach { $0.wordWrapEnabled = wordWrapEnabled }
+            quickDiffDocumentControllers.values.forEach { $0.wordWrapEnabled = wordWrapEnabled }
         }
     }
 
@@ -146,6 +149,8 @@ final class EditorGroupViewController: NSViewController {
     /// never has to reload anything.
     private var previewControllers: [EditorTabID: PreviewViewController] = [:]
     private var diffControllers: [EditorTabID: GitDiffViewController] = [:]
+    private var quickDiffDocumentControllers: [EditorTabID: CodeDocumentViewController] = [:]
+    private var quickDiffControllers: [EditorTabID: GitQuickDiffController] = [:]
     /// The detected `PreviewKind` for a tab, cached once at open/reload
     /// time so repeated content-display decisions don't re-sniff bytes.
     private var previewKinds: [EditorTabID: PreviewKind] = [:]
@@ -198,6 +203,11 @@ final class EditorGroupViewController: NSViewController {
             controller.theme = theme
             controller.fontSettings = fontSettings
         }
+        for controller in quickDiffDocumentControllers.values {
+            controller.theme = theme
+            controller.fontSettings = fontSettings
+        }
+        quickDiffControllers.values.forEach { $0.refreshTheme() }
     }
     override func loadView() {
         let container = EditorGroupRootView()
@@ -288,6 +298,8 @@ final class EditorGroupViewController: NSViewController {
     func openTab(relativePath: String, pinned: Bool, snapshot: SourceSnapshot) {
         let tabID = openStateTab(relativePath: relativePath, pinned: pinned)
         diffControllers.removeValue(forKey: tabID)
+        quickDiffControllers.removeValue(forKey: tabID)?.clear()
+        quickDiffDocumentControllers.removeValue(forKey: tabID)
         let controller = documentController(for: tabID, snapshot: snapshot)
         preparePreviewIfNeeded(tabID: tabID, relativePath: relativePath, snapshot: snapshot)
         showContent(contentController(forTabID: tabID))
@@ -302,6 +314,8 @@ final class EditorGroupViewController: NSViewController {
         recordCurrentNavigation()
         let tabID = openStateTab(relativePath: relativePath, pinned: true)
         cancelPreviewBuild(for: tabID)
+        quickDiffControllers.removeValue(forKey: tabID)?.clear()
+        quickDiffDocumentControllers.removeValue(forKey: tabID)
         let controller = GitDiffViewController()
         controller.update(diff: diff)
         diffControllers[tabID] = controller
@@ -309,6 +323,54 @@ final class EditorGroupViewController: NSViewController {
         refreshTabBar()
         notifyPreviewSourceControlChange()
         notifyStateChange()
+    }
+
+    func openQuickDiffTab(
+        relativePath: String,
+        snapshot: SourceSnapshot,
+        sources: [GitQuickDiffSource],
+        revealFirstHunk: Bool,
+        unavailableMessage: String? = nil,
+        fallbackDiff: GitFileDiff? = nil
+    ) {
+        recordCurrentNavigation()
+        let tabID = openStateTab(relativePath: relativePath, pinned: true)
+        cancelPreviewBuild(for: tabID)
+        diffControllers.removeValue(forKey: tabID)
+
+        let documentController = makeDocumentController(snapshot: snapshot)
+        documentController.wordWrapEnabled = wordWrapEnabled
+        let quickDiffController = GitQuickDiffController(documentController: documentController)
+        wireQuickDiffController(
+            quickDiffController,
+            tabID: tabID,
+            relativePath: relativePath
+        )
+        quickDiffDocumentControllers[tabID] = documentController
+        quickDiffControllers[tabID] = quickDiffController
+        showContent(documentController)
+        if let unavailableMessage {
+            quickDiffController.showUnavailable(message: unavailableMessage, diff: fallbackDiff)
+        } else {
+            quickDiffController.update(sources: sources, revealFirstHunk: revealFirstHunk)
+        }
+        refreshTabBar()
+        notifyPreviewSourceControlChange()
+        notifyStateChange()
+    }
+
+    private func wireQuickDiffController(
+        _ controller: GitQuickDiffController,
+        tabID: EditorTabID,
+        relativePath: String
+    ) {
+        controller.onOpenFullDiff = { [weak self] diff in
+            guard let self,
+                  self.state.tabs.contains(where: { $0.id == tabID && $0.relativePath == relativePath }) else {
+                return
+            }
+            self.openDiffTab(relativePath: relativePath, diff: diff)
+        }
     }
 
     /// Opens `relativePath` (as `openTab(relativePath:pinned:snapshot:)`
@@ -342,6 +404,14 @@ final class EditorGroupViewController: NSViewController {
     /// no-op if no tab for `relativePath` is open in this group.
     func reloadTab(relativePath: String, with newSnapshot: SourceSnapshot) {
         for tab in state.tabs where tab.relativePath == relativePath {
+            // Source Control Quick Diff owns a virtual working/index snapshot.
+            // Its Git-status refresh replaces that snapshot; an FSEvent may
+            // refresh a previously opened source controller behind it, but
+            // must not convert the visible tab back to normal source mode.
+            let preservesQuickDiff = quickDiffDocumentControllers[tab.id] != nil
+            if preservesQuickDiff, documentControllers[tab.id] == nil {
+                continue
+            }
             let previousController = documentControllers[tab.id]
             let reconciledAnchor: ReadingAnchor?
             if let previousController {
@@ -365,7 +435,11 @@ final class EditorGroupViewController: NSViewController {
             )
             newController.wordWrapEnabled = wordWrapEnabled
             documentControllers[tab.id] = newController
-            diffControllers.removeValue(forKey: tab.id)
+            if !preservesQuickDiff {
+                diffControllers.removeValue(forKey: tab.id)
+                quickDiffControllers.removeValue(forKey: tab.id)?.clear()
+                quickDiffDocumentControllers.removeValue(forKey: tab.id)
+            }
             preparePreviewIfNeeded(tabID: tab.id, relativePath: relativePath, snapshot: newSnapshot)
 
             // The new controller's view must actually be attached to the
@@ -373,7 +447,7 @@ final class EditorGroupViewController: NSViewController {
             // the reconciled anchor: `scrollSourceLineToTop` needs a real
             // scroll-view frame to compute a meaningful scroll, which a
             // detached, never-laid-out view does not have.
-            if state.selectedTabID == tab.id {
+            if state.selectedTabID == tab.id, !preservesQuickDiff {
                 showContent(contentController(forTabID: tab.id))
                 newController.view.window?.layoutIfNeeded()
             }
@@ -509,6 +583,8 @@ final class EditorGroupViewController: NSViewController {
             documentController: documentControllers.removeValue(forKey: tabID),
             previewController: previewControllers.removeValue(forKey: tabID),
             diffController: diffControllers.removeValue(forKey: tabID),
+            quickDiffDocumentController: quickDiffDocumentControllers.removeValue(forKey: tabID),
+            quickDiffController: quickDiffControllers.removeValue(forKey: tabID),
             previewKind: previewKinds.removeValue(forKey: tabID),
             usesPreviewMode: previewModeTabIDs.remove(tabID) != nil,
             isImageOnly: imageOnlyTabIDs.remove(tabID) != nil
@@ -541,6 +617,18 @@ final class EditorGroupViewController: NSViewController {
             }
             if let diffController = payload.diffController {
                 diffControllers[insertedID] = diffController
+            }
+            if let quickDiffDocumentController = payload.quickDiffDocumentController {
+                quickDiffDocumentController.wordWrapEnabled = wordWrapEnabled
+                quickDiffDocumentControllers[insertedID] = quickDiffDocumentController
+            }
+            if let quickDiffController = payload.quickDiffController {
+                wireQuickDiffController(
+                    quickDiffController,
+                    tabID: insertedID,
+                    relativePath: payload.tab.relativePath
+                )
+                quickDiffControllers[insertedID] = quickDiffController
             }
             if let previewKind = payload.previewKind {
                 previewKinds[insertedID] = previewKind
@@ -595,10 +683,35 @@ final class EditorGroupViewController: NSViewController {
     }
 
     var currentDocumentController: CodeDocumentViewController? {
-        guard let selectedTabID = state.selectedTabID, diffControllers[selectedTabID] == nil else {
+        guard let selectedTabID = state.selectedTabID,
+              diffControllers[selectedTabID] == nil,
+              quickDiffDocumentControllers[selectedTabID] == nil else {
             return nil
         }
         return documentControllers[selectedTabID]
+    }
+
+    var currentVisibleDocumentController: CodeDocumentViewController? {
+        guard let selectedTabID = state.selectedTabID,
+              let documentController = documentControllers[selectedTabID],
+              contentController(forTabID: selectedTabID) === documentController else {
+            return nil
+        }
+        return documentController
+    }
+
+    var currentQuickDiffController: GitQuickDiffController? {
+        guard let selectedTabID = state.selectedTabID else {
+            return nil
+        }
+        return quickDiffControllers[selectedTabID]
+    }
+
+    var currentTabRelativePath: String? {
+        guard let selectedTabID = state.selectedTabID else {
+            return nil
+        }
+        return state.tabs.first(where: { $0.id == selectedTabID })?.relativePath
     }
 
     func toggleFindBar() {
@@ -723,6 +836,8 @@ final class EditorGroupViewController: NSViewController {
         documentControllers.removeValue(forKey: tabID)
         previewControllers.removeValue(forKey: tabID)
         diffControllers.removeValue(forKey: tabID)
+        quickDiffControllers.removeValue(forKey: tabID)?.clear()
+        quickDiffDocumentControllers.removeValue(forKey: tabID)
         previewKinds.removeValue(forKey: tabID)
         previewModeTabIDs.remove(tabID)
         imageOnlyTabIDs.remove(tabID)
@@ -774,6 +889,11 @@ final class EditorGroupViewController: NSViewController {
         }
         if let diffController = diffControllers[tabID] {
             showContent(diffController)
+            notifyPreviewSourceControlChange()
+            return
+        }
+        if let quickDiffDocumentController = quickDiffDocumentControllers[tabID] {
+            showContent(quickDiffDocumentController)
             notifyPreviewSourceControlChange()
             return
         }
@@ -867,6 +987,8 @@ final class EditorGroupViewController: NSViewController {
         cancelPreviewBuild(for: tabID)
         previewControllers[tabID] = preview
         diffControllers.removeValue(forKey: tabID)
+        quickDiffControllers.removeValue(forKey: tabID)?.clear()
+        quickDiffDocumentControllers.removeValue(forKey: tabID)
         previewKinds[tabID] = kind
         imageOnlyTabIDs.insert(tabID)
         previewModeTabIDs.insert(tabID)
@@ -943,6 +1065,9 @@ final class EditorGroupViewController: NSViewController {
         if let diffController = diffControllers[tabID] {
             return diffController
         }
+        if let quickDiffDocumentController = quickDiffDocumentControllers[tabID] {
+            return quickDiffDocumentController
+        }
         if imageOnlyTabIDs.contains(tabID) {
             return previewControllers[tabID]
         }
@@ -955,6 +1080,7 @@ final class EditorGroupViewController: NSViewController {
     var previewSourceControlState: EditorPreviewSourceControlState {
         guard let tabID = state.selectedTabID,
               diffControllers[tabID] == nil,
+              quickDiffDocumentControllers[tabID] == nil,
               let kind = previewKinds[tabID],
               kind != .none else {
             return .unavailable
@@ -1002,12 +1128,16 @@ final class EditorGroupViewController: NSViewController {
         case source
         case preview
         case diff
+        case quickDiff
         case none
     }
 
     func displayedContentKind(forTabID tabID: EditorTabID) -> DisplayedContentKind {
         if diffControllers[tabID] != nil {
             return .diff
+        }
+        if quickDiffDocumentControllers[tabID] != nil {
+            return .quickDiff
         }
         if imageOnlyTabIDs.contains(tabID) {
             return previewControllers[tabID] == nil ? .none : .preview
@@ -1048,6 +1178,8 @@ final class EditorGroupViewController: NSViewController {
         cancelPreviewBuild(for: tabID)
         previewControllers[tabID] = preview
         diffControllers.removeValue(forKey: tabID)
+        quickDiffControllers.removeValue(forKey: tabID)?.clear()
+        quickDiffDocumentControllers.removeValue(forKey: tabID)
         previewKinds[tabID] = kind
         imageOnlyTabIDs.insert(tabID)
         previewModeTabIDs.insert(tabID)

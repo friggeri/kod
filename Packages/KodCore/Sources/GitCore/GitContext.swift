@@ -12,10 +12,13 @@ public actor GitContext {
     private let statusService: GitStatusService
     private let diffService: GitDiffService
     private let blameService: GitBlameService
+    private let revisionContentService: GitRevisionContentService
 
     private let statusCache = GitResultCache<GitStatusSnapshot>()
     private let diffCache = GitResultCache<GitFileDiff>()
     private let blameCache = GitResultCache<GitBlameResult>()
+    private let revisionContentCache = GitResultCache<GitRevisionContent>()
+    private let headExistenceCache = GitResultCache<Bool>()
     private var worktreeGeneration = 0
 
     /// Resolves Git's absolute executable and this path's repository
@@ -44,6 +47,11 @@ public actor GitContext {
             environment: environment
         )
         self.blameService = GitBlameService(
+            executableURL: executableURL,
+            repositoryRoot: location.workingTreeRoot,
+            environment: environment
+        )
+        self.revisionContentService = GitRevisionContentService(
             executableURL: executableURL,
             repositoryRoot: location.workingTreeRoot,
             environment: environment
@@ -98,6 +106,50 @@ public actor GitContext {
         return result
     }
 
+    /// Returns a working-tree URL selector or exact, raw bytes for index/HEAD
+    /// content. Virtual bytes are identity-cached with the other Git results.
+    public func revisionContent(
+        source: GitRevisionSource,
+        path: String,
+        useCache: Bool = true
+    ) async throws -> GitRevisionContent {
+        let identity = currentIdentity()
+        let key = "\(source.rawValue)|\(path)"
+        if useCache, let cached = await revisionContentCache.value(forKey: key, identity: identity) {
+            return cached
+        }
+        let result = try await revisionContentService.revisionContent(source: source, path: path)
+        await revisionContentCache.store(result, forKey: key, identity: identity)
+        return result
+    }
+
+    /// Resolves the appropriate old/new path from parsed diff metadata before
+    /// loading the requested typed source.
+    public func revisionContent(
+        source: GitRevisionSource,
+        target: GitDiffTarget,
+        diff: GitFileDiff,
+        useCache: Bool = true
+    ) async throws -> GitRevisionContent {
+        guard let path = GitRevisionPathSelector.path(for: source, target: target, change: diff.change) else {
+            return try await revisionContentService.revisionContent(source: source, target: target, diff: diff)
+        }
+        return try await revisionContent(source: source, path: path, useCache: useCache)
+    }
+
+    /// Returns whether this repository has a commit, identity-cached with
+    /// status, diff, blame, and revision content.
+    public func headExists(useCache: Bool = true) async throws -> Bool {
+        let identity = currentIdentity()
+        let key = "head-exists"
+        if useCache, let cached = await headExistenceCache.value(forKey: key, identity: identity) {
+            return cached
+        }
+        let result = try await revisionContentService.headExists()
+        await headExistenceCache.store(result, forKey: key, identity: identity)
+        return result
+    }
+
     /// Wires this context's caches to the workspace's existing FSEvents
     /// pipeline (`WorkspaceFileWatcher(onBatch:)`). Any non-empty batch —
     /// a tracked file edited, `.git/HEAD` changed by an external `git
@@ -114,5 +166,7 @@ public actor GitContext {
         await statusCache.invalidateAll()
         await diffCache.invalidateAll()
         await blameCache.invalidateAll()
+        await revisionContentCache.invalidateAll()
+        await headExistenceCache.invalidateAll()
     }
 }

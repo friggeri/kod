@@ -117,10 +117,11 @@ enum KeyboardCommandRegistry {
         "Go to Matching Bracket",
         // diagnose
         "Show Problems",
-        "Show Symbols",
         // diff
         "Show Source Control",
         "Show Git Blame",
+        "Previous Git Change",
+        "Next Git Change",
         // preview
         "Toggle Source and Preview"
     ]
