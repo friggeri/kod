@@ -319,6 +319,10 @@ private final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
 
 @MainActor
 final class WorkspaceViewController: NSViewController {
+    private static let defaultSidebarWidth: CGFloat = 240
+    private static let minimumSidebarWidth: CGFloat = 180
+    private static let maximumSidebarWidth: CGFloat = 420
+
     let identity: WorkspaceIdentity
 
     let filenameIndex = FilenameIndex()
@@ -494,6 +498,12 @@ final class WorkspaceViewController: NSViewController {
     private var nextSnapshotVersion = 1
     private var externalReloadTask: Task<Void, Never>?
     private let languageSupportService: LanguageSupportService
+    private var hasRestoredWorkspaceGeometry = false
+    private var lastExpandedSidebarWidth = WorkspaceViewController.defaultSidebarWidth
+    private var lastNormalWindowFrame: NSRect?
+    private var pendingNormalWindowFrame: NSRect?
+    private var isApplyingSidebarGeometry = false
+    private var pendingExpandedSidebarWidth: CGFloat?
 
     var layoutState: WorkspaceLayoutState
     var splitContainer: SplitContainerViewController!
@@ -510,7 +520,11 @@ final class WorkspaceViewController: NSViewController {
         self.layoutStore = layoutStore
         self.diagnosticsLog = diagnosticsLog
         self.languageSupportService = languageSupportService
-        self.layoutState = layoutStore.load(for: identity) ?? .singleGroup()
+        let restoredLayout = layoutStore.load(for: identity) ?? .singleGroup()
+        self.layoutState = restoredLayout
+        self.lastExpandedSidebarWidth = Self.clampedSidebarWidth(
+            restoredLayout.geometry?.sidebarWidth
+        )
         self.multiLanguageServicesCoordinator = MultiLanguageServicesCoordinator(
             identity: identity,
             trustStore: trustStore,
@@ -656,6 +670,12 @@ final class WorkspaceViewController: NSViewController {
         let outerSplit = NSSplitViewController()
         workspaceSplitViewController = outerSplit
         addChild(outerSplit)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(workspaceSplitViewDidResize(_:)),
+            name: NSSplitView.didResizeSubviewsNotification,
+            object: outerSplit.splitView
+        )
         outerSplit.view.translatesAutoresizingMaskIntoConstraints = false
         let statusBar = makeStatusBar()
         statusBar.translatesAutoresizingMaskIntoConstraints = false
@@ -750,6 +770,7 @@ final class WorkspaceViewController: NSViewController {
         super.viewDidAppear()
         configureWindowChrome()
         view.window?.delegate = self
+        restoreWorkspaceGeometryIfNeeded()
         guard !hasStartedDiscovery else {
             return
         }
@@ -761,7 +782,25 @@ final class WorkspaceViewController: NSViewController {
 
     @objc
     func toggleSidebar(_ sender: Any?) {
+        let sidebarItem = workspaceSplitViewController.splitViewItems.first
+        let wasCollapsed = sidebarItem?.isCollapsed == true
+        let widthToRestore = lastExpandedSidebarWidth
+        if !wasCollapsed {
+            pendingExpandedSidebarWidth = nil
+            isApplyingSidebarGeometry = false
+            captureExpandedSidebarWidth()
+        }
+        if wasCollapsed {
+            isApplyingSidebarGeometry = true
+            pendingExpandedSidebarWidth = widthToRestore
+            prepareSidebarWidth(widthToRestore)
+        }
         workspaceSplitViewController.toggleSidebar(sender)
+        if wasCollapsed {
+            DispatchQueue.main.async { [weak self] in
+                self?.applyPendingExpandedSidebarWidthIfPossible()
+            }
+        }
     }
 
     fileprivate func makePreviewSourceControlView(toolbarItem: NSToolbarItem) -> NSView {
@@ -799,6 +838,259 @@ final class WorkspaceViewController: NSViewController {
         window.toolbar = toolbar
         window.layoutIfNeeded()
         refreshPreviewSourceToolbar()
+    }
+
+    func restoreWorkspaceGeometryIfNeeded() {
+        guard !hasRestoredWorkspaceGeometry, let window = view.window else {
+            return
+        }
+        hasRestoredWorkspaceGeometry = true
+
+        guard let geometry = layoutState.geometry else {
+            if !window.styleMask.contains(.fullScreen) {
+                lastNormalWindowFrame = window.frame
+            }
+            return
+        }
+
+        let restoredFrame = Self.constrainedWindowFrame(
+            geometry.windowFrame,
+            minimumSize: window.minSize,
+            visibleScreenFrames: NSScreen.screens.map(\.visibleFrame),
+            fallbackVisibleFrame: window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        )
+        if let restoredFrame {
+            if window.styleMask.contains(.fullScreen) {
+                pendingNormalWindowFrame = restoredFrame
+            } else {
+                window.setFrame(restoredFrame, display: true)
+            }
+            lastNormalWindowFrame = restoredFrame
+        }
+
+        window.layoutIfNeeded()
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window, self.view.window === window else {
+                return
+            }
+            window.layoutIfNeeded()
+            self.restoreSidebarGeometry(geometry)
+        }
+    }
+
+    private func restoreSidebarGeometry(_ geometry: WorkspaceGeometryState) {
+        guard let sidebarItem = workspaceSplitViewController.splitViewItems.first else {
+            return
+        }
+
+        let width = Self.clampedSidebarWidth(geometry.sidebarWidth)
+        isApplyingSidebarGeometry = true
+        defer {
+            isApplyingSidebarGeometry = false
+        }
+        lastExpandedSidebarWidth = width
+        sidebarItem.isCollapsed = false
+        applySidebarWidth(width)
+        sidebarItem.isCollapsed = geometry.isSidebarCollapsed
+        lastExpandedSidebarWidth = width
+    }
+
+    private func applySidebarWidth(_ width: CGFloat) {
+        prepareSidebarWidth(width)
+        guard let sidebarItem = workspaceSplitViewController.splitViewItems.first else {
+            return
+        }
+        guard !sidebarItem.isCollapsed else {
+            return
+        }
+        let splitView = workspaceSplitViewController.splitView
+        workspaceSplitViewController.view.layoutSubtreeIfNeeded()
+        splitView.adjustSubviews()
+        if splitView.arrangedSubviews.count >= 2 {
+            splitView.setPosition(width, ofDividerAt: 0)
+        }
+        lastExpandedSidebarWidth = width
+    }
+
+    private func prepareSidebarWidth(_ width: CGFloat) {
+        lastExpandedSidebarWidth = width
+        let splitView = workspaceSplitViewController.splitView
+        guard splitView.bounds.width > 0 else {
+            return
+        }
+        workspaceSplitViewController.splitViewItems.first?.preferredThicknessFraction =
+            min(max(width / splitView.bounds.width, 0), 1)
+    }
+
+    private func applyPendingExpandedSidebarWidthIfPossible() {
+        guard let width = pendingExpandedSidebarWidth,
+              workspaceSplitViewController.splitViewItems.first?.isCollapsed == false else {
+            return
+        }
+        pendingExpandedSidebarWidth = nil
+        applySidebarWidth(width)
+        isApplyingSidebarGeometry = false
+    }
+
+    @objc
+    private func workspaceSplitViewDidResize(_ notification: Notification) {
+        if pendingExpandedSidebarWidth != nil {
+            applyPendingExpandedSidebarWidthIfPossible()
+            return
+        }
+        guard !isApplyingSidebarGeometry else {
+            return
+        }
+        captureExpandedSidebarWidth()
+    }
+
+    private func captureExpandedSidebarWidth() {
+        guard let sidebarItem = workspaceSplitViewController?.splitViewItems.first,
+              !sidebarItem.isCollapsed else {
+            return
+        }
+        let width = sidebarPaneWidth(for: sidebarItem)
+        guard width.isFinite, width > 0 else {
+            return
+        }
+        lastExpandedSidebarWidth = Self.clampedSidebarWidth(Double(width))
+        let totalWidth = workspaceSplitViewController.splitView.bounds.width
+        if totalWidth > 0 {
+            sidebarItem.preferredThicknessFraction = min(
+                max(lastExpandedSidebarWidth / totalWidth, 0),
+                1
+            )
+        }
+    }
+
+    private func sidebarPaneWidth(for sidebarItem: NSSplitViewItem) -> CGFloat {
+        let splitView = workspaceSplitViewController.splitView
+        return splitView.arrangedSubviews.first?.frame.width
+            ?? sidebarItem.viewController.view.frame.width
+    }
+
+    private func captureWorkspaceGeometry() {
+        guard isViewLoaded, let window = view.window else {
+            return
+        }
+
+        let isFullScreen = window.styleMask.contains(.fullScreen)
+        let normalFrame = Self.normalWindowFrame(
+            currentFrame: window.frame,
+            isFullScreen: isFullScreen,
+            lastNormalFrame: lastNormalWindowFrame,
+            persistedFrame: layoutState.geometry?.windowFrame
+        )
+        if !isFullScreen {
+            lastNormalWindowFrame = window.frame
+        }
+        guard let normalFrame else {
+            return
+        }
+
+        captureExpandedSidebarWidth()
+        let isSidebarCollapsed = workspaceSplitViewController.splitViewItems.first?.isCollapsed ?? false
+        layoutState.geometry = WorkspaceGeometryState(
+            windowFrame: WorkspaceWindowFrame(
+                x: Double(normalFrame.origin.x),
+                y: Double(normalFrame.origin.y),
+                width: Double(normalFrame.width),
+                height: Double(normalFrame.height)
+            ),
+            sidebarWidth: Double(lastExpandedSidebarWidth),
+            isSidebarCollapsed: isSidebarCollapsed
+        )
+    }
+
+    static func normalWindowFrame(
+        currentFrame: NSRect,
+        isFullScreen: Bool,
+        lastNormalFrame: NSRect?,
+        persistedFrame: WorkspaceWindowFrame?
+    ) -> NSRect? {
+        if !isFullScreen {
+            return currentFrame
+        }
+        return lastNormalFrame ?? persistedFrame.flatMap(rect(from:))
+    }
+
+    static func constrainedWindowFrame(
+        _ savedFrame: WorkspaceWindowFrame,
+        minimumSize: NSSize,
+        visibleScreenFrames: [NSRect],
+        fallbackVisibleFrame: NSRect?
+    ) -> NSRect? {
+        guard let candidate = rect(from: savedFrame) else {
+            return nil
+        }
+        let screens = visibleScreenFrames.filter(isValidScreenFrame)
+        guard !screens.isEmpty else {
+            return nil
+        }
+
+        let bestIntersectingScreen = screens.max {
+            intersectionArea(candidate, $0) < intersectionArea(candidate, $1)
+        }
+        let targetScreen: NSRect
+        if let bestIntersectingScreen,
+           intersectionArea(candidate, bestIntersectingScreen) > 0 {
+            targetScreen = bestIntersectingScreen
+        } else if let fallbackVisibleFrame,
+                  isValidScreenFrame(fallbackVisibleFrame) {
+            targetScreen = fallbackVisibleFrame
+        } else {
+            targetScreen = screens[0]
+        }
+
+        let width = min(max(candidate.width, minimumSize.width), targetScreen.width)
+        let height = min(max(candidate.height, minimumSize.height), targetScreen.height)
+        let x = min(
+            max(candidate.minX, targetScreen.minX),
+            targetScreen.maxX - width
+        )
+        let y = min(
+            max(candidate.minY, targetScreen.minY),
+            targetScreen.maxY - height
+        )
+        return NSRect(x: x, y: y, width: width, height: height)
+    }
+
+    private static func rect(from frame: WorkspaceWindowFrame) -> NSRect? {
+        let values = [frame.x, frame.y, frame.width, frame.height]
+        guard values.allSatisfy(\.isFinite), frame.width > 0, frame.height > 0 else {
+            return nil
+        }
+        return NSRect(
+            x: frame.x,
+            y: frame.y,
+            width: frame.width,
+            height: frame.height
+        )
+    }
+
+    private static func isValidScreenFrame(_ frame: NSRect) -> Bool {
+        let values = [
+            frame.origin.x,
+            frame.origin.y,
+            frame.width,
+            frame.height
+        ]
+        return values.allSatisfy(\.isFinite) && frame.width > 0 && frame.height > 0
+    }
+
+    private static func intersectionArea(_ first: NSRect, _ second: NSRect) -> CGFloat {
+        let intersection = first.intersection(second)
+        guard !intersection.isNull else {
+            return 0
+        }
+        return max(0, intersection.width) * max(0, intersection.height)
+    }
+
+    private static func clampedSidebarWidth(_ width: Double?) -> CGFloat {
+        guard let width, width.isFinite else {
+            return defaultSidebarWidth
+        }
+        return min(max(CGFloat(width), minimumSidebarWidth), maximumSidebarWidth)
     }
 
     // MARK: - Git (SPEC 9)
@@ -1848,6 +2140,18 @@ final class WorkspaceViewController: NSViewController {
         }
     }
 
+    func persistRestorableState() {
+        if isViewLoaded, let splitContainer {
+            for controller in splitContainer.allGroupControllers {
+                controller.captureLatestAnchorIntoState()
+                layoutState.groups[controller.groupID] = controller.state
+            }
+            layoutState.root = splitContainer.captureLayout()
+            captureWorkspaceGeometry()
+        }
+        persistLayout()
+    }
+
     private func persistLayout() {
         layoutStore.save(layoutState, for: identity)
     }
@@ -2143,6 +2447,10 @@ final class WorkspaceViewController: NSViewController {
         sidebarModeControl.target = self
         sidebarModeControl.action = #selector(sidebarModeChanged(_:))
         sidebarModeControl.identifier = NSUserInterfaceItemIdentifier("workspace.sidebarMode")
+        sidebarModeControl.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
         sidebarModeControl.translatesAutoresizingMaskIntoConstraints = false
 
         explorerContainer = makeExplorerView()
@@ -2881,11 +3189,27 @@ extension WorkspaceViewController: NSWindowDelegate {
         cancelHover()
         definitionNavigationTask?.cancel()
         definitionNavigationTask = nil
-        for controller in splitContainer.allGroupControllers {
-            controller.captureLatestAnchorIntoState()
-            layoutState.groups[controller.groupID] = controller.state
+        persistRestorableState()
+    }
+
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else {
+            return
         }
-        persistLayout()
+        lastNormalWindowFrame = window.frame
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else {
+            return
+        }
+        if let pendingNormalWindowFrame {
+            window.setFrame(pendingNormalWindowFrame, display: true)
+            lastNormalWindowFrame = pendingNormalWindowFrame
+            self.pendingNormalWindowFrame = nil
+        } else {
+            lastNormalWindowFrame = window.frame
+        }
     }
 }
 

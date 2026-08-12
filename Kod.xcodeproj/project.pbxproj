@@ -101,6 +101,7 @@
 		B0000000000000000000006A /* MaterialFileIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000052 /* MaterialFileIcons.swift */; };
 		B0000000000000000000006B /* MaterialIcons in Resources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000053 /* MaterialIcons */; };
 		B0000000000000000000006C /* MaterialFileIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000054 /* MaterialFileIconTests.swift */; };
+		B0000000000000000000006D /* WorkspaceLayoutPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000055 /* WorkspaceLayoutPersistenceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -192,6 +193,7 @@
 		C00000000000000000000052 /* MaterialFileIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaterialFileIcons.swift; sourceTree = "<group>"; };
 		C00000000000000000000053 /* MaterialIcons */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MaterialIcons; sourceTree = "<group>"; };
 		C00000000000000000000054 /* MaterialFileIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaterialFileIconTests.swift; sourceTree = "<group>"; };
+		C00000000000000000000055 /* WorkspaceLayoutPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLayoutPersistenceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -350,6 +352,7 @@
 				C00000000000000000000051 /* LanguageHoverControllerTests.swift */,
 				C00000000000000000000054 /* MaterialFileIconTests.swift */,
 				C00000000000000000000092 /* LanguageSupportServiceTests.swift */,
+				C00000000000000000000055 /* WorkspaceLayoutPersistenceTests.swift */,
 			);
 			path = KodAppTests;
 			sourceTree = "<group>";
@@ -597,6 +600,7 @@
 				B00000000000000000000069 /* LanguageHoverControllerTests.swift in Sources */,
 				B0000000000000000000006C /* MaterialFileIconTests.swift in Sources */,
 				B00000000000000000000092 /* LanguageSupportServiceTests.swift in Sources */,
+				B0000000000000000000006D /* WorkspaceLayoutPersistenceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

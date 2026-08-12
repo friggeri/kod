@@ -46,6 +46,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        persistCurrentWorkspaceState()
+    }
+
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
         guard let filename = filenames.first else {
             sender.reply(toOpenOrPrint: .failure)
@@ -512,14 +516,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             recentWorkspaceStore.record(identity.root)
             configureMainMenu()
 
+            guard let window = welcomeWindowController?.window else {
+                return
+            }
+            persistCurrentWorkspaceState(in: window)
             let controller = WorkspaceViewController(
                 identity: identity,
                 diagnosticsLog: diagnosticsLog,
                 languageSupportService: languageSupportService
             )
-            guard let window = welcomeWindowController?.window else {
-                return
-            }
             window.contentViewController = controller
             window.title = identity.root.lastPathComponent
         } catch {
@@ -551,6 +556,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let window = self.welcomeWindowController?.window else {
                     return
                 }
+                self.persistCurrentWorkspaceState(in: window)
                 self.restoreStandardWindowChrome(window)
                 window.contentViewController = controller
                 window.title = url.lastPathComponent
@@ -567,12 +573,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func restoreStandardWindowChrome(_ window: NSWindow) {
+        window.delegate = nil
         window.toolbar = nil
         window.styleMask.remove(.fullSizeContentView)
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.titlebarSeparatorStyle = .automatic
         window.toolbarStyle = .automatic
+    }
+
+    func persistCurrentWorkspaceState(in window: NSWindow? = nil) {
+        let window = window ?? welcomeWindowController?.window
+        (window?.contentViewController as? WorkspaceViewController)?
+            .persistRestorableState()
     }
 
     private func commandLineURL(after flag: String) -> URL? {

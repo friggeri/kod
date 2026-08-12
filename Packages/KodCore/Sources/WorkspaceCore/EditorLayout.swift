@@ -291,6 +291,36 @@ public enum SplitOrientation: String, Equatable, Codable, Sendable {
     case vertical
 }
 
+public struct WorkspaceWindowFrame: Equatable, Codable, Sendable {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+}
+
+public struct WorkspaceGeometryState: Equatable, Codable, Sendable {
+    public var windowFrame: WorkspaceWindowFrame
+    public var sidebarWidth: Double
+    public var isSidebarCollapsed: Bool
+
+    public init(
+        windowFrame: WorkspaceWindowFrame,
+        sidebarWidth: Double,
+        isSidebarCollapsed: Bool
+    ) {
+        self.windowFrame = windowFrame
+        self.sidebarWidth = sidebarWidth
+        self.isSidebarCollapsed = isSidebarCollapsed
+    }
+}
+
 /// A binary tree of split editor groups. Leaves are group identifiers;
 /// internal nodes describe an orientation, the divider ratio, and the two
 /// child subtrees, allowing arbitrarily nested horizontal/vertical splits.
@@ -360,23 +390,27 @@ public indirect enum SplitLayoutNode: Equatable, Codable, Sendable {
 
 /// The full restorable layout of one workspace window: its split tree, the
 /// state of every group in that tree, the currently active group, and the
-/// global word-wrap preference.
+/// global word-wrap preference. Window/sidebar geometry is optional so layout
+/// blobs written before geometry persistence was introduced remain decodable.
 public struct WorkspaceLayoutState: Equatable, Codable, Sendable {
     public var root: SplitLayoutNode
     public var groups: [EditorGroupID: EditorGroupState]
     public var activeGroupID: EditorGroupID
     public var wordWrapEnabled: Bool
+    public var geometry: WorkspaceGeometryState?
 
     public init(
         root: SplitLayoutNode,
         groups: [EditorGroupID: EditorGroupState],
         activeGroupID: EditorGroupID,
-        wordWrapEnabled: Bool = false
+        wordWrapEnabled: Bool = false,
+        geometry: WorkspaceGeometryState? = nil
     ) {
         self.root = root
         self.groups = groups
         self.activeGroupID = activeGroupID
         self.wordWrapEnabled = wordWrapEnabled
+        self.geometry = geometry
     }
 
     public static func singleGroup() -> WorkspaceLayoutState {

@@ -14,6 +14,7 @@ final class SplitContainerViewController: NSViewController {
     private(set) var root: SplitLayoutNode
     private let makeGroupController: (EditorGroupID) -> EditorGroupViewController
     private var groupControllers: [EditorGroupID: EditorGroupViewController] = [:]
+    private weak var builtRootView: NSView?
 
     init(root: SplitLayoutNode, makeGroupController: @escaping (EditorGroupID) -> EditorGroupViewController) {
         self.root = root
@@ -58,6 +59,7 @@ final class SplitContainerViewController: NSViewController {
         view.subviews.forEach { $0.removeFromSuperview() }
 
         let builtView = buildView(for: root)
+        builtRootView = builtView
         builtView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(builtView)
         NSLayoutConstraint.activate([
@@ -66,6 +68,16 @@ final class SplitContainerViewController: NSViewController {
             builtView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             builtView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+    }
+
+    func captureLayout() -> SplitLayoutNode {
+        guard let builtRootView else {
+            return root
+        }
+        view.layoutSubtreeIfNeeded()
+        let capturedRoot = capture(node: root, from: builtRootView)
+        root = capturedRoot
+        return capturedRoot
     }
 
     private func groupController(for id: EditorGroupID) -> EditorGroupViewController {
@@ -117,6 +129,36 @@ final class SplitContainerViewController: NSViewController {
             }
 
             return splitView
+        }
+    }
+
+    private func capture(node: SplitLayoutNode, from builtView: NSView) -> SplitLayoutNode {
+        switch node {
+        case .leaf:
+            return node
+
+        case .split(let orientation, let savedRatio, let first, let second):
+            guard let splitView = builtView as? NSSplitView,
+                  splitView.arrangedSubviews.count == 2 else {
+                return node
+            }
+
+            let total = splitView.isVertical
+                ? splitView.bounds.width
+                : splitView.bounds.height
+            let firstExtent = splitView.isVertical
+                ? splitView.arrangedSubviews[0].frame.width
+                : splitView.arrangedSubviews[0].frame.height
+            let ratio = total > 0
+                ? min(max(Double(firstExtent / total), 0), 1)
+                : savedRatio
+
+            return .split(
+                orientation: orientation,
+                ratio: ratio,
+                first: capture(node: first, from: splitView.arrangedSubviews[0]),
+                second: capture(node: second, from: splitView.arrangedSubviews[1])
+            )
         }
     }
 }

@@ -208,11 +208,46 @@ final class EditorLayoutTests: XCTestCase {
         state.activeGroup?.openTab(relativePath: "Sources/A.swift", pinned: true)
         state.wordWrapEnabled = true
         _ = state.split(orientation: .vertical)
+        state.geometry = WorkspaceGeometryState(
+            windowFrame: WorkspaceWindowFrame(
+                x: 120,
+                y: 80,
+                width: 1_280,
+                height: 800
+            ),
+            sidebarWidth: 286,
+            isSidebarCollapsed: true
+        )
 
         let data = try JSONEncoder().encode(state)
         let decoded = try JSONDecoder().decode(WorkspaceLayoutState.self, from: data)
 
         XCTAssertEqual(decoded, state)
+    }
+
+    func testWorkspaceLayoutStateDecodesLegacyJSONWithoutGeometry() throws {
+        struct LegacyWorkspaceLayoutState: Encodable {
+            var root: SplitLayoutNode
+            var groups: [EditorGroupID: EditorGroupState]
+            var activeGroupID: EditorGroupID
+            var wordWrapEnabled: Bool
+        }
+
+        let state = WorkspaceLayoutState.singleGroup()
+        let legacyState = LegacyWorkspaceLayoutState(
+            root: state.root,
+            groups: state.groups,
+            activeGroupID: state.activeGroupID,
+            wordWrapEnabled: state.wordWrapEnabled
+        )
+
+        let data = try JSONEncoder().encode(legacyState)
+        let decoded = try JSONDecoder().decode(WorkspaceLayoutState.self, from: data)
+
+        XCTAssertEqual(decoded.root, state.root)
+        XCTAssertEqual(decoded.groups, state.groups)
+        XCTAssertEqual(decoded.activeGroupID, state.activeGroupID)
+        XCTAssertNil(decoded.geometry)
     }
 }
 
@@ -248,6 +283,47 @@ final class WorkspaceLayoutStoreTests: XCTestCase {
 
         store.clear(for: identity)
         XCTAssertNil(store.load(for: identity))
+    }
+
+    @MainActor
+    func testStoreKeepsWindowGeometryIsolatedPerWorkspaceIdentity() throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let firstRoot = parent.appendingPathComponent("First", isDirectory: true)
+        let secondRoot = parent.appendingPathComponent("Second", isDirectory: true)
+        try FileManager.default.createDirectory(at: firstRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try FileManager.default.removeItem(at: parent)
+        }
+
+        let suiteName = "WorkspaceLayoutStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        addTeardownBlock {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+        let store = WorkspaceLayoutStore(defaults: defaults)
+
+        let firstIdentity = try WorkspaceIdentity(root: firstRoot)
+        let secondIdentity = try WorkspaceIdentity(root: secondRoot)
+        var firstState = WorkspaceLayoutState.singleGroup()
+        firstState.geometry = WorkspaceGeometryState(
+            windowFrame: WorkspaceWindowFrame(x: 10, y: 20, width: 900, height: 600),
+            sidebarWidth: 220,
+            isSidebarCollapsed: false
+        )
+        var secondState = WorkspaceLayoutState.singleGroup()
+        secondState.geometry = WorkspaceGeometryState(
+            windowFrame: WorkspaceWindowFrame(x: 300, y: 200, width: 1_400, height: 900),
+            sidebarWidth: 360,
+            isSidebarCollapsed: true
+        )
+
+        store.save(firstState, for: firstIdentity)
+        store.save(secondState, for: secondIdentity)
+
+        XCTAssertEqual(store.load(for: firstIdentity)?.geometry, firstState.geometry)
+        XCTAssertEqual(store.load(for: secondIdentity)?.geometry, secondState.geometry)
     }
 
     @MainActor
