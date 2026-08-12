@@ -116,12 +116,12 @@ fi
 # Phase 10's PreviewCoreTests (Markdown/JSON/plist/image golden and
 # hostile-input coverage, no-network-by-default process/network-spy
 # tests, and full workspace immutability checks) are fully offline and
-# self-contained: PreviewCore has no third-party dependencies (it uses
-# only Foundation, ImageIO, CoreGraphics, UniformTypeIdentifiers, and
-# this repository's own SourceModel/SyntaxCore/ThemeCore), no fixture
-# vendoring, and no external services to provision.
+# self-contained: cmark-gfm is pinned and compiled from the in-tree source
+# verified by Scripts/vendor-cmark-gfm; the rest uses Apple frameworks and
+# this repository's own modules. There are no remote package dependencies,
+# fixture downloads, or external services to provision.
 if [ "$phase" = "10" ]; then
-    printf '%s\n' "==> Phase 10 preview tests run fully offline (no third-party PreviewCore dependencies, no external setup required)"
+    printf '%s\n' "==> Phase 10 preview tests run fully offline (pinned in-tree cmark-gfm; no external setup required)"
 fi
 
 # Phase 11's accessibility/privacy/reliability hardening (DiagnosticsCoreTests'

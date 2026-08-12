@@ -65,6 +65,27 @@ def vendored_components() -> list[dict]:
                 "purl": None,
             })
 
+    cmark_license = REPO_ROOT / "Packages/KodCore/Sources/CCMarkGFM/LICENSE-cmark-gfm.txt"
+    components = [component for component in components if component["licenseFile"] != str(cmark_license.relative_to(REPO_ROOT))]
+    if cmark_license.exists():
+        components.append({
+            "name": "cmark-gfm",
+            "type": "library",
+            "version": "0.29.0.gfm.13",
+            "licenseFile": str(cmark_license.relative_to(REPO_ROOT)),
+            "purl": "pkg:github/github/cmark-gfm@587a12bb54d95ac37241377e6ddc93ea0e45439b",
+        })
+
+    components.append({
+        "name": "github-markdown-css",
+        "type": "data",
+        "version": "e49401776c9d581ad42367fc4ea3d677d13e2e39",
+        "licenseFile": "Vendor/Licenses/github-markdown-css-LICENSE.txt",
+        "purl": "pkg:github/sindresorhus/github-markdown-css@e49401776c9d581ad42367fc4ea3d677d13e2e39",
+        "scope": "excluded",
+        "properties": [{"name": "kod:usage", "value": "design-reference-only; CSS is not shipped or executed"}],
+    })
+
     ripgrep_dir = REPO_ROOT / "Packages" / "KodCore" / "Sources" / "SearchCore" / "Resources" / "ripgrep"
     if ripgrep_dir.exists():
         components.append({

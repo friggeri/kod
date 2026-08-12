@@ -53,6 +53,40 @@ let package = Package(
             dependencies: ["KodFixtureSupport"]
         ),
 
+        // MARK: - cmark-gfm (vendored, pinned to 0.29.0.gfm.13).
+        .target(
+            name: "CCMarkGFM",
+            path: "Sources/CCMarkGFM",
+            exclude: ["LICENSE-cmark-gfm.txt"],
+            sources: [
+                "arena.c", "blocks.c", "buffer.c", "cmark.c", "cmark_ctype.c",
+                "commonmark.c", "footnotes.c", "houdini_href_e.c",
+                "houdini_html_e.c", "houdini_html_u.c", "html.c", "inlines.c",
+                "iterator.c", "latex.c", "linked_list.c", "man.c", "map.c",
+                "node.c", "plaintext.c", "plugin.c", "references.c", "registry.c",
+                "render.c", "scanners.c", "syntax_extension.c", "utf8.c", "xml.c"
+            ],
+            publicHeadersPath: "include",
+            cSettings: [
+                .define("CMARK_GFM_STATIC_DEFINE")
+            ]
+        ),
+        .target(
+            name: "CCMarkGFMExtensions",
+            dependencies: ["CCMarkGFM"],
+            path: "Sources/CCMarkGFMExtensions",
+            sources: [
+                "autolink.c", "core-extensions.c", "ext_scanners.c",
+                "kod-cmark-gfm.c", "strikethrough.c", "table.c", "tagfilter.c",
+                "tasklist.c"
+            ],
+            publicHeadersPath: "include",
+            cSettings: [
+                .define("CMARK_GFM_STATIC_DEFINE"),
+                .define("CMARK_GFM_EXTENSIONS_STATIC_DEFINE")
+            ]
+        ),
+
         // MARK: - Tree-sitter runtime (vendored, pinned to tree-sitter v0.26.11).
         .target(
             name: "CTreeSitter",
@@ -324,7 +358,7 @@ let package = Package(
         ),
         .target(
             name: "PreviewCore",
-            dependencies: ["SourceModel", "SyntaxCore", "ThemeCore"]
+            dependencies: ["SourceModel", "SyntaxCore", "ThemeCore", "CCMarkGFMExtensions"]
         ),
         .target(
             name: "DiagnosticsCore"

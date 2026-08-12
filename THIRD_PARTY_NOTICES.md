@@ -161,13 +161,43 @@ fixtures only. Kod does not download or install language servers for users.
 Swift's SourceKit-LSP continues to be discovered exclusively through the
 active Xcode/toolchain (unchanged from Phase 6) and needs no setup here.
 
+## cmark-gfm
+
+- **Project:** [github/cmark-gfm](https://github.com/github/cmark-gfm)
+- **Pinned release:** `0.29.0.gfm.13`
+- **Pinned commit:** `587a12bb54d95ac37241377e6ddc93ea0e45439b`
+- **Vendored at:** `Packages/KodCore/Sources/CCMarkGFM` and
+  `Packages/KodCore/Sources/CCMarkGFMExtensions`
+- **License:** BSD-2-Clause with the upstream COPYING file's included MIT and
+  derivative-work notices — complete text at
+  `Packages/KodCore/Sources/CCMarkGFM/LICENSE-cmark-gfm.txt`; binary release
+  archives include the same text as
+  `THIRD_PARTY_LICENSES/cmark-gfm-COPYING.txt`.
+- **Use:** formal CommonMark/GFM parsing only. Kod enables table, tasklist,
+  strikethrough, autolink, and tagfilter; footnotes are not enabled. Kod does
+  not use cmark's HTML renderer or dynamic extension loading.
+- **Reproducibility:** `Scripts/vendor-cmark-gfm/manifest.json` records the
+  source archive SHA-256 and compiled file set;
+  `Scripts/vendor-cmark-gfm/fetch.py --verify` re-downloads the exact archive,
+  verifies it, and byte-compares every vendored upstream file.
+
+## github-markdown-css design reference
+
+- **Project:** [sindresorhus/github-markdown-css](https://github.com/sindresorhus/github-markdown-css)
+- **Pinned commit:** `e49401776c9d581ad42367fc4ea3d677d13e2e39`
+- **License:** MIT (Copyright Sindre Sorhus) — full text at
+  `Vendor/Licenses/github-markdown-css-LICENSE.txt`; binary release archives
+  include it under `THIRD_PARTY_LICENSES/`.
+- **Use:** reviewed design reference for Markdown hierarchy and spacing only.
+  Kod does not vendor, bundle, parse, or execute the CSS; the corresponding
+  AppKit translation is documented at
+  `Vendor/DesignReferences/github-markdown-css.md`.
+
 ## PreviewCore (Phase 10 built-in previews)
 
-`PreviewCore`'s Markdown parser/sanitizer, JSON/plist parsers, image
-decoder, and SVG sanitizer are 100% original Kod code with **no
-third-party dependency of any kind** — no vendored CommonMark/cmark, no
-vendored XML/HTML parsing library, no vendored image-decoding library.
-Everything is built on Apple's own frameworks already available on every
+Except for the pinned cmark-gfm parser above, `PreviewCore`'s safe Markdown AST
+conversion/sanitization/render model, JSON/plist parsers, image decoder, and SVG
+sanitizer are original Kod code. They use Apple's frameworks available on every
 supported macOS version:
 
 - `Foundation` — `JSONSerialization`/`PropertyListSerialization` are
@@ -183,8 +213,7 @@ supported macOS version:
   exact same pipeline `CodeViewport` uses for whole files; there is no
   second source-rendering path.
 
-There is nothing to pin, vendor, or attribute here beyond what the
-sections above already cover.
+No other preview dependency is fetched or resolved at build or runtime.
 
 ## UpdaterCore and FuzzSupport (Phase 12 release qualification)
 
