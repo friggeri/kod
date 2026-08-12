@@ -33,7 +33,7 @@ its artifact:
 | `generate-sbom.py` | CycloneDX-shaped SBOM of every vendored component | nothing |
 | `codesign-and-notarize.sh` | Hardened-runtime codesign + `notarytool submit --wait` + staple | **`KOD_CODE_SIGN_IDENTITY` and (`KOD_NOTARIZATION_KEYCHAIN_PROFILE` or the `KOD_NOTARIZATION_API_KEY_*` trio)** |
 | `verify-gatekeeper.sh` | Static `spctl -a` assessment (not a real clean-Mac launch) | nothing to run, but only meaningfully *passes* after real notarization |
-| `make-dmg.sh` | Packages a DMG + ZIP with `THIRD_PARTY_NOTICES.md` | nothing |
+| `make-dmg.sh` | Packages a DMG + ZIP with `THIRD_PARTY_NOTICES.md` and complete third-party license texts | nothing |
 | `checksums.sh` | SHA-256 of every DMG/ZIP | nothing |
 | `generate-provenance.py` | Unsigned build-provenance JSON per artifact | nothing (signing it is a separate, credential-gated step — see the script) |
 | `generate-homebrew-cask.py` | Homebrew Cask template | nothing (produces placeholders until a real published DMG exists) |

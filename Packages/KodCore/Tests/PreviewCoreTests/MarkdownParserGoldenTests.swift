@@ -62,7 +62,7 @@ final class MarkdownParserGoldenTests: XCTestCase {
             .text(" and "),
             .strong([.text("bold")]),
             .text(" and "),
-            .strong([.emphasis([.text("both")])])
+            .emphasis([.strong([.text("both")])])
         ])
     }
 

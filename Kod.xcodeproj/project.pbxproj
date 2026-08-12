@@ -71,6 +71,7 @@
 		B0000000000000000000004D /* GitCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000019 /* GitCore */; };
 		B0000000000000000000004E /* PreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000003A /* PreviewViewController.swift */; };
 		B0000000000000000000004F /* MarkdownPreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000003B /* MarkdownPreviewViewController.swift */; };
+		B00000000000000000000093 /* MarkdownAttributedDocumentRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000093 /* MarkdownAttributedDocumentRenderer.swift */; };
 		B00000000000000000000050 /* StructuredDataPreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000003C /* StructuredDataPreviewViewController.swift */; };
 		B00000000000000000000051 /* ImagePreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000003D /* ImagePreviewViewController.swift */; };
 		B00000000000000000000052 /* PreviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000001A /* PreviewCore */; };
@@ -165,6 +166,7 @@
 		C00000000000000000000039 /* GitBlameViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitBlameViewControllerTests.swift; sourceTree = "<group>"; };
 		C0000000000000000000003A /* PreviewViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewViewController.swift; sourceTree = "<group>"; };
 		C0000000000000000000003B /* MarkdownPreviewViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPreviewViewController.swift; sourceTree = "<group>"; };
+		C00000000000000000000093 /* MarkdownAttributedDocumentRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownAttributedDocumentRenderer.swift; sourceTree = "<group>"; };
 		C0000000000000000000003C /* StructuredDataPreviewViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuredDataPreviewViewController.swift; sourceTree = "<group>"; };
 		C0000000000000000000003D /* ImagePreviewViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePreviewViewController.swift; sourceTree = "<group>"; };
 		C0000000000000000000003E /* PreviewViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewViewControllerTests.swift; sourceTree = "<group>"; };
@@ -302,6 +304,7 @@
 				C00000000000000000000035 /* GitBlamePanelController.swift */,
 				C0000000000000000000003A /* PreviewViewController.swift */,
 				C0000000000000000000003B /* MarkdownPreviewViewController.swift */,
+				C00000000000000000000093 /* MarkdownAttributedDocumentRenderer.swift */,
 				C0000000000000000000003C /* StructuredDataPreviewViewController.swift */,
 				C0000000000000000000003D /* ImagePreviewViewController.swift */,
 				C00000000000000000000043 /* DiagnosticsView.swift */,
@@ -550,6 +553,7 @@
 				B00000000000000000000047 /* GitBlamePanelController.swift in Sources */,
 				B0000000000000000000004E /* PreviewViewController.swift in Sources */,
 				B0000000000000000000004F /* MarkdownPreviewViewController.swift in Sources */,
+				B00000000000000000000093 /* MarkdownAttributedDocumentRenderer.swift in Sources */,
 				B00000000000000000000050 /* StructuredDataPreviewViewController.swift in Sources */,
 				B00000000000000000000051 /* ImagePreviewViewController.swift in Sources */,
 				B0000000000000000000005B /* DiagnosticsView.swift in Sources */,

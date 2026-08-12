@@ -1,22 +1,9 @@
+import CCMarkGFMExtensions
 import Foundation
 
-/// Parses Markdown source text into a `MarkdownDocument`: CommonMark's
-/// core block/inline model plus GitHub-flavored tables, task lists, and
-/// fenced code (SPEC 10.1).
-///
-/// This is a from-scratch, line-oriented recursive-descent parser, not a
-/// full CommonMark-spec-test-suite-conformant implementation — it does not
-/// implement every corner of the reference algorithm (list-item lazy
-/// continuation across blockquotes, link-reference-definition backtracking
-/// across nested containers, and CommonMark's precise emphasis
-/// flanking-rule edge cases are all simplified). What it does guarantee,
-/// unconditionally, is the security contract in SPEC 10.1: raw HTML is
-/// always sanitized through `MarkdownHTMLSanitizer` before it reaches the
-/// AST, every link/image destination is classified through
-/// `MarkdownDestination` so the renderer can enforce link/image policy,
-/// and every recursive descent (blockquotes, nested lists, nested
-/// emphasis) is bounded by `MarkdownLimits` so a pathological document
-/// cannot overflow the stack or allocate without bound.
+/// Parses formal GitHub Flavored Markdown through the pinned, vendored
+/// cmark-gfm implementation and converts its tree into Kod's renderer-neutral,
+/// security-focused AST.
 public enum MarkdownParser {
     public static func parse(_ source: String, limits: MarkdownLimits = .default) -> MarkdownDocument {
         guard source.utf8.count <= limits.maximumSourceByteCount else {
@@ -26,703 +13,318 @@ public enum MarkdownParser {
             )
         }
 
-        let normalized = source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-
-        // Strip genuinely dangerous elements (`<script>`, `<style>`,
-        // `<iframe>`, ...) across the *entire raw source* before any
-        // block/inline boundary is even determined. This has to happen
-        // up front rather than inside per-fragment HTML sanitization:
-        // CommonMark's inline-HTML model treats each `<tag>` as its own
-        // independent span, with ordinary text in between — so a
-        // `<script>` opening tag and its `</script>` closing tag are two
-        // *separate* inline HTML spans with the actual script body
-        // sitting between them as plain paragraph text, never reaching
-        // any per-tag sanitizer at all. A single whole-document textual
-        // strip (matching same-name open/close tags directly,
-        // independent of block/inline parsing) is what actually removes
-        // the dangerous payload regardless of where it appears.
+        let normalized = source
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
         let prepass = DangerousElementStripper.strip(
             normalized,
             elementNames: ["script", "style", "iframe", "object", "embed", "template", "noscript", "form"]
         )
-        let lines = prepass.text.split(separator: "\n", omittingEmptySubsequences: false).map { Substring($0) }
 
-        var context = ParseContext(limits: limits)
-        context.sanitizerDiagnostics.append(contentsOf: prepass.removedConstructs)
-        let blocks = context.parseBlocks(lines[...], depth: 0)
-        return MarkdownDocument(blocks: blocks, sanitizerDiagnostics: context.sanitizerDiagnostics)
+        let root = prepass.text.utf8CString.withUnsafeBufferPointer { buffer in
+            kod_cmark_parse_gfm(buffer.baseAddress, max(0, buffer.count - 1))
+        }
+        guard let root else {
+            return MarkdownDocument(
+                blocks: [.paragraph([.text("Markdown preview could not parse this document; showing source view only.")])],
+                sanitizerDiagnostics: prepass.removedConstructs + ["cmark-gfm failed to create a document tree"]
+            )
+        }
+        defer { cmark_node_free(root) }
+
+        var converter = CMarkConverter(
+            limits: limits,
+            sanitizerDiagnostics: prepass.removedConstructs
+        )
+        return MarkdownDocument(
+            blocks: converter.convertDocument(root),
+            sanitizerDiagnostics: converter.sanitizerDiagnostics
+        )
     }
 }
 
-/// Mutable parsing state threaded through the recursive block parser:
-/// accumulated sanitizer diagnostics and a running node-count guard.
-private struct ParseContext {
-    let limits: MarkdownLimits
-    var sanitizerDiagnostics: [String] = []
-    var blockCount = 0
+private struct CMarkConverter {
+    typealias Node = UnsafeMutablePointer<cmark_node>
 
-    mutating func countBlock() -> Bool {
-        blockCount += 1
-        return blockCount <= limits.maximumBlockCount
+    let limits: MarkdownLimits
+    var sanitizerDiagnostics: [String]
+    private var blockCount = 0
+    private var didReportNodeLimit = false
+
+    init(limits: MarkdownLimits, sanitizerDiagnostics: [String]) {
+        self.limits = limits
+        self.sanitizerDiagnostics = sanitizerDiagnostics
     }
 
-    mutating func parseBlocks(_ lines: ArraySlice<Substring>, depth: Int) -> [MarkdownBlock] {
+    mutating func convertDocument(_ root: Node) -> [MarkdownBlock] {
+        guard kod_cmark_node_get_kind(root) == KOD_CMARK_DOCUMENT else {
+            sanitizerDiagnostics.append("cmark-gfm returned a non-document root")
+            return [.paragraph([.text("(invalid Markdown tree)")])]
+        }
+        return convertBlockChildren(of: root, depth: 0)
+    }
+
+    private mutating func convertBlockChildren(of parent: Node, depth: Int) -> [MarkdownBlock] {
         guard depth <= limits.maximumBlockDepth else {
+            sanitizerDiagnostics.append("Markdown container nesting exceeded the preview depth limit")
             return [.paragraph([.text("(nesting too deep; truncated)")])]
         }
-        var blocks: [MarkdownBlock] = []
-        var index = lines.startIndex
 
-        while index < lines.endIndex {
-            guard countBlock() else {
+        var blocks: [MarkdownBlock] = []
+        var child = cmark_node_first_child(parent)
+        while let node = child {
+            guard consumeNode() else {
                 blocks.append(.paragraph([.text("(document truncated at the block-count preview limit)")]))
                 break
             }
-            let line = lines[index]
-
-            if isBlankLine(line) {
-                index += 1
-                continue
+            if let block = convertBlock(node, depth: depth) {
+                blocks.append(block)
             }
-
-            if let breakConsumed = tryThematicBreak(line) {
-                blocks.append(.thematicBreak)
-                index += breakConsumed
-                continue
-            }
-
-            if let (level, inlineText) = tryATXHeading(line) {
-                blocks.append(.heading(level: level, inlines: parseInline(inlineText, depth: 0)))
-                index += 1
-                continue
-            }
-
-            if let fenceResult = tryFencedCodeBlock(lines, from: index) {
-                blocks.append(.codeBlock(language: fenceResult.language, code: fenceResult.code))
-                index = fenceResult.nextIndex
-                continue
-            }
-
-            if isIndentedCodeLine(line), !isInsideListContext {
-                let result = consumeIndentedCodeBlock(lines, from: index)
-                blocks.append(.codeBlock(language: nil, code: result.code))
-                index = result.nextIndex
-                continue
-            }
-
-            if isBlockquoteStart(line) {
-                let result = consumeBlockquote(lines, from: index)
-                let innerBlocks = parseBlocks(result.innerLines[...], depth: depth + 1)
-                blocks.append(.blockquote(innerBlocks))
-                index = result.nextIndex
-                continue
-            }
-
-            if let htmlResult = tryHTMLBlock(lines, from: index) {
-                let sanitized = MarkdownHTMLSanitizer.sanitize(htmlResult.rawHTML)
-                sanitizerDiagnostics.append(contentsOf: sanitized.removedConstructs)
-                blocks.append(.sanitizedHTMLBlock(sanitized.sanitizedText))
-                index = htmlResult.nextIndex
-                continue
-            }
-
-            if let listResult = tryList(lines, from: index, depth: depth) {
-                blocks.append(listResult.block)
-                index = listResult.nextIndex
-                continue
-            }
-
-            if let tableResult = tryTable(lines, from: index) {
-                blocks.append(tableResult.block)
-                index = tableResult.nextIndex
-                continue
-            }
-
-            let paragraphResult = consumeParagraph(lines, from: index)
-            if let level = paragraphResult.setextLevel {
-                blocks.append(.heading(level: level, inlines: parseInline(paragraphResult.text, depth: 0)))
-            } else {
-                blocks.append(.paragraph(parseInline(paragraphResult.text, depth: 0)))
-            }
-            index = paragraphResult.nextIndex
+            child = cmark_node_next(node)
         }
-
         return blocks
     }
 
-    // MARK: - Line classification
-
-    private var isInsideListContext: Bool { false }
-
-    func isBlankLine(_ line: Substring) -> Bool {
-        line.allSatisfy { $0 == " " || $0 == "\t" }
+    private mutating func convertBlock(_ node: Node, depth: Int) -> MarkdownBlock? {
+        switch kod_cmark_node_get_kind(node) {
+        case KOD_CMARK_PARAGRAPH:
+            return .paragraph(convertInlineChildren(of: node, depth: 0))
+        case KOD_CMARK_HEADING:
+            return .heading(
+                level: Int(cmark_node_get_heading_level(node)),
+                inlines: convertInlineChildren(of: node, depth: 0)
+            )
+        case KOD_CMARK_BLOCK_QUOTE:
+            return .blockquote(convertBlockChildren(of: node, depth: depth + 1))
+        case KOD_CMARK_LIST:
+            return convertList(node, depth: depth)
+        case KOD_CMARK_CODE_BLOCK:
+            let info = cString(cmark_node_get_fence_info(node))
+            let language = info?
+                .split(whereSeparator: \.isWhitespace)
+                .first
+                .map { String($0).lowercased() }
+            var code = cString(cmark_node_get_literal(node)) ?? ""
+            if code.hasSuffix("\n") {
+                code.removeLast()
+            }
+            return .codeBlock(language: language?.isEmpty == false ? language : nil, code: code)
+        case KOD_CMARK_HTML_BLOCK:
+            let sanitized = MarkdownHTMLSanitizer.sanitize(cString(cmark_node_get_literal(node)) ?? "")
+            sanitizerDiagnostics.append(contentsOf: sanitized.removedConstructs)
+            return .sanitizedHTMLBlock(sanitized.sanitizedText)
+        case KOD_CMARK_THEMATIC_BREAK:
+            return .thematicBreak
+        case KOD_CMARK_TABLE:
+            return convertTable(node, depth: depth)
+        case KOD_CMARK_UNKNOWN:
+            sanitizerDiagnostics.append("Skipped unsupported Markdown block \(nodeTypeName(node))")
+            return nil
+        default:
+            sanitizerDiagnostics.append("Skipped unexpected inline node \(nodeTypeName(node)) at block level")
+            return nil
+        }
     }
 
-    func leadingSpaceCount(_ line: Substring) -> Int {
-        var count = 0
-        for character in line {
-            if character == " " {
-                count += 1
-            } else if character == "\t" {
-                count += 4
-            } else {
+    private mutating func convertList(_ node: Node, depth: Int) -> MarkdownBlock {
+        let kind: MarkdownListKind
+        if cmark_node_get_list_type(node) == CMARK_ORDERED_LIST {
+            let delimiter: Character = cmark_node_get_list_delim(node) == CMARK_PAREN_DELIM ? ")" : "."
+            kind = .ordered(start: max(0, Int(cmark_node_get_list_start(node))), delimiter: delimiter)
+        } else {
+            kind = .unordered(marker: "-")
+        }
+
+        var items: [MarkdownListItem] = []
+        var child = cmark_node_first_child(node)
+        while let itemNode = child {
+            guard consumeNode() else {
+                items.append(MarkdownListItem(
+                    checked: nil,
+                    blocks: [.paragraph([.text("(list truncated at the block-count preview limit)")])]
+                ))
                 break
             }
+            if kod_cmark_node_get_kind(itemNode) == KOD_CMARK_ITEM {
+                let taskState = kod_cmark_task_state(itemNode)
+                let checked: Bool? = taskState < 0 ? nil : taskState == 1
+                items.append(MarkdownListItem(
+                    checked: checked,
+                    blocks: convertBlockChildren(of: itemNode, depth: depth + 1)
+                ))
+            } else {
+                sanitizerDiagnostics.append("Skipped non-item child in Markdown list")
+            }
+            child = cmark_node_next(itemNode)
+        }
+        return .list(kind: kind, isTight: cmark_node_get_list_tight(node) != 0, items: items)
+    }
+
+    private mutating func convertTable(_ node: Node, depth: Int) -> MarkdownBlock {
+        var rowNodes: [Node] = []
+        var child = cmark_node_first_child(node)
+        while let row = child {
+            guard consumeNode() else { break }
+            if kod_cmark_node_get_kind(row) == KOD_CMARK_TABLE_ROW {
+                rowNodes.append(row)
+            }
+            child = cmark_node_next(row)
+        }
+
+        let declaredColumnCount = rowNodes.first.map { countChildren(of: $0) } ?? 0
+        guard declaredColumnCount <= limits.maximumTableColumns else {
+            sanitizerDiagnostics.append("GFM table exceeded the \(limits.maximumTableColumns)-column preview limit")
+            return .paragraph([.text("(table truncated at the column preview limit)")])
+        }
+
+        let alignments = (0..<declaredColumnCount).map { index -> MarkdownTableAlignment in
+            switch UnicodeScalar(UInt8(bitPattern: kod_cmark_table_alignment(node, Int32(index)))) {
+            case "l": return .left
+            case "c": return .center
+            case "r": return .right
+            default: return .none
+            }
+        }
+        let convertedRows = rowNodes.map { row in
+            MarkdownTableRow(cells: convertTableCells(row, depth: depth + 1))
+        }
+        let header = convertedRows.first ?? MarkdownTableRow(cells: [])
+        return .table(alignments: alignments, header: header, rows: Array(convertedRows.dropFirst()))
+    }
+
+    private mutating func convertTableCells(_ row: Node, depth: Int) -> [[MarkdownInline]] {
+        var cells: [[MarkdownInline]] = []
+        var child = cmark_node_first_child(row)
+        while let cell = child {
+            guard consumeNode() else { break }
+            if kod_cmark_node_get_kind(cell) == KOD_CMARK_TABLE_CELL {
+                cells.append(convertInlineChildren(of: cell, depth: depth))
+            }
+            child = cmark_node_next(cell)
+        }
+        return cells
+    }
+
+    private func countChildren(of node: Node) -> Int {
+        var count = 0
+        var child = cmark_node_first_child(node)
+        while let current = child {
+            count += 1
+            child = cmark_node_next(current)
         }
         return count
     }
 
-    func tryThematicBreak(_ line: Substring) -> Int? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard leadingSpaceCount(line) < 4, trimmed.count >= 3 else {
-            return nil
+    private mutating func convertInlineChildren(of parent: Node, depth: Int) -> [MarkdownInline] {
+        guard depth <= limits.maximumInlineDepth else {
+            sanitizerDiagnostics.append("Markdown inline nesting exceeded the preview depth limit")
+            return [.text("(inline nesting too deep; truncated)")]
         }
-        guard let marker = trimmed.first, "-*_".contains(marker) else {
-            return nil
+        var inlines: [MarkdownInline] = []
+        var child = cmark_node_first_child(parent)
+        while let node = child {
+            if let inline = convertInline(node, depth: depth) {
+                inlines.append(inline)
+            }
+            child = cmark_node_next(node)
         }
-        let stripped = trimmed.filter { $0 != " " }
-        guard stripped.count >= 3, stripped.allSatisfy({ $0 == marker }) else {
-            return nil
-        }
-        return 1
+        return inlines
     }
 
-    func tryATXHeading(_ line: Substring) -> (level: Int, text: Substring)? {
-        guard leadingSpaceCount(line) < 4 else {
+    private mutating func convertInline(_ node: Node, depth: Int) -> MarkdownInline? {
+        switch kod_cmark_node_get_kind(node) {
+        case KOD_CMARK_TEXT:
+            return .text(cString(cmark_node_get_literal(node)) ?? "")
+        case KOD_CMARK_SOFTBREAK:
+            return .softBreak
+        case KOD_CMARK_LINEBREAK:
+            return .hardBreak
+        case KOD_CMARK_CODE:
+            return .code(cString(cmark_node_get_literal(node)) ?? "")
+        case KOD_CMARK_HTML_INLINE:
+            let sanitized = MarkdownHTMLSanitizer.sanitize(cString(cmark_node_get_literal(node)) ?? "")
+            sanitizerDiagnostics.append(contentsOf: sanitized.removedConstructs)
+            return .sanitizedHTML(sanitized.sanitizedText)
+        case KOD_CMARK_EMPH:
+            return .emphasis(convertInlineChildren(of: node, depth: depth + 1))
+        case KOD_CMARK_STRONG:
+            return .strong(convertInlineChildren(of: node, depth: depth + 1))
+        case KOD_CMARK_STRIKETHROUGH:
+            return .strikethrough(convertInlineChildren(of: node, depth: depth + 1))
+        case KOD_CMARK_LINK:
+            return .link(
+                destination: MarkdownDestination(rawValue: cString(cmark_node_get_url(node)) ?? ""),
+                title: nonEmpty(cString(cmark_node_get_title(node))),
+                children: convertInlineChildren(of: node, depth: depth + 1)
+            )
+        case KOD_CMARK_IMAGE:
+            return .image(
+                destination: MarkdownDestination(rawValue: cString(cmark_node_get_url(node)) ?? ""),
+                title: nonEmpty(cString(cmark_node_get_title(node))),
+                altText: plainText(of: node)
+            )
+        case KOD_CMARK_UNKNOWN:
+            sanitizerDiagnostics.append("Skipped unsupported Markdown inline \(nodeTypeName(node))")
+            return nil
+        default:
+            sanitizerDiagnostics.append("Skipped unexpected block node \(nodeTypeName(node)) at inline level")
             return nil
         }
-        var chars = line.drop { $0 == " " }
-        var level = 0
-        while chars.first == "#", level < 6 {
-            level += 1
-            chars.removeFirst()
-        }
-        guard level > 0, level <= 6 else {
-            return nil
-        }
-        guard chars.isEmpty || chars.first == " " || chars.first == "\t" else {
-            return nil // e.g. "#hashtag" is not a heading
-        }
-        var text = chars.drop { $0 == " " || $0 == "\t" }
-        // Strip a trailing closing sequence of '#' characters.
-        var trimmedEnd = Substring(text)
-        while trimmedEnd.last == " " {
-            trimmedEnd.removeLast()
-        }
-        var closingCount = 0
-        var scan = trimmedEnd
-        while scan.last == "#" {
-            closingCount += 1
-            scan.removeLast()
-        }
-        if closingCount > 0, (scan.isEmpty || scan.last == " ") {
-            trimmedEnd = scan
-            while trimmedEnd.last == " " {
-                trimmedEnd.removeLast()
+    }
+
+    private mutating func plainText(of parent: Node) -> String {
+        var result = ""
+        var stack = childNodes(of: parent).reversed().map { ($0, 0) }
+        while let (node, depth) = stack.popLast() {
+            guard depth <= limits.maximumInlineDepth else {
+                sanitizerDiagnostics.append("Markdown image alt text exceeded the inline depth limit")
+                result += "(alt text truncated)"
+                continue
+            }
+            switch kod_cmark_node_get_kind(node) {
+            case KOD_CMARK_TEXT, KOD_CMARK_CODE:
+                result += cString(cmark_node_get_literal(node)) ?? ""
+            case KOD_CMARK_SOFTBREAK, KOD_CMARK_LINEBREAK:
+                result += " "
+            default:
+                stack.append(contentsOf: childNodes(of: node).reversed().map { ($0, depth + 1) })
             }
         }
-        text = trimmedEnd
-        return (level, text)
+        return result
     }
 
-    // MARK: - Fenced code blocks
-
-    struct FenceResult {
-        let language: String?
-        let code: String
-        let nextIndex: Int
+    private func childNodes(of parent: Node) -> [Node] {
+        var nodes: [Node] = []
+        var child = cmark_node_first_child(parent)
+        while let node = child {
+            nodes.append(node)
+            child = cmark_node_next(node)
+        }
+        return nodes
     }
 
-    func tryFencedCodeBlock(_ lines: ArraySlice<Substring>, from start: Int) -> FenceResult? {
-        let line = lines[start]
-        guard leadingSpaceCount(line) < 4 else {
-            return nil
-        }
-        let trimmed = line.drop { $0 == " " }
-        guard let fenceChar = trimmed.first, fenceChar == "`" || fenceChar == "~" else {
-            return nil
-        }
-        var fenceLength = 0
-        var rest = trimmed
-        while rest.first == fenceChar {
-            fenceLength += 1
-            rest.removeFirst()
-        }
-        guard fenceLength >= 3 else {
-            return nil
-        }
-        if fenceChar == "`", rest.contains("`") {
-            return nil // backtick info strings may not contain another backtick
-        }
-        let infoString = rest.trimmingCharacters(in: .whitespaces)
-        let language = infoString.split(separator: " ").first.map { String($0).lowercased() }
-        let normalizedLanguage = (language?.isEmpty ?? true) ? nil : language
-
-        var codeLines: [Substring] = []
-        var index = start + 1
-        while index < lines.endIndex {
-            let candidate = lines[index]
-            let candidateTrimmed = candidate.drop { $0 == " " }
-            if leadingSpaceCount(candidate) < 4,
-               candidateTrimmed.allSatisfy({ $0 == fenceChar }),
-               candidateTrimmed.count >= fenceLength {
-                index += 1
-                break
+    private mutating func consumeNode() -> Bool {
+        guard blockCount < limits.maximumBlockCount else {
+            if !didReportNodeLimit {
+                sanitizerDiagnostics.append("Markdown block count exceeded the preview limit")
+                didReportNodeLimit = true
             }
-            codeLines.append(candidate)
-            index += 1
-        }
-        return FenceResult(
-            language: normalizedLanguage,
-            code: codeLines.map(String.init).joined(separator: "\n"),
-            nextIndex: index
-        )
-    }
-
-    // MARK: - Indented code blocks
-
-    func isIndentedCodeLine(_ line: Substring) -> Bool {
-        leadingSpaceCount(line) >= 4 && !isBlankLine(line)
-    }
-
-    struct IndentedCodeResult {
-        let code: String
-        let nextIndex: Int
-    }
-
-    func consumeIndentedCodeBlock(_ lines: ArraySlice<Substring>, from start: Int) -> IndentedCodeResult {
-        var codeLines: [String] = []
-        var index = start
-        while index < lines.endIndex, isIndentedCodeLine(lines[index]) || isBlankLine(lines[index]) {
-            let line = lines[index]
-            if isBlankLine(line) {
-                codeLines.append("")
-            } else {
-                codeLines.append(stripIndent(line, count: 4))
-            }
-            index += 1
-        }
-        while codeLines.last == "" {
-            codeLines.removeLast()
-            index -= 1
-        }
-        return IndentedCodeResult(code: codeLines.joined(separator: "\n"), nextIndex: max(index, start + 1))
-    }
-
-    func stripIndent(_ line: Substring, count: Int) -> String {
-        var remaining = count
-        var chars = line
-        while remaining > 0, let first = chars.first, first == " " || first == "\t" {
-            remaining -= (first == "\t") ? 4 : 1
-            chars.removeFirst()
-        }
-        return String(chars)
-    }
-
-    // MARK: - Blockquotes
-
-    func isBlockquoteStart(_ line: Substring) -> Bool {
-        guard leadingSpaceCount(line) < 4 else {
             return false
         }
-        let trimmed = line.drop { $0 == " " }
-        return trimmed.first == ">"
+        blockCount += 1
+        return true
     }
 
-    struct BlockquoteResult {
-        let innerLines: [Substring]
-        let nextIndex: Int
+    private func cString(_ pointer: UnsafePointer<CChar>?) -> String? {
+        pointer.map(String.init(cString:))
     }
 
-    func consumeBlockquote(_ lines: ArraySlice<Substring>, from start: Int) -> BlockquoteResult {
-        var innerLines: [Substring] = []
-        var index = start
-        while index < lines.endIndex {
-            let line = lines[index]
-            if isBlockquoteStart(line) {
-                var rest = line.drop { $0 == " " }
-                rest.removeFirst() // '>'
-                if rest.first == " " {
-                    rest.removeFirst()
-                }
-                innerLines.append(rest)
-                index += 1
-            } else if isBlankLine(line) {
-                break
-            } else {
-                // Lazy continuation: a following non-blank, non-`>` line
-                // is treated as part of the quote's last paragraph.
-                innerLines.append(line)
-                index += 1
-            }
-        }
-        return BlockquoteResult(innerLines: innerLines, nextIndex: index)
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
     }
 
-    // MARK: - HTML blocks
-
-    private static let htmlBlockTagNames: Set<String> = [
-        "address", "article", "aside", "base", "blockquote", "body", "caption",
-        "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div",
-        "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form",
-        "frame", "frameset", "h1", "h2", "h3", "h4", "h5", "h6", "head",
-        "header", "hr", "html", "iframe", "legend", "li", "link", "main",
-        "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option",
-        "p", "param", "section", "summary", "table", "tbody", "td",
-        "tfoot", "th", "thead", "title", "tr", "track", "ul", "script",
-        "style", "pre"
-    ]
-
-    struct HTMLBlockResult {
-        let rawHTML: String
-        let nextIndex: Int
-    }
-
-    func tryHTMLBlock(_ lines: ArraySlice<Substring>, from start: Int) -> HTMLBlockResult? {
-        let line = lines[start]
-        guard leadingSpaceCount(line) < 4 else {
-            return nil
-        }
-        let trimmed = line.drop { $0 == " " }
-        guard trimmed.first == "<" else {
-            return nil
-        }
-        var afterBracket = trimmed.dropFirst()
-        if afterBracket.first == "/" {
-            afterBracket.removeFirst()
-        }
-        let tagName = String(afterBracket.prefix { $0.isLetter || $0.isNumber }).lowercased()
-        guard !tagName.isEmpty, Self.htmlBlockTagNames.contains(tagName) || trimmed.hasPrefix("<!--") else {
-            return nil
-        }
-
-        var rawLines: [Substring] = []
-        var index = start
-        while index < lines.endIndex, !isBlankLine(lines[index]) {
-            rawLines.append(lines[index])
-            index += 1
-        }
-        return HTMLBlockResult(rawHTML: rawLines.map(String.init).joined(separator: "\n"), nextIndex: index)
-    }
-
-    // MARK: - Lists
-
-    struct ListMarker {
-        let kind: MarkdownListKind
-        let contentStart: Int // column offset (in the original line) where item content begins
-        let checked: Bool?
-        let contentAfterMarker: Substring
-    }
-
-    func parseListMarker(_ line: Substring) -> ListMarker? {
-        guard leadingSpaceCount(line) < 4 else {
-            return nil
-        }
-        var chars = line.drop { $0 == " " }
-        let leadingSpaces = leadingSpaceCount(line)
-        let kind: MarkdownListKind
-        var consumed = 0
-
-        if let first = chars.first, "-*+".contains(first) {
-            let next = chars.dropFirst().first
-            guard chars.dropFirst().isEmpty || next == " " || next == "\t" else {
-                return nil
-            }
-            kind = .unordered(marker: first)
-            consumed = 1
-            chars.removeFirst()
-        } else {
-            var digits = ""
-            var scan = chars
-            while let first = scan.first, first.isNumber, digits.count < 9 {
-                digits.append(first)
-                scan.removeFirst()
-            }
-            guard !digits.isEmpty, let delimiter = scan.first, delimiter == "." || delimiter == ")" else {
-                return nil
-            }
-            let afterDelimiter = scan.dropFirst().first
-            guard scan.dropFirst().isEmpty || afterDelimiter == " " || afterDelimiter == "\t" else {
-                return nil
-            }
-            kind = .ordered(start: Int(digits) ?? 1, delimiter: delimiter)
-            consumed = digits.count + 1
-            chars.removeFirst(consumed)
-        }
-
-        var spacesAfterMarker = 0
-        while chars.first == " " || chars.first == "\t" {
-            spacesAfterMarker += (chars.first == "\t") ? 4 : 1
-            chars.removeFirst()
-        }
-        if spacesAfterMarker == 0, !chars.isEmpty {
-            return nil // marker must be followed by whitespace (or be the whole line)
-        }
-        let contentStart = leadingSpaces + consumed + max(spacesAfterMarker, chars.isEmpty ? 1 : spacesAfterMarker)
-
-        var checked: Bool?
-        if chars.first == "[", chars.count >= 3 {
-            let markerChar = chars[chars.index(chars.startIndex, offsetBy: 1)]
-            let closeChar = chars[chars.index(chars.startIndex, offsetBy: 2)]
-            if closeChar == "]", (markerChar == " " || markerChar == "x" || markerChar == "X") {
-                checked = markerChar != " "
-                chars.removeFirst(3)
-                if chars.first == " " {
-                    chars.removeFirst()
-                }
-            }
-        }
-
-        return ListMarker(kind: kind, contentStart: contentStart, checked: checked, contentAfterMarker: chars)
-    }
-
-    struct ListResult {
-        let block: MarkdownBlock
-        let nextIndex: Int
-    }
-
-    mutating func tryList(_ lines: ArraySlice<Substring>, from start: Int, depth: Int) -> ListResult? {
-        guard let firstMarker = parseListMarker(lines[start]) else {
-            return nil
-        }
-        var items: [MarkdownListItem] = []
-        var index = start
-        var isTight = true
-        var sawBlankBetweenItems = false
-        let sameKind: (MarkdownListKind, MarkdownListKind) -> Bool = { a, b in
-            switch (a, b) {
-            case (.unordered(let m1), .unordered(let m2)): return m1 == m2
-            case (.ordered(_, let d1), .ordered(_, let d2)): return d1 == d2
-            default: return false
-            }
-        }
-
-        while index < lines.endIndex {
-            guard let marker = parseListMarker(lines[index]), sameKind(marker.kind, firstMarker.kind) else {
-                break
-            }
-            var itemLines: [Substring] = [marker.contentAfterMarker]
-            index += 1
-            var trailingBlankCount = 0
-            while index < lines.endIndex {
-                let line = lines[index]
-                if isBlankLine(line) {
-                    trailingBlankCount += 1
-                    itemLines.append("")
-                    index += 1
-                    continue
-                }
-                if parseListMarker(line) != nil, leadingSpaceCount(line) < marker.contentStart + 4 {
-                    break
-                }
-                if leadingSpaceCount(line) >= marker.contentStart {
-                    itemLines.append(Substring(stripIndent(line, count: marker.contentStart)))
-                    index += 1
-                    trailingBlankCount = 0
-                    continue
-                }
-                break
-            }
-            while itemLines.last == "" {
-                itemLines.removeLast()
-            }
-            if trailingBlankCount > 0, index < lines.endIndex {
-                sawBlankBetweenItems = true
-            }
-            let innerBlocks = parseBlocks(itemLines[...], depth: depth + 1)
-            items.append(MarkdownListItem(checked: marker.checked, blocks: innerBlocks))
-        }
-
-        if sawBlankBetweenItems {
-            isTight = false
-        }
-        return ListResult(block: .list(kind: firstMarker.kind, isTight: isTight, items: items), nextIndex: index)
-    }
-
-    // MARK: - Tables (GFM)
-
-    struct TableResult {
-        let block: MarkdownBlock
-        let nextIndex: Int
-    }
-
-    mutating func tryTable(_ lines: ArraySlice<Substring>, from start: Int) -> TableResult? {
-        guard start + 1 < lines.endIndex else {
-            return nil
-        }
-        let headerLine = lines[start]
-        let delimiterLine = lines[start + 1]
-        guard headerLine.contains("|"), let alignments = parseTableDelimiterRow(delimiterLine) else {
-            return nil
-        }
-        let headerCells = splitTableRow(headerLine)
-        guard headerCells.count == alignments.count else {
-            return nil
-        }
-
-        var rows: [MarkdownTableRow] = []
-        var index = start + 2
-        while index < lines.endIndex, !isBlankLine(lines[index]), lines[index].contains("|") {
-            let cells = splitTableRow(lines[index])
-            let padded = (0..<alignments.count).map { columnIndex -> [MarkdownInline] in
-                columnIndex < cells.count ? parseInline(cells[columnIndex], depth: 0) : []
-            }
-            rows.append(MarkdownTableRow(cells: padded))
-            index += 1
-        }
-
-        let header = MarkdownTableRow(cells: headerCells.map { parseInline($0, depth: 0) })
-        return TableResult(
-            block: .table(alignments: alignments, header: header, rows: rows),
-            nextIndex: index
-        )
-    }
-
-    func parseTableDelimiterRow(_ line: Substring) -> [MarkdownTableAlignment]? {
-        let cells = splitTableRow(line)
-        guard !cells.isEmpty, cells.count <= limits.maximumTableColumns else {
-            return nil
-        }
-        var alignments: [MarkdownTableAlignment] = []
-        for cell in cells {
-            let trimmed = cell.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else {
-                return nil
-            }
-            let hasLeftColon = trimmed.first == ":"
-            let hasRightColon = trimmed.last == ":"
-            let dashes = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
-            guard !dashes.isEmpty, dashes.allSatisfy({ $0 == "-" }) else {
-                return nil
-            }
-            switch (hasLeftColon, hasRightColon) {
-            case (true, true): alignments.append(.center)
-            case (true, false): alignments.append(.left)
-            case (false, true): alignments.append(.right)
-            case (false, false): alignments.append(.none)
-            }
-        }
-        return alignments
-    }
-
-    func splitTableRow(_ line: Substring) -> [Substring] {
-        var trimmed = line.trimmingCharacters(in: .whitespaces)[...]
-        if trimmed.first == "|" {
-            trimmed.removeFirst()
-        }
-        if trimmed.last == "|" {
-            trimmed.removeLast()
-        }
-        var cells: [Substring] = []
-        var current = ""
-        var escaped = false
-        for character in trimmed {
-            if escaped {
-                current.append(character)
-                escaped = false
-                continue
-            }
-            if character == "\\" {
-                current.append(character)
-                escaped = true
-                continue
-            }
-            if character == "|" {
-                cells.append(Substring(current.trimmingCharacters(in: .whitespaces)))
-                current = ""
-                continue
-            }
-            current.append(character)
-        }
-        cells.append(Substring(current.trimmingCharacters(in: .whitespaces)))
-        return cells
-    }
-
-    // MARK: - Paragraphs (with setext heading lookahead)
-
-    struct ParagraphResult {
-        let text: Substring
-        let setextLevel: Int?
-        let nextIndex: Int
-    }
-
-    /// A trailing hard line break (SPEC: two-or-more trailing spaces, or a
-    /// trailing backslash) must be detected against the *raw* line before
-    /// it is trimmed for display, so this sentinel — never legitimately
-    /// produced by ordinary Markdown text — records that fact across the
-    /// trim. `MarkdownInlineParser` turns it back into `.hardBreak`.
-    static let hardBreakSentinel = "\u{2028}"
-
-    func rawLineHasHardBreak(_ line: Substring) -> Bool {
-        if line.hasSuffix("\\") {
-            return true
-        }
-        var trailingSpaces = 0
-        for character in line.reversed() {
-            if character == " " {
-                trailingSpaces += 1
-            } else {
-                break
-            }
-        }
-        return trailingSpaces >= 2
-    }
-
-    func consumeParagraph(_ lines: ArraySlice<Substring>, from start: Int) -> ParagraphResult {
-        var rawLines: [Substring] = [lines[start]]
-        var index = start + 1
-        while index < lines.endIndex {
-            let line = lines[index]
-            if isBlankLine(line) { break }
-            if rawLines.count == 1, setextLevel(line) != nil { break }
-            if tryThematicBreak(line) != nil { break }
-            if tryATXHeading(line) != nil { break }
-            if isBlockquoteStart(line) { break }
-            if parseListMarker(line) != nil { break }
-            if tryFencedCodeBlock(lines, from: index) != nil { break }
-            rawLines.append(line)
-            index += 1
-        }
-
-        if rawLines.count == 1, index < lines.endIndex, let level = setextLevel(lines[index]) {
-            let trimmed = rawLines[0].trimmingCharacters(in: .whitespaces)
-            return ParagraphResult(text: Substring(trimmed), setextLevel: level, nextIndex: index + 1)
-        }
-
-        var joined = ""
-        for (position, rawLine) in rawLines.enumerated() {
-            let trimmedLine = rawLine.trimmingCharacters(in: .whitespaces)
-            joined += trimmedLine
-            if position < rawLines.count - 1 {
-                joined += rawLineHasHardBreak(rawLine) ? Self.hardBreakSentinel : "\n"
-            }
-        }
-
-        return ParagraphResult(text: Substring(joined), setextLevel: nil, nextIndex: index)
-    }
-
-    func setextLevel(_ line: Substring) -> Int? {
-        guard leadingSpaceCount(line) < 4 else {
-            return nil
-        }
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-        if trimmed.allSatisfy({ $0 == "=" }) {
-            return 1
-        }
-        if trimmed.allSatisfy({ $0 == "-" }) {
-            return 2
-        }
-        return nil
-    }
-
-    // MARK: - Inline parsing
-
-    mutating func parseInline(_ text: Substring, depth: Int) -> [MarkdownInline] {
-        let (inlines, diagnostics) = MarkdownInlineParser.parse(text, depth: depth, limits: limits)
-        sanitizerDiagnostics.append(contentsOf: diagnostics)
-        return inlines
+    private func nodeTypeName(_ node: Node) -> String {
+        cString(cmark_node_get_type_string(node)) ?? "<unknown>"
     }
 }

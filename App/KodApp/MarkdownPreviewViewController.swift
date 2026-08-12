@@ -4,6 +4,45 @@ import FontCore
 import PreviewCore
 import ThemeCore
 
+struct RemoteMarkdownImageLoad: Sendable {
+    let image: CGImageBox
+    let sourceByteCount: Int
+    let decodedByteCount: Int
+}
+
+enum RemoteMarkdownImageLoader {
+    static func load(_ url: URL) async -> RemoteMarkdownImageLoad? {
+        let fetchLimits = BoundedRemoteFetchLimits(
+            maximumByteCount: 5 * 1_024 * 1_024,
+            timeoutSeconds: 10,
+            requireHTTPS: true
+        )
+        let decodeLimits = ImageDecodeLimits(
+            maximumSourceByteCount: fetchLimits.maximumByteCount,
+            maximumDimension: 8_192,
+            maximumPixelCount: 8_000_000,
+            maximumFrameCount: 32,
+            maximumTotalDecodedByteBudget: 32 * 1_024 * 1_024
+        )
+        guard !Task.isCancelled,
+              let data = try? await BoundedRemoteFetcher.fetch(url, limits: fetchLimits),
+              !Task.isCancelled else {
+            return nil
+        }
+        let decoded = ImageDecoder.decode(data, limits: decodeLimits)
+        guard !Task.isCancelled,
+              case .decoded(let metadata, let frames) = decoded,
+              let frame = frames.first else {
+            return nil
+        }
+        return RemoteMarkdownImageLoad(
+            image: frame.image,
+            sourceByteCount: data.count,
+            decodedByteCount: metadata.pixelWidth * metadata.pixelHeight * 4 * metadata.frameCount
+        )
+    }
+}
+
 /// The built-in Markdown preview: a native `NSTextView`-based rendered
 /// view (SPEC 10.1: "Prefer a native attributed/document model"; Kod
 /// never uses WebKit for this — see `MarkdownRenderer`'s doc comment).
@@ -16,6 +55,9 @@ import ThemeCore
 final class MarkdownPreviewViewController: NSViewController {
     private let scrollView = NSScrollView()
     private let textView = NSTextView()
+    private let statusBanner = NSVisualEffectView()
+    private let statusStack = NSStackView()
+    private let statusSpacer = NSView()
     private let remoteImagesButton = NSButton(
         title: Localized.string(
             "Load Remote Images (\(NetworkAttribution.remoteMarkdownResource.userFacingDescription))",
@@ -25,17 +67,24 @@ final class MarkdownPreviewViewController: NSViewController {
         action: nil
     )
     private let diagnosticsLabel = NSTextField(wrappingLabelWithString: "")
+    private var scrollerTopToBannerConstraint: NSLayoutConstraint?
+    private var scrollerTopDirectConstraint: NSLayoutConstraint?
 
     private(set) var renderDocument: MarkdownRenderDocument
     private(set) var resourcePolicy: MarkdownResourcePolicy
     private let theme: KodTheme
     private let fontSettings: FontSettings
+    private let remoteImageLoader: @Sendable (URL) async -> RemoteMarkdownImageLoad?
     /// Injected so tests can substitute a confirmation outcome without a
     /// real alert sheet; production uses a real `NSAlert`.
     var confirmBeforeOpening: @MainActor (URL) -> Bool
     var openLocalRelativePath: ((String) -> Void)?
     private(set) var lastOpenedURL: URL?
     private(set) var lastConfirmationPrompted: URL?
+    private var loadedImages: [String: NSImage] = [:]
+    private var failedImageDestinations: Set<String> = []
+    private var remoteImageLoadTask: Task<Void, Never>?
+    private var documentGeneration = 0
 
     /// Set of remote image destinations actually referenced by the
     /// current document — used to enable/disable `remoteImagesButton`
@@ -47,12 +96,14 @@ final class MarkdownPreviewViewController: NSViewController {
         resourcePolicy: MarkdownResourcePolicy,
         theme: KodTheme,
         fontSettings: FontSettings,
+        remoteImageLoader: @escaping @Sendable (URL) async -> RemoteMarkdownImageLoad? = RemoteMarkdownImageLoader.load,
         confirmBeforeOpening: @escaping @MainActor (URL) -> Bool = { _ in false }
     ) {
         self.renderDocument = renderDocument
         self.resourcePolicy = resourcePolicy
         self.theme = theme
         self.fontSettings = fontSettings
+        self.remoteImageLoader = remoteImageLoader
         self.confirmBeforeOpening = confirmBeforeOpening
         super.init(nibName: nil, bundle: nil)
         self.remoteImageDestinations = Self.collectRemoteImageDestinations(renderDocument, policy: resourcePolicy)
@@ -72,10 +123,22 @@ final class MarkdownPreviewViewController: NSViewController {
         textView.drawsBackground = true
         textView.backgroundColor = theme.editor.background.nsColor
         textView.delegate = self
+        textView.textContainerInset = NSSize(width: 24, height: 24)
 
         scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = theme.editor.background.nsColor
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         configureReadOnlyScrollingTextView(textView, in: scrollView, wrapsLines: true)
+
+        statusBanner.material = .underWindowBackground
+        statusBanner.blendingMode = .withinWindow
+        statusBanner.state = .active
+        statusBanner.translatesAutoresizingMaskIntoConstraints = false
+        statusStack.orientation = .horizontal
+        statusStack.alignment = .centerY
+        statusStack.spacing = 8
+        statusStack.translatesAutoresizingMaskIntoConstraints = false
 
         remoteImagesButton.target = self
         remoteImagesButton.action = #selector(handleLoadRemoteImages)
@@ -104,44 +167,142 @@ final class MarkdownPreviewViewController: NSViewController {
             )
         diagnosticsLabel.translatesAutoresizingMaskIntoConstraints = false
         diagnosticsLabel.setAccessibilityLabel(Localized.string("Sanitizer diagnostics", comment: "Accessibility label for the Markdown sanitizer diagnostics text"))
+        diagnosticsLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        statusSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        container.addSubview(remoteImagesButton)
-        container.addSubview(diagnosticsLabel)
+        statusStack.addArrangedSubview(diagnosticsLabel)
+        statusStack.addArrangedSubview(statusSpacer)
+        statusStack.addArrangedSubview(remoteImagesButton)
+        statusBanner.addSubview(statusStack)
+        container.addSubview(statusBanner)
         container.addSubview(scrollView)
 
+        let scrollerTopToBanner = scrollView.topAnchor.constraint(equalTo: statusBanner.bottomAnchor)
+        let scrollerTopDirect = scrollView.topAnchor.constraint(equalTo: container.topAnchor)
+        scrollerTopToBannerConstraint = scrollerTopToBanner
+        scrollerTopDirectConstraint = scrollerTopDirect
         NSLayoutConstraint.activate([
-            remoteImagesButton.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
-            remoteImagesButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            statusBanner.topAnchor.constraint(equalTo: container.topAnchor),
+            statusBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            statusBanner.trailingAnchor.constraint(equalTo: container.trailingAnchor),
 
-            diagnosticsLabel.centerYAnchor.constraint(equalTo: remoteImagesButton.centerYAnchor),
-            diagnosticsLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            diagnosticsLabel.trailingAnchor.constraint(lessThanOrEqualTo: remoteImagesButton.leadingAnchor, constant: -8),
+            statusStack.topAnchor.constraint(equalTo: statusBanner.topAnchor, constant: 7),
+            statusStack.leadingAnchor.constraint(equalTo: statusBanner.leadingAnchor, constant: 10),
+            statusStack.trailingAnchor.constraint(equalTo: statusBanner.trailingAnchor, constant: -10),
+            statusStack.bottomAnchor.constraint(equalTo: statusBanner.bottomAnchor, constant: -7),
 
-            scrollView.topAnchor.constraint(equalTo: remoteImagesButton.bottomAnchor, constant: 8),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
 
         view = container
+        updateStatusBanner()
         applyAttributedText()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let readableWidth: CGFloat = 780
+        let minimumInset: CGFloat = 24
+        let availableWidth = scrollView.contentSize.width
+        let horizontalInset = max(minimumInset, (availableWidth - readableWidth) / 2)
+        if textView.frame.width != availableWidth {
+            textView.setFrameSize(NSSize(width: availableWidth, height: textView.frame.height))
+            textView.textContainer?.containerSize.width = availableWidth
+        }
+        textView.textContainerInset = NSSize(width: horizontalInset, height: 24)
     }
 
     /// Re-renders after `resourcePolicy` changes (e.g. remote images were
     /// just explicitly enabled) or a new render document arrives.
     func update(renderDocument: MarkdownRenderDocument, resourcePolicy: MarkdownResourcePolicy) {
+        remoteImageLoadTask?.cancel()
+        documentGeneration += 1
+        loadedImages.removeAll()
+        failedImageDestinations.removeAll()
         self.renderDocument = renderDocument
         self.resourcePolicy = resourcePolicy
         self.remoteImageDestinations = Self.collectRemoteImageDestinations(renderDocument, policy: resourcePolicy)
+        remoteImagesButton.title = Localized.string(
+            "Load Remote Images (\(NetworkAttribution.remoteMarkdownResource.userFacingDescription))",
+            comment: "Button title inviting the user to opt into loading remote images for this Markdown document"
+        )
+        remoteImagesButton.isEnabled = true
         remoteImagesButton.isHidden = remoteImageDestinations.isEmpty
+        diagnosticsLabel.isHidden = renderDocument.sanitizerDiagnostics.isEmpty
+        diagnosticsLabel.stringValue = renderDocument.sanitizerDiagnostics.isEmpty
+            ? ""
+            : Localized.string(
+                "\(renderDocument.sanitizerDiagnostics.count) unsafe construct(s) removed while rendering this document.",
+                comment: "Status text reporting how many unsafe Markdown constructs were sanitized out of the rendered document"
+            )
+        updateStatusBanner()
         applyAttributedText()
     }
 
     @objc
     private func handleLoadRemoteImages(_ sender: Any?) {
+        let maximumImageCount = 8
+        let maximumTransferredBytes = 40 * 1_024 * 1_024
+        let maximumDecodedBytes = 128 * 1_024 * 1_024
+        let generation = documentGeneration
+        let remoteImageLoader = self.remoteImageLoader
+        let destinations = Array(remoteImageDestinations.prefix(maximumImageCount))
+        for destination in remoteImageDestinations.dropFirst(maximumImageCount) {
+            failedImageDestinations.insert(destination.rawValue)
+        }
         resourcePolicy.remoteImagesEnabledForThisDocument = true
-        remoteImagesButton.isHidden = true
-        applyAttributedText()
+        remoteImagesButton.isEnabled = false
+        remoteImagesButton.title = Localized.string(
+            "Loading Remote Images\u{2026}",
+            comment: "Button status while explicitly requested remote Markdown images are fetched"
+        )
+        remoteImageLoadTask?.cancel()
+        remoteImageLoadTask = Task { [weak self] in
+            var transferredBytes = 0
+            var decodedBytes = 0
+            let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+            for destination in destinations {
+                guard !Task.isCancelled,
+                      ContinuousClock.now < deadline,
+                      let url = URL(string: destination.rawValue) else { break }
+                let loaded = await remoteImageLoader(url)
+                guard !Task.isCancelled,
+                      let self,
+                      documentGeneration == generation else { return }
+                guard let loaded,
+                      transferredBytes + loaded.sourceByteCount <= maximumTransferredBytes,
+                      decodedBytes + loaded.decodedByteCount <= maximumDecodedBytes else {
+                    failedImageDestinations.insert(destination.rawValue)
+                    continue
+                }
+                transferredBytes += loaded.sourceByteCount
+                decodedBytes += loaded.decodedByteCount
+                loadedImages[destination.rawValue] = NSImage(
+                    cgImage: loaded.image.value,
+                    size: NSSize(width: loaded.image.value.width, height: loaded.image.value.height)
+                )
+            }
+            guard !Task.isCancelled, let self, documentGeneration == generation else { return }
+            for destination in destinations
+            where loadedImages[destination.rawValue] == nil
+                && !failedImageDestinations.contains(destination.rawValue) {
+                failedImageDestinations.insert(destination.rawValue)
+            }
+            remoteImagesButton.isHidden = true
+            remoteImagesButton.isEnabled = true
+            updateStatusBanner()
+            applyAttributedText()
+        }
+    }
+
+    private func updateStatusBanner() {
+        guard isViewLoaded else { return }
+        let isVisible = !remoteImagesButton.isHidden || !diagnosticsLabel.isHidden
+        statusBanner.isHidden = !isVisible
+        scrollerTopToBannerConstraint?.isActive = isVisible
+        scrollerTopDirectConstraint?.isActive = !isVisible
     }
 
     private static func collectRemoteImageDestinations(
@@ -183,133 +344,20 @@ final class MarkdownPreviewViewController: NSViewController {
             }
         }
         walk(document.blocks)
-        return destinations
+        var seen: Set<String> = []
+        return destinations.filter { seen.insert($0.rawValue).inserted }
     }
 
     private func applyAttributedText() {
-        let result = NSMutableAttributedString()
-        let baseFont = NSFont(name: fontSettings.familyName, size: CGFloat(fontSettings.pointSize)) ?? .monospacedSystemFont(ofSize: CGFloat(fontSettings.pointSize), weight: .regular)
-
-        func append(_ runs: [MarkdownRenderRun]) {
-            for run in runs {
-                if run.isSoftBreak || run.isHardBreak {
-                    result.append(NSAttributedString(string: "\n"))
-                    continue
-                }
-                if run.isImage, let destination = run.link {
-                    if resourcePolicy.shouldLoadRemoteImage(destination) {
-                        result.append(NSAttributedString(string: "[image: \(run.text)]", attributes: [.font: baseFont, .foregroundColor: NSColor.secondaryLabelColor]))
-                    } else {
-                        result.append(NSAttributedString(
-                            string: "[remote image blocked: \(run.text) (\(destination.rawValue))]",
-                            attributes: [.font: baseFont, .foregroundColor: NSColor.systemOrange]
-                        ))
-                    }
-                    continue
-                }
-                var traits: NSFontDescriptor.SymbolicTraits = []
-                if run.isBold { traits.insert(.bold) }
-                if run.isItalic { traits.insert(.italic) }
-                var font = baseFont
-                if !traits.isEmpty, let descriptor = baseFont.fontDescriptor.withSymbolicTraits(traits) as NSFontDescriptor? {
-                    font = NSFont(descriptor: descriptor, size: baseFont.pointSize) ?? baseFont
-                }
-                if run.isCode {
-                    font = .monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
-                }
-                var attributes: [NSAttributedString.Key: Any] = [
-                    .font: font,
-                    .foregroundColor: theme.editor.foreground.nsColor
-                ]
-                if run.isStrikethrough {
-                    attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-                }
-                if let link = run.link {
-                    attributes[.foregroundColor] = NSColor.linkColor
-                    attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
-                    attributes[.link] = link.rawValue
-                    attributes[.toolTip] = link.rawValue
-                }
-                result.append(NSAttributedString(string: run.text, attributes: attributes))
-            }
-        }
-
-        func renderBlock(_ block: MarkdownRenderBlock) {
-            switch block {
-            case .heading(let level, let runs):
-                let scale = max(2.2 - Double(level) * 0.2, 1.0)
-                let headingFont = NSFont.boldSystemFont(ofSize: baseFont.pointSize * CGFloat(scale))
-                let start = result.length
-                append(runs)
-                result.addAttribute(.font, value: headingFont, range: NSRange(location: start, length: result.length - start))
-                result.append(NSAttributedString(string: "\n\n"))
-            case .paragraph(let runs):
-                append(runs)
-                result.append(NSAttributedString(string: "\n\n"))
-            case .blockquote(let inner):
-                for child in inner {
-                    renderBlock(child)
-                }
-            case .list(_, _, let items):
-                for item in items {
-                    renderBlock(item)
-                }
-            case .listItem(let checked, let blocks):
-                let prefix: String
-                if let checked {
-                    prefix = checked ? "\u{2611} " : "\u{2610} "
-                } else {
-                    prefix = "\u{2022} "
-                }
-                result.append(NSAttributedString(string: prefix, attributes: [.font: baseFont]))
-                for child in blocks {
-                    renderBlock(child)
-                }
-            case .codeBlock(_, let sourceText, let highlightedRuns):
-                let codeFont = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
-                let start = result.length
-                result.append(NSAttributedString(string: sourceText, attributes: [
-                    .font: codeFont,
-                    .foregroundColor: theme.editor.foreground.nsColor,
-                    .backgroundColor: theme.editor.background.nsColor.blended(withFraction: 0.08, of: .black) ?? theme.editor.background.nsColor
-                ]))
-                for run in highlightedRuns {
-                    guard let style = run.style.foreground else { continue }
-                    let utf8 = Array(sourceText.utf8)
-                    guard run.utf8Range.upperBound <= utf8.count,
-                          let rangeStart = String(decoding: utf8[0..<run.utf8Range.lowerBound], as: UTF8.self).utf16.count as Int?,
-                          let rangeEnd = String(decoding: utf8[0..<run.utf8Range.upperBound], as: UTF8.self).utf16.count as Int? else {
-                        continue
-                    }
-                    result.addAttribute(.foregroundColor, value: style.nsColor, range: NSRange(location: start + rangeStart, length: rangeEnd - rangeStart))
-                }
-                result.append(NSAttributedString(string: "\n\n"))
-            case .thematicBreak:
-                result.append(NSAttributedString(string: "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\n\n", attributes: [.foregroundColor: NSColor.separatorColor]))
-            case .table(_, let header, let rows):
-                let headerLine = header.map { runs in runs.map(\.text).joined() }.joined(separator: " \u{2502} ")
-                result.append(NSAttributedString(string: headerLine + "\n", attributes: [.font: NSFont.boldSystemFont(ofSize: baseFont.pointSize)]))
-                for row in rows {
-                    let line = row.map { runs in runs.map(\.text).joined() }.joined(separator: " \u{2502} ")
-                    result.append(NSAttributedString(string: line + "\n", attributes: [.font: baseFont]))
-                }
-                result.append(NSAttributedString(string: "\n"))
-            case .rawHTML(let text):
-                result.append(NSAttributedString(string: text, attributes: [.font: baseFont, .foregroundColor: NSColor.secondaryLabelColor]))
-            case .image(let destination, _, let altText):
-                if resourcePolicy.shouldLoadRemoteImage(destination) {
-                    result.append(NSAttributedString(string: "[image: \(altText)]\n", attributes: [.font: baseFont]))
-                } else {
-                    result.append(NSAttributedString(string: "[remote image blocked: \(altText) (\(destination.rawValue))]\n", attributes: [.font: baseFont, .foregroundColor: NSColor.systemOrange]))
-                }
-            }
-        }
-
-        for block in renderDocument.blocks {
-            renderBlock(block)
-        }
-
-        textView.textStorage?.setAttributedString(result)
+        let renderer = MarkdownAttributedDocumentRenderer(
+            document: renderDocument,
+            resourcePolicy: resourcePolicy,
+            theme: theme,
+            fontSettings: fontSettings,
+            loadedImages: loadedImages,
+            failedImageDestinations: failedImageDestinations
+        )
+        textView.textStorage?.setAttributedString(renderer.render())
     }
 }
 
@@ -320,6 +368,13 @@ extension MarkdownPreviewViewController {
     var diagnosticsAccessibilityLabel: String? { diagnosticsLabel.accessibilityLabel() }
     var renderedText: String { textView.string }
     var renderedTextViewFrame: NSRect { textView.frame }
+    var renderedAttributedText: NSAttributedString { textView.attributedString() }
+    var statusBannerIsVisible: Bool { !statusBanner.isHidden }
+    var previewTopGap: CGFloat { view.bounds.maxY - scrollView.frame.maxY }
+    var previewScrollViewFrame: NSRect { scrollView.frame }
+    var remoteImagesButtonIsEnabled: Bool { remoteImagesButton.isEnabled }
+    var remoteImagesButtonIsHidden: Bool { remoteImagesButton.isHidden }
+    func beginRemoteImageLoadForTesting() { handleLoadRemoteImages(nil) }
 }
 
 extension MarkdownPreviewViewController: NSTextViewDelegate {
@@ -328,6 +383,9 @@ extension MarkdownPreviewViewController: NSTextViewDelegate {
             return false
         }
         let destination = MarkdownDestination(rawValue: rawValue)
+        if case .unsafeOrUnrecognized = destination.scheme {
+            return true
+        }
         guard let url = URL(string: rawValue) else {
             return false
         }

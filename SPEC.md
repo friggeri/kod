@@ -395,10 +395,21 @@ Git integration is read-only and optional for non-Git folders.
 ### 10.1 Markdown
 
 - Source and rendered modes.
-- CommonMark plus GitHub-style tables, task lists, and fenced code.
+- Formal GitHub Flavored Markdown, parsed by pinned in-tree `cmark-gfm`,
+  including tables, task lists, strikethrough, extended URL/email autolinks,
+  and tag filtering. Footnotes and GitHub.com-only emoji, mentions, issue
+  references, alerts, math, and Mermaid are not part of the format.
+- Native AppKit/TextKit presentation with proportional system prose, configured
+  monospaced code, real text tables, semantic colors, readable measure, and no
+  WebKit/CSS execution.
 - Syntax highlighting in fenced code uses Kod's built-in Tree-sitter grammars.
 - Raw HTML is sanitized; scripts never run.
-- Remote images and other network resources are blocked by default and require an explicit per-document action.
+- Remote images and other network resources are blocked by default and require
+  an explicit per-document action; the opt-in path is HTTPS-only, bounded, and
+  passes bytes through the existing safe image decoder.
+- Local image references remain secure textual placeholders until the preview
+  construction API carries a document base URL or workspace-confined resource
+  loader; Kod never guesses a filesystem path or weakens workspace containment.
 - Links show their destination and require confirmation before opening non-local URLs from an untrusted workspace.
 
 ### 10.2 Images

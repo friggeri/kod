@@ -1,6 +1,7 @@
 #!/bin/sh
 # Packages a built Kod.app into a distributable DMG and ZIP, alongside
-# THIRD_PARTY_NOTICES.md (SPEC 17 M4: "release documentation").
+# THIRD_PARTY_NOTICES.md and complete third-party license texts (SPEC 17 M4:
+# "release documentation").
 #
 # Usage: Scripts/release/make-dmg.sh <path-to-Kod.app> <output-dir> [version]
 
@@ -26,13 +27,18 @@ mkdir -p "$staging_dir"
 
 cp -R "$app_path" "$staging_dir/Kod.app"
 cp "$repository_root/THIRD_PARTY_NOTICES.md" "$staging_dir/THIRD_PARTY_NOTICES.md"
+mkdir -p "$staging_dir/THIRD_PARTY_LICENSES"
+cp "$repository_root/Packages/KodCore/Sources/CCMarkGFM/LICENSE-cmark-gfm.txt" \
+    "$staging_dir/THIRD_PARTY_LICENSES/cmark-gfm-COPYING.txt"
+cp "$repository_root/Vendor/Licenses/github-markdown-css-LICENSE.txt" \
+    "$staging_dir/THIRD_PARTY_LICENSES/github-markdown-css-LICENSE.txt"
 ln -s /Applications "$staging_dir/Applications"
 
 zip_path="$output_dir/Kod-$version-$architecture.zip"
 printf '%s\n' "==> Creating $zip_path"
 rm -f "$zip_path"
 /usr/bin/ditto -c -k --keepParent "$staging_dir/Kod.app" "$zip_path.app-only.zip"
-(cd "$staging_dir" && /usr/bin/zip -qr "../$(basename "$zip_path")" "Kod.app" "THIRD_PARTY_NOTICES.md")
+(cd "$staging_dir" && /usr/bin/zip -qr "../$(basename "$zip_path")" "Kod.app" "THIRD_PARTY_NOTICES.md" "THIRD_PARTY_LICENSES")
 rm -f "$zip_path.app-only.zip"
 
 dmg_path="$output_dir/Kod-$version-$architecture.dmg"
