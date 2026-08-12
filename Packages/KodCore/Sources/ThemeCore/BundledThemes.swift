@@ -115,6 +115,11 @@ public enum BundledThemes {
             added: hex("#779933"),
             modified: hex("#4095BF"),
             deleted: hex("#AC3939"),
+            renamed: hex("#007100"),
+            untracked: hex("#587C0C"),
+            ignored: hex("#8E8E90"),
+            stagedModified: hex("#895503"),
+            stagedDeleted: hex("#AC3939"),
             conflict: hex("#FF006A")
         )
     )
@@ -193,6 +198,11 @@ public enum BundledThemes {
             added: hex("#95BF40"),
             modified: hex("#8CBFD9"),
             deleted: hex("#D98C8C"),
+            renamed: hex("#73C991"),
+            untracked: hex("#73C991"),
+            ignored: hex("#8C8C8C"),
+            stagedModified: hex("#E5BA7D"),
+            stagedDeleted: hex("#D98C8C"),
             conflict: hex("#FF1A79")
         )
     )
@@ -266,6 +276,11 @@ public enum BundledThemes {
             added: hex("#0A5C00"),
             modified: hex("#003C9E"),
             deleted: hex("#9E1A00"),
+            renamed: hex("#0A5C00"),
+            untracked: hex("#587C0C"),
+            ignored: hex("#595959"),
+            stagedModified: hex("#667309"),
+            stagedDeleted: hex("#9E1A00"),
             conflict: hex("#6F0089")
         )
     )
@@ -339,6 +354,11 @@ public enum BundledThemes {
             added: hex("#8FE388"),
             modified: hex("#8CC8FF"),
             deleted: hex("#FF8A8A"),
+            renamed: hex("#73C991"),
+            untracked: hex("#73C991"),
+            ignored: hex("#B3B3B3"),
+            stagedModified: hex("#E5BA7D"),
+            stagedDeleted: hex("#FF8A8A"),
             conflict: hex("#D18AFF")
         )
     )

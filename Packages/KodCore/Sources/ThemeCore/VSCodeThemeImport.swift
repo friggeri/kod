@@ -133,6 +133,26 @@ public enum VSCodeThemeImporter {
             assign: { $0.gitDeleted = $1 }
         ),
         WorkbenchColorTarget(
+            key: "gitDecoration.renamedResourceForeground",
+            assign: { $0.gitRenamed = $1 }
+        ),
+        WorkbenchColorTarget(
+            key: "gitDecoration.untrackedResourceForeground",
+            assign: { $0.gitUntracked = $1 }
+        ),
+        WorkbenchColorTarget(
+            key: "gitDecoration.ignoredResourceForeground",
+            assign: { $0.gitIgnored = $1 }
+        ),
+        WorkbenchColorTarget(
+            key: "gitDecoration.stageModifiedResourceForeground",
+            assign: { $0.gitStagedModified = $1 }
+        ),
+        WorkbenchColorTarget(
+            key: "gitDecoration.stageDeletedResourceForeground",
+            assign: { $0.gitStagedDeleted = $1 }
+        ),
+        WorkbenchColorTarget(
             key: "gitDecoration.conflictingResourceForeground",
             assign: { $0.gitConflict = $1 }
         )
@@ -248,6 +268,11 @@ public enum VSCodeThemeImporter {
                 added: mutable.gitAdded ?? base.git.added,
                 modified: mutable.gitModified ?? base.git.modified,
                 deleted: mutable.gitDeleted ?? base.git.deleted,
+                renamed: mutable.gitRenamed ?? base.git.renamed,
+                untracked: mutable.gitUntracked ?? base.git.untracked,
+                ignored: mutable.gitIgnored ?? base.git.ignored,
+                stagedModified: mutable.gitStagedModified ?? base.git.stagedModified,
+                stagedDeleted: mutable.gitStagedDeleted ?? base.git.stagedDeleted,
                 conflict: mutable.gitConflict ?? base.git.conflict
             )
         )
@@ -379,6 +404,11 @@ struct MutableWorkbenchColors {
     var gitAdded: ThemeColor?
     var gitModified: ThemeColor?
     var gitDeleted: ThemeColor?
+    var gitRenamed: ThemeColor?
+    var gitUntracked: ThemeColor?
+    var gitIgnored: ThemeColor?
+    var gitStagedModified: ThemeColor?
+    var gitStagedDeleted: ThemeColor?
     var gitConflict: ThemeColor?
 }
 

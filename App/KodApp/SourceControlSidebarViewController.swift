@@ -1,14 +1,9 @@
 import AppKit
 import GitCore
+import ThemeCore
 
-/// The Source Control sidebar surface (SPEC 9.1): file status grouped
-/// into conflicted, staged, unstaged, untracked, and ignored sections.
-/// Selecting a file requests a diff (unified against whichever of
-/// HEAD/index/working-tree applies to that group) without changing Git
-/// state — this sidebar only ever reads a `GitStatusSnapshot` handed to
-/// it by `GitWorkspaceCoordinator`. Structurally mirrors
-/// `ProblemsViewController`: an `NSOutlineView` grouping leaf rows under
-/// section headers, entirely headlessly testable via its public API.
+/// Read-only Source Control presentation matching VS Code's default groups:
+/// Merge Changes, Staged Changes, and Changes (with untracked files mixed in).
 @MainActor
 final class SourceControlSidebarViewController: NSViewController {
     struct FileSelection: Equatable {
@@ -21,61 +16,49 @@ final class SourceControlSidebarViewController: NSViewController {
     struct FileItem: Equatable {
         let entry: GitStatusEntry
         let sectionKind: Section.Kind
+        let presentation: GitStatusPresentation
     }
 
-    /// One section of the sidebar, in fixed display order.
     struct Section: Equatable {
-        enum Kind: Equatable {
-            case conflicted
-            case staged
-            case unstaged
-            case untracked
-            case ignored
-
-            var diffTarget: GitDiffTarget {
-                switch self {
-                case .conflicted, .unstaged, .untracked:
-                    return .workingTreeVsIndex
-                case .staged:
-                    return .indexVsHead
-                case .ignored:
-                    return .workingTreeVsIndex
-                }
-            }
-        }
+        typealias Kind = GitSourceControlGroup
 
         let kind: Kind
         let title: String
-        let entries: [GitStatusEntry]
+        let items: [FileItem]
+
+        var entries: [GitStatusEntry] {
+            items.map(\.entry)
+        }
 
         var diffTarget: GitDiffTarget {
             kind.diffTarget
         }
     }
 
-    struct StatusPresentation: Equatable {
-        enum ColorRole: Equatable {
-            case added
-            case modified
-            case deleted
-            case untracked
-            case conflicted
-            case renamed
-            case ignored
-        }
-
-        let letter: String
-        let colorRole: ColorRole
-    }
+    typealias StatusPresentation = GitStatusPresentation
 
     private let onSelectFile: (FileSelection) -> Void
-    private let statusLabel = NSTextField(labelWithString: Localized.string("No repository.", comment: "Status text shown in the Source Control sidebar when the workspace has no Git repository"))
+    private let statusLabel = NSTextField(
+        labelWithString: Localized.string(
+            "No repository.",
+            comment: "Status text shown in the Source Control sidebar when the workspace has no Git repository"
+        )
+    )
     private let outlineView = NSOutlineView()
     private var sections: [Section] = []
+    private var collapsedSectionKinds: Set<Section.Kind> = []
+    private var gitDecorationColors = BundledThemes.dark.git
 
     init(onSelectFile: @escaping (FileSelection) -> Void) {
         self.onSelectFile = onSelectFile
         super.init(nibName: nil, bundle: nil)
+        gitDecorationColors = AppearanceSettings.currentTheme().git
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appearanceSettingsDidChange),
+            name: .kodAppearanceSettingsChanged,
+            object: nil
+        )
     }
 
     @available(*, unavailable)
@@ -83,8 +66,15 @@ final class SourceControlSidebarViewController: NSViewController {
         nil
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     override func loadView() {
-        let container = NSView()
+        let container = SourceControlRootView()
+        container.onEffectiveAppearanceChanged = { [weak self] in
+            self?.refreshAppearance()
+        }
 
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.font = .systemFont(ofSize: 11)
@@ -92,8 +82,12 @@ final class SourceControlSidebarViewController: NSViewController {
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sourceControl.results"))
-        column.title = Localized.string("Source Control", comment: "Column title for the Source Control sidebar's outline view")
+        column.title = Localized.string(
+            "Source Control",
+            comment: "Column title for the Source Control sidebar's outline view"
+        )
         outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
         outlineView.headerView = nil
         outlineView.identifier = NSUserInterfaceItemIdentifier("sourceControl.outline")
         outlineView.dataSource = self
@@ -101,6 +95,7 @@ final class SourceControlSidebarViewController: NSViewController {
         outlineView.target = self
         outlineView.action = #selector(handleSelection)
         outlineView.rowSizeStyle = .default
+        outlineView.indentationPerLevel = 12
         outlineView.backgroundColor = .clear
 
         let scrollView = NSScrollView()
@@ -126,90 +121,74 @@ final class SourceControlSidebarViewController: NSViewController {
         view = container
     }
 
-    /// Replaces the displayed snapshot. `nil` means either "not yet
-    /// loaded" or "this workspace is not a Git repository" — both render
-    /// as an empty, inert sidebar (SPEC 9: Git integration is optional).
-    func update(snapshot: GitStatusSnapshot?) {
+    /// Replaces the displayed snapshot without changing Git state. Production
+    /// passes the coordinator's already-built index; tests may omit it.
+    func update(
+        snapshot: GitStatusSnapshot?,
+        presentationIndex suppliedIndex: GitStatusPresentationIndex? = nil
+    ) {
+        captureCollapsedSectionState()
+
         guard let snapshot else {
             sections = []
             outlineView.reloadData()
-            statusLabel.stringValue = Localized.string("No repository.", comment: "Status text shown in the Source Control sidebar when the workspace has no Git repository")
+            statusLabel.stringValue = Localized.string(
+                "No repository.",
+                comment: "Status text shown in the Source Control sidebar when the workspace has no Git repository"
+            )
             return
         }
 
-        var builtSections: [Section] = []
-        if !snapshot.conflicted.isEmpty {
-            builtSections.append(
-                Section(
-                    kind: .conflicted,
-                    title: Localized.string("Merge Conflicts", comment: "Source Control sidebar section title for merge-conflicted files"),
-                    entries: snapshot.conflicted
+        let presentationIndex = suppliedIndex ?? GitStatusPresentationIndex(snapshot: snapshot)
+        sections = GitSourceControlGroup.allCases.compactMap { group in
+            let items = presentationIndex.sourceControlItems(in: group).map { item in
+                FileItem(
+                    entry: item.entry,
+                    sectionKind: item.group,
+                    presentation: item.presentation
                 )
-            )
+            }
+            guard !items.isEmpty else {
+                return nil
+            }
+            return Section(kind: group, title: Self.title(for: group), items: items)
         }
-        if !snapshot.staged.isEmpty {
-            builtSections.append(
-                Section(
-                    kind: .staged,
-                    title: Localized.string("Staged Changes", comment: "Source Control sidebar section title for staged changes"),
-                    entries: snapshot.staged
-                )
-            )
-        }
-        if !snapshot.unstaged.isEmpty {
-            builtSections.append(
-                Section(
-                    kind: .unstaged,
-                    title: Localized.string("Changes", comment: "Source Control sidebar section title for unstaged changes"),
-                    entries: snapshot.unstaged
-                )
-            )
-        }
-        if !snapshot.untracked.isEmpty {
-            builtSections.append(
-                Section(
-                    kind: .untracked,
-                    title: Localized.string("Untracked Files", comment: "Source Control sidebar section title for untracked files"),
-                    entries: snapshot.untracked
-                )
-            )
-        }
-        if !snapshot.ignored.isEmpty {
-            builtSections.append(
-                Section(
-                    kind: .ignored,
-                    title: Localized.string("Ignored Files", comment: "Source Control sidebar section title for ignored files"),
-                    entries: snapshot.ignored
-                )
-            )
-        }
-        sections = builtSections
         outlineView.reloadData()
-        sections.forEach { outlineView.expandItem($0) }
+        restoreSectionExpansionState()
 
-        let changeCount = snapshot.entries.count
-        statusLabel.stringValue = changeCount == 0
-            ? Localized.string("No changes.", comment: "Status text shown in the Source Control sidebar when there are no changes")
-            : Localized.string(
-                "\(changeCount) change\(changeCount == 1 ? "" : "s").",
-                comment: "Status text summarizing the number of changes in the Source Control sidebar"
+        let changeCount = presentationIndex.visibleChangeCount
+        if changeCount == 0 {
+            statusLabel.stringValue = Localized.string(
+                "No changes.",
+                comment: "Status text shown in the Source Control sidebar when there are no changes"
             )
+        } else if changeCount == 1 {
+            statusLabel.stringValue = Localized.string(
+                "1 change.",
+                comment: "Status text shown in the Source Control sidebar when there is exactly one changed file"
+            )
+        } else {
+            statusLabel.stringValue = Localized.string(
+                "\(changeCount) changes.",
+                comment: "Status text shown in the Source Control sidebar with the number of changed files"
+            )
+        }
     }
 
-    @objc
-    private func handleSelection(_ sender: Any?) {
-        let row = outlineView.selectedRow
-        guard row >= 0, let item = outlineView.item(atRow: row) as? FileItem else {
+    func refreshAppearance() {
+        gitDecorationColors = AppearanceSettings.currentTheme().git
+        guard isViewLoaded, outlineView.numberOfRows > 0 else {
             return
         }
-        let entry = item.entry
-        onSelectFile(
-            FileSelection(
-                path: entry.path,
-                originalPath: entry.originalPath,
-                target: item.sectionKind.diffTarget,
-                isUntracked: entry.isUntracked
-            )
+        let visibleRows = outlineView.rows(in: outlineView.visibleRect)
+        guard visibleRows.location != NSNotFound, visibleRows.length > 0 else {
+            return
+        }
+        outlineView.reloadData(
+            forRowIndexes: IndexSet(
+                integersIn: visibleRows.location..<(visibleRows.location + visibleRows.length)
+            ),
+            columnIndexes: IndexSet(integer: 0)
         )
     }
 
@@ -217,36 +196,79 @@ final class SourceControlSidebarViewController: NSViewController {
         for entry: GitStatusEntry,
         in sectionKind: Section.Kind
     ) -> StatusPresentation? {
-        switch entry.shape {
-        case .untracked:
-            return StatusPresentation(letter: "U", colorRole: .untracked)
-        case .ignored:
-            return StatusPresentation(letter: "I", colorRole: .ignored)
-        case .unmerged:
-            return StatusPresentation(letter: "U", colorRole: .conflicted)
-        case .ordinary(let indexStatus, let worktreeStatus),
-             .renameOrCopy(let indexStatus, let worktreeStatus, _, _):
-            let code = sectionKind == .staged ? indexStatus : worktreeStatus
-            guard code != .unmodified else {
-                return nil
-            }
-            let colorRole: StatusPresentation.ColorRole
-            switch code {
-            case .added:
-                colorRole = .added
-            case .modified, .typeChanged:
-                colorRole = .modified
-            case .deleted:
-                colorRole = .deleted
-            case .renamed, .copied:
-                colorRole = .renamed
-            case .updatedButUnmerged:
-                colorRole = .conflicted
-            case .unmodified:
-                return nil
-            }
-            return StatusPresentation(letter: String(code.rawValue), colorRole: colorRole)
+        GitStatusPresentationIndex.sourceControlPresentation(
+            for: entry,
+            in: sectionKind
+        )
+    }
+
+    private static func title(for kind: Section.Kind) -> String {
+        switch kind {
+        case .mergeChanges:
+            return Localized.string(
+                "Merge Changes",
+                comment: "Source Control sidebar section title for merge-conflicted files"
+            )
+        case .stagedChanges:
+            return Localized.string(
+                "Staged Changes",
+                comment: "Source Control sidebar section title for staged changes"
+            )
+        case .changes:
+            return Localized.string(
+                "Changes",
+                comment: "Source Control sidebar section title for unstaged and untracked changes"
+            )
         }
+    }
+
+    private func captureCollapsedSectionState() {
+        guard isViewLoaded else {
+            return
+        }
+        for row in 0..<outlineView.numberOfRows {
+            guard let section = outlineView.item(atRow: row) as? Section else {
+                continue
+            }
+            if outlineView.isItemExpanded(section) {
+                collapsedSectionKinds.remove(section.kind)
+            } else {
+                collapsedSectionKinds.insert(section.kind)
+            }
+        }
+    }
+
+    private func restoreSectionExpansionState() {
+        for index in 0..<outlineView.numberOfChildren(ofItem: nil) {
+            guard let section = outlineView.child(index, ofItem: nil) as? Section,
+                  !collapsedSectionKinds.contains(section.kind) else {
+                continue
+            }
+            outlineView.expandItem(section)
+        }
+    }
+
+    @objc
+    private func appearanceSettingsDidChange() {
+        refreshAppearance()
+    }
+
+    @objc
+    private func handleSelection(_ sender: Any?) {
+        let row = outlineView.clickedRow >= 0
+            ? outlineView.clickedRow
+            : outlineView.selectedRow
+        guard row >= 0, let item = outlineView.item(atRow: row) as? FileItem else {
+            return
+        }
+        onSelectFile(
+            FileSelection(
+                path: item.entry.path,
+                originalPath: item.entry.originalPath,
+                target: item.sectionKind.diffTarget,
+                isUntracked: item.entry.isUntracked
+            )
+        )
     }
 }
 
@@ -258,21 +280,29 @@ extension SourceControlSidebarViewController: NSOutlineViewDataSource, NSOutline
         guard let section = item as? Section else {
             return 0
         }
-        return section.entries.count
+        return section.items.count
     }
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
         item is Section
     }
 
+    func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
+        item is Section
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
+        item is FileItem
+    }
+
     func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
         guard let item else {
             return sections[index]
         }
-        guard let section = item as? Section, section.entries.indices.contains(index) else {
+        guard let section = item as? Section, section.items.indices.contains(index) else {
             return NSObject()
         }
-        return FileItem(entry: section.entries[index], sectionKind: section.kind)
+        return section.items[index]
     }
 
     func outlineView(
@@ -280,69 +310,140 @@ extension SourceControlSidebarViewController: NSOutlineViewDataSource, NSOutline
         viewFor tableColumn: NSTableColumn?,
         item: Any
     ) -> NSView? {
-        let identifier = NSUserInterfaceItemIdentifier("sourceControl.cell")
-        let cell: SourceControlCellView
-        if let reused = outlineView.makeView(withIdentifier: identifier, owner: self) as? SourceControlCellView {
+        if let section = item as? Section {
+            return sectionCell(for: section, in: outlineView)
+        }
+        guard let item = item as? FileItem else {
+            return nil
+        }
+        return fileCell(for: item, in: outlineView)
+    }
+
+    private func sectionCell(
+        for section: Section,
+        in outlineView: NSOutlineView
+    ) -> NSTableCellView {
+        let identifier = NSUserInterfaceItemIdentifier("sourceControl.sectionCell")
+        let cell: NSTableCellView
+        if let reused = outlineView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView {
             cell = reused
         } else {
-            cell = SourceControlCellView(frame: .zero)
+            cell = NSTableCellView()
+            cell.identifier = identifier
+            let label = NSTextField(labelWithString: "")
+            label.font = .boldSystemFont(ofSize: 12)
+            label.lineBreakMode = .byTruncatingTail
+            label.translatesAutoresizingMaskIntoConstraints = false
+            cell.textField = label
+            cell.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+                label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                label.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+            ])
+        }
+        cell.textField?.stringValue = "\(section.title) (\(section.items.count))"
+        cell.textField?.setAccessibilityLabel(
+            "\(section.title), \(section.items.count)"
+        )
+        return cell
+    }
+
+    private func fileCell(
+        for item: FileItem,
+        in outlineView: NSOutlineView
+    ) -> SourceControlFileCellView {
+        let identifier = NSUserInterfaceItemIdentifier("sourceControl.fileCell")
+        let cell: SourceControlFileCellView
+        if let reused = outlineView.makeView(
+            withIdentifier: identifier,
+            owner: self
+        ) as? SourceControlFileCellView {
+            cell = reused
+        } else {
+            cell = SourceControlFileCellView(frame: .zero)
             cell.identifier = identifier
         }
-
-        if let section = item as? Section {
-            cell.textField?.stringValue = "\(section.title) (\(section.entries.count))"
-            cell.textField?.font = .boldSystemFont(ofSize: 12)
-            cell.statusBadge.isHidden = true
-        } else if let item = item as? FileItem {
-            let entry = item.entry
-            let renameSuffix = entry.originalPath.map { " ← \($0)" } ?? ""
-            cell.textField?.stringValue = "\(entry.path)\(renameSuffix)"
-            cell.textField?.font = .systemFont(ofSize: 12)
-            if let presentation = Self.statusPresentation(for: entry, in: item.sectionKind) {
-                cell.statusBadge.stringValue = presentation.letter
-                cell.statusBadge.textColor = presentation.color
-                cell.statusBadge.isHidden = false
-            } else {
-                cell.statusBadge.isHidden = true
-            }
-            // A dedicated accessibility label spelling the change kind
-            // out as a full word ("Added"/"Modified"/"Deleted"/
-            // "Renamed"/"Copied"/"Conflicted"/...) rather than relying on
-            // the section grouping or any color alone (SPEC 14).
-            cell.textField?.setAccessibilityLabel(
-                "\(entry.changeDescription): \(entry.path)\(renameSuffix)"
-            )
-        }
+        cell.configure(
+            item: item,
+            colors: gitDecorationColors
+        )
         return cell
     }
 }
 
-private final class SourceControlCellView: NSTableCellView {
-    let statusBadge = NSTextField(labelWithString: "")
+@MainActor
+private final class SourceControlRootView: NSView {
+    var onEffectiveAppearanceChanged: (() -> Void)?
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onEffectiveAppearanceChanged?()
+    }
+}
+
+@MainActor
+private final class SourceControlFileCellView: NSTableCellView {
+    private let fileIconView = MaterialFileIconView()
+    private let nameLabel = NSTextField(labelWithString: "")
+    private let parentPathLabel = NSTextField(labelWithString: "")
+    private let renameContextLabel = NSTextField(labelWithString: "")
+    private let statusBadge = NSTextField(labelWithString: "")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
 
-        let pathLabel = NSTextField(labelWithString: "")
-        pathLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.font = .systemFont(ofSize: 12)
-        pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        textField = pathLabel
+        fileIconView.identifier = NSUserInterfaceItemIdentifier("sourceControl.fileIcon")
+        fileIconView.imageScaling = .scaleProportionallyUpOrDown
+        fileIconView.setAccessibilityElement(false)
+        fileIconView.translatesAutoresizingMaskIntoConstraints = false
+
+        nameLabel.identifier = NSUserInterfaceItemIdentifier("sourceControl.fileName")
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.font = .systemFont(ofSize: 12)
+        nameLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+
+        parentPathLabel.identifier = NSUserInterfaceItemIdentifier("sourceControl.parentPath")
+        parentPathLabel.lineBreakMode = .byTruncatingMiddle
+        parentPathLabel.font = .systemFont(ofSize: 11)
+        parentPathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        parentPathLabel.setAccessibilityElement(false)
+
+        renameContextLabel.identifier = NSUserInterfaceItemIdentifier("sourceControl.renameContext")
+        renameContextLabel.lineBreakMode = .byTruncatingMiddle
+        renameContextLabel.font = .systemFont(ofSize: 11)
+        renameContextLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        renameContextLabel.setAccessibilityElement(false)
 
         statusBadge.identifier = NSUserInterfaceItemIdentifier("sourceControl.statusBadge")
         statusBadge.alignment = .right
         statusBadge.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
+        statusBadge.setAccessibilityElement(false)
         statusBadge.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(pathLabel)
+        let labels = NSStackView(views: [nameLabel, parentPathLabel, renameContextLabel])
+        labels.orientation = .horizontal
+        labels.alignment = .centerY
+        labels.spacing = 5
+        labels.translatesAutoresizingMaskIntoConstraints = false
+
+        textField = nameLabel
+        addSubview(fileIconView)
+        addSubview(labels)
         addSubview(statusBadge)
         NSLayoutConstraint.activate([
-            pathLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            pathLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusBadge.leadingAnchor, constant: -6),
-            pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            fileIconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            fileIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            fileIconView.widthAnchor.constraint(equalToConstant: 16),
+            fileIconView.heightAnchor.constraint(equalToConstant: 16),
+
+            labels.leadingAnchor.constraint(equalTo: fileIconView.trailingAnchor, constant: 5),
+            labels.trailingAnchor.constraint(lessThanOrEqualTo: statusBadge.leadingAnchor, constant: -6),
+            labels.centerYAnchor.constraint(equalTo: centerYAnchor),
+
             statusBadge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
             statusBadge.centerYAnchor.constraint(equalTo: centerYAnchor),
-            statusBadge.widthAnchor.constraint(equalToConstant: 16)
+            statusBadge.widthAnchor.constraint(equalToConstant: 18)
         ])
     }
 
@@ -350,21 +451,70 @@ private final class SourceControlCellView: NSTableCellView {
     required init?(coder: NSCoder) {
         nil
     }
-}
 
-private extension SourceControlSidebarViewController.StatusPresentation {
-    var color: NSColor {
-        switch colorRole {
-        case .added, .untracked:
-            return .systemGreen
-        case .modified:
-            return .systemOrange
-        case .deleted, .conflicted:
-            return .systemRed
-        case .renamed:
-            return .systemBlue
-        case .ignored:
-            return .secondaryLabelColor
+    func configure(
+        item: SourceControlSidebarViewController.FileItem,
+        colors: GitDecorationColors
+    ) {
+        let entry = item.entry
+        let path = entry.path as NSString
+        let parentPath = path.deletingLastPathComponent
+        let isDeleted = item.presentation.isDeleted
+
+        fileIconView.fileName = entry.path
+        nameLabel.attributedStringValue = styledText(
+            path.lastPathComponent,
+            color: .labelColor,
+            strikethrough: isDeleted,
+            font: .systemFont(ofSize: 12)
+        )
+
+        parentPathLabel.isHidden = parentPath.isEmpty || parentPath == "."
+        parentPathLabel.attributedStringValue = styledText(
+            parentPath,
+            color: .secondaryLabelColor,
+            strikethrough: isDeleted,
+            font: .systemFont(ofSize: 11)
+        )
+
+        if let originalPath = entry.originalPath {
+            renameContextLabel.isHidden = false
+            renameContextLabel.attributedStringValue = styledText(
+                "\(originalPath) \u{2192} \(entry.path)",
+                color: .secondaryLabelColor,
+                strikethrough: isDeleted,
+                font: .systemFont(ofSize: 11)
+            )
+        } else {
+            renameContextLabel.isHidden = true
+            renameContextLabel.stringValue = ""
         }
+
+        statusBadge.stringValue = item.presentation.letter ?? ""
+        statusBadge.textColor = colors.color(for: item.presentation.colorRole).nsColor
+        toolTip = entry.path
+
+        let renameDescription = entry.originalPath.map { "\($0) \u{2192} \(entry.path)" }
+        nameLabel.setAccessibilityLabel(
+            [item.presentation.accessibilityDescription, entry.path, renameDescription]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+        )
+    }
+
+    private func styledText(
+        _ string: String,
+        color: NSColor,
+        strikethrough: Bool,
+        font: NSFont
+    ) -> NSAttributedString {
+        var attributes: [NSAttributedString.Key: Any] = [
+            .foregroundColor: color,
+            .font: font
+        ]
+        if strikethrough {
+            attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
+        return NSAttributedString(string: string, attributes: attributes)
     }
 }

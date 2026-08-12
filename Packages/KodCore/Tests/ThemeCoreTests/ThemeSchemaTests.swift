@@ -35,6 +35,51 @@ final class ThemeSchemaTests: XCTestCase {
         XCTAssertEqual(decoded.identifier, BundledThemes.light.identifier)
     }
 
+    func testDecodingLegacyGitColorsSuppliesBackwardCompatibleRoles() throws {
+        let data = try ThemeFileCodec.encode(BundledThemes.dark)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        var git = try XCTUnwrap(object["git"] as? [String: Any])
+        ["renamed", "untracked", "ignored", "stagedModified", "stagedDeleted"].forEach {
+            git.removeValue(forKey: $0)
+        }
+        object["git"] = git
+
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try ThemeFileCodec.decode(legacyData)
+
+        XCTAssertEqual(decoded.git.renamed, decoded.git.modified)
+        XCTAssertEqual(decoded.git.untracked, decoded.git.added)
+        XCTAssertEqual(decoded.git.ignored, decoded.git.modified)
+        XCTAssertEqual(decoded.git.stagedModified, decoded.git.modified)
+        XCTAssertEqual(decoded.git.stagedDeleted, decoded.git.deleted)
+    }
+
+    func testLegacyGitColorInitializerSuppliesBackwardCompatibleRoles() throws {
+        let added = try XCTUnwrap(ThemeColor(hex: "#112233"))
+        let modified = try XCTUnwrap(ThemeColor(hex: "#445566"))
+        let deleted = try XCTUnwrap(ThemeColor(hex: "#778899"))
+        let conflict = try XCTUnwrap(ThemeColor(hex: "#AABBCC"))
+
+        let colors = GitDecorationColors(
+            added: added,
+            modified: modified,
+            deleted: deleted,
+            conflict: conflict
+        )
+
+        XCTAssertEqual(colors.added, added)
+        XCTAssertEqual(colors.modified, modified)
+        XCTAssertEqual(colors.deleted, deleted)
+        XCTAssertEqual(colors.conflict, conflict)
+        XCTAssertEqual(colors.renamed, modified)
+        XCTAssertEqual(colors.untracked, added)
+        XCTAssertEqual(colors.ignored, modified)
+        XCTAssertEqual(colors.stagedModified, modified)
+        XCTAssertEqual(colors.stagedDeleted, deleted)
+    }
+
     func testDecodingRejectsNonObjectJSON() {
         let data = Data("[1, 2, 3]".utf8)
         XCTAssertThrowsError(try ThemeFileCodec.decode(data)) { error in
