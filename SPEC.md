@@ -329,7 +329,7 @@ The Kod-native format defines:
 - Editor base colors.
 - Tree-sitter capture colors and font traits.
 - LSP semantic token type/modifier rules.
-- Diagnostic and Git decoration colors.
+- Diagnostic colors and Git decoration colors for added, modified, deleted, renamed, untracked, ignored, staged-modified, staged-deleted, and conflicting resources. Missing newer Git fields in an older Kod-native or persisted theme inherit compatible legacy colors rather than invalidating the theme.
 
 Theme switching updates the visible UI immediately and invalidates offscreen render caches lazily.
 
@@ -375,8 +375,12 @@ Git integration is read-only and optional for non-Git folders.
 ### 9.1 Features
 
 - Repository root, current branch or detached HEAD, and worktree status.
-- File status grouped by staged, unstaged, untracked, conflicted, ignored, and renamed.
-- Explorer badges and inline added/modified/deleted gutter markers.
+- Source Control uses the VS Code default groups and order: **Merge Changes**, **Staged Changes**, and **Changes**. Untracked files are mixed into Changes, ignored files are hidden, rows are sorted by path, and a path changed in both index and working tree appears in both applicable groups with the corresponding diff target.
+- Explorer Git decorations use `M`, `A`, `D`, `R`, `C`, `T`, `U`, and `!` (conflict) as a dedicated trailing badge, with both filename and badge colored by the active Git theme token. Ignored entries use the ignored color without a letter.
+- Non-deleted descendant changes color parent folders and add a subtle trailing indicator. Deleted paths remain available in Source Control but do not propagate to parents or create synthetic Explorer rows.
+- Source Control rows use Material file icons, basename plus muted parent path, rename context, a theme-colored trailing status, and strikethrough for deletions. Section expansion state survives status refreshes.
+- Git status decoration state is indexed once per snapshot for constant-time file and parent-folder lookup. Status and theme/appearance changes repaint visible rows without rerunning workspace discovery.
+- Inline added/modified/deleted gutter markers.
 - File diff against HEAD, index, or working tree as applicable.
 - Unified and side-by-side diff modes.
 - Per-line blame with author, commit, timestamp, and summary.

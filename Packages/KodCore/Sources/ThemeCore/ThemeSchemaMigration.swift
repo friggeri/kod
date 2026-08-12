@@ -12,9 +12,9 @@ public enum ThemeSchemaMigrationError: Error, Equatable {
 /// or partially-default data.
 ///
 /// Schema version 1 is the only version Kod has ever shipped, so there are
-/// no migration steps registered yet; the mechanism itself (version check,
-/// migration chain, rejecting newer-than-supported files) is exercised by
-/// `ThemeCoreTests` today so it is proven correct before it is ever needed.
+/// no structural migration steps registered yet. Additive Git decoration
+/// fields are decoded compatibly by `GitDecorationColors` itself, including
+/// themes stored directly in UserDefaults where this file codec is bypassed.
 public enum ThemeSchemaMigrator {
     static func migrate(rawJSON: [String: Any]) throws -> [String: Any] {
         guard let fileVersion = rawJSON["schemaVersion"] as? Int else {

@@ -7,11 +7,35 @@
     "%@ Syntax" : {
 
     },
+    "%lld changes." : {
+      "comment" : "Status text shown in the Source Control sidebar with the number of changed files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld changes."
+          }
+        }
+      }
+    },
     "%arg earlier event(s) dropped (the log is bounded)." : {
 
     },
+    "1 change." : {
+      "comment" : "Status text shown in the Source Control sidebar when there is exactly one changed file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 change."
+          }
+        }
+      }
+    },
     "A" : {
-      "comment" : "Single-letter Explorer badge for an added file's Git status",
+      "comment" : "Single-letter Git status badge for an added file",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -151,6 +175,18 @@
     "Bundled Tree-sitter grammar: %@" : {
 
     },
+    "C" : {
+      "comment" : "Single-letter Git status badge for a copied file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "C"
+          }
+        }
+      }
+    },
     "Call Hierarchy" : {
       "comment" : "Title of the Call Hierarchy panel",
       "extractionState" : "manual",
@@ -212,7 +248,7 @@
       }
     },
     "Changes" : {
-      "comment" : "Source Control sidebar section title for unstaged changes",
+      "comment" : "Source Control sidebar section title for unstaged and untracked changes",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -380,7 +416,7 @@
       }
     },
     "Copied" : {
-      "comment" : "Transient confirmation label shown after copying an installation command to the pasteboard",
+      "comment" : "Accessibility description for a copied file's Git status, or a transient confirmation after copying an installation command",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -467,7 +503,7 @@
 
     },
     "D" : {
-      "comment" : "Single-letter Explorer badge for a deleted file's Git status",
+      "comment" : "Single-letter Git status badge for a deleted file",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -739,6 +775,18 @@
         }
       }
     },
+    "Folder contains Git changes: %@" : {
+      "comment" : "Accessibility description for a folder whose descendants have Git changes, followed by the full-word status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folder contains Git changes: %@"
+          }
+        }
+      }
+    },
     "Font" : {
 
     },
@@ -917,25 +965,13 @@
       }
     },
     "Ignored" : {
-      "comment" : "Checkbox toggling inclusion of ignored files in workspace search",
+      "comment" : "Ignored-file label used by Explorer accessibility and ignored-file visibility controls",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ignored"
-          }
-        }
-      }
-    },
-    "Ignored Files" : {
-      "comment" : "Source Control sidebar section title for ignored files",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ignored Files"
           }
         }
       }
@@ -1157,7 +1193,7 @@
       }
     },
     "M" : {
-      "comment" : "Single-letter Explorer badge for a modified file's Git status",
+      "comment" : "Single-letter Git status badge for a modified file",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -1168,14 +1204,14 @@
         }
       }
     },
-    "Merge Conflicts" : {
+    "Merge Changes" : {
       "comment" : "Source Control sidebar section title for merge-conflicted files",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Merge Conflicts"
+            "value" : "Merge Changes"
           }
         }
       }
@@ -1742,7 +1778,7 @@
       }
     },
     "R" : {
-      "comment" : "Single-letter Explorer badge for a renamed file's Git status",
+      "comment" : "Single-letter Git status badge for a renamed file",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -2419,8 +2455,32 @@
         }
       }
     },
+    "Type changed" : {
+      "comment" : "Accessibility description for a type-changed file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type changed"
+          }
+        }
+      }
+    },
+    "T" : {
+      "comment" : "Single-letter Git status badge for a type-changed file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "T"
+          }
+        }
+      }
+    },
     "U" : {
-      "comment" : "Single-letter Explorer badge for an untracked file's Git status",
+      "comment" : "Single-letter Git status badge for an untracked file",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -2463,18 +2523,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Untracked"
-          }
-        }
-      }
-    },
-    "Untracked Files" : {
-      "comment" : "Source Control sidebar section title for untracked files",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Untracked Files"
           }
         }
       }

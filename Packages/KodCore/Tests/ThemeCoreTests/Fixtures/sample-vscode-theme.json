@@ -9,7 +9,16 @@
     "sideBar.background": "#0B0E11",
     "editor.someTotallyMadeUpKey": "#123456",
     "statusBar.background": "#123456",
-    "statusBar.foreground": "#FFFFFF"
+    "statusBar.foreground": "#FFFFFF",
+    "gitDecoration.addedResourceForeground": "#11AA11",
+    "gitDecoration.modifiedResourceForeground": "#2266AA",
+    "gitDecoration.deletedResourceForeground": "#CC2233",
+    "gitDecoration.renamedResourceForeground": "#33AA77",
+    "gitDecoration.untrackedResourceForeground": "#44BB55",
+    "gitDecoration.ignoredResourceForeground": "#778899",
+    "gitDecoration.stageModifiedResourceForeground": "#DDAA55",
+    "gitDecoration.stageDeletedResourceForeground": "#EE6677",
+    "gitDecoration.conflictingResourceForeground": "#FF33AA"
   },
   "tokenColors": [
     {

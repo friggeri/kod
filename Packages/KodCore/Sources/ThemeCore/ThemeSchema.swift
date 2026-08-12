@@ -174,13 +174,83 @@ public struct GitDecorationColors: Codable, Equatable, Sendable {
     public var added: ThemeColor
     public var modified: ThemeColor
     public var deleted: ThemeColor
+    public var renamed: ThemeColor
+    public var untracked: ThemeColor
+    public var ignored: ThemeColor
+    public var stagedModified: ThemeColor
+    public var stagedDeleted: ThemeColor
     public var conflict: ThemeColor
 
-    public init(added: ThemeColor, modified: ThemeColor, deleted: ThemeColor, conflict: ThemeColor) {
+    /// Preserves source compatibility with Kod's original four-color public
+    /// API. New roles inherit the same nearest legacy colors used when
+    /// decoding older native and UserDefaults-persisted themes.
+    public init(
+        added: ThemeColor,
+        modified: ThemeColor,
+        deleted: ThemeColor,
+        conflict: ThemeColor
+    ) {
+        self.init(
+            added: added,
+            modified: modified,
+            deleted: deleted,
+            renamed: modified,
+            untracked: added,
+            ignored: modified,
+            stagedModified: modified,
+            stagedDeleted: deleted,
+            conflict: conflict
+        )
+    }
+
+    public init(
+        added: ThemeColor,
+        modified: ThemeColor,
+        deleted: ThemeColor,
+        renamed: ThemeColor,
+        untracked: ThemeColor,
+        ignored: ThemeColor,
+        stagedModified: ThemeColor,
+        stagedDeleted: ThemeColor,
+        conflict: ThemeColor
+    ) {
         self.added = added
         self.modified = modified
         self.deleted = deleted
+        self.renamed = renamed
+        self.untracked = untracked
+        self.ignored = ignored
+        self.stagedModified = stagedModified
+        self.stagedDeleted = stagedDeleted
         self.conflict = conflict
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case added
+        case modified
+        case deleted
+        case renamed
+        case untracked
+        case ignored
+        case stagedModified
+        case stagedDeleted
+        case conflict
+    }
+
+    /// Themes persisted by older Kod builds contain only the original four
+    /// Git colors. Missing roles inherit the closest legacy color so those
+    /// themes remain usable instead of being quarantined as corrupt.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        added = try container.decode(ThemeColor.self, forKey: .added)
+        modified = try container.decode(ThemeColor.self, forKey: .modified)
+        deleted = try container.decode(ThemeColor.self, forKey: .deleted)
+        conflict = try container.decode(ThemeColor.self, forKey: .conflict)
+        renamed = try container.decodeIfPresent(ThemeColor.self, forKey: .renamed) ?? modified
+        untracked = try container.decodeIfPresent(ThemeColor.self, forKey: .untracked) ?? added
+        ignored = try container.decodeIfPresent(ThemeColor.self, forKey: .ignored) ?? modified
+        stagedModified = try container.decodeIfPresent(ThemeColor.self, forKey: .stagedModified) ?? modified
+        stagedDeleted = try container.decodeIfPresent(ThemeColor.self, forKey: .stagedDeleted) ?? deleted
     }
 }
 

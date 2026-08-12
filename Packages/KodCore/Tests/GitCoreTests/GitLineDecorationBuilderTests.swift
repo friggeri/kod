@@ -81,6 +81,11 @@ final class GitLineDecorationBuilderTests: XCTestCase {
             added: ThemeColor(hex: "#00FF00")!,
             modified: ThemeColor(hex: "#0000FF")!,
             deleted: ThemeColor(hex: "#FF0000")!,
+            renamed: ThemeColor(hex: "#00FFFF")!,
+            untracked: ThemeColor(hex: "#00FF80")!,
+            ignored: ThemeColor(hex: "#808080")!,
+            stagedModified: ThemeColor(hex: "#8080FF")!,
+            stagedDeleted: ThemeColor(hex: "#FF8080")!,
             conflict: ThemeColor(hex: "#FF00FF")!
         )
 

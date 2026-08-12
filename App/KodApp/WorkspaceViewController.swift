@@ -6,6 +6,7 @@ import LanguageAdapters
 import LanguageClient
 import PreviewCore
 import SourceModel
+import ThemeCore
 import WorkspaceCore
 
 private extension NSToolbarItem.Identifier {
@@ -23,6 +24,16 @@ private extension NSToolbarItem.Identifier {
 private final class WorkspaceTitleOverlayView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
+    }
+}
+
+@MainActor
+private final class WorkspaceRootView: NSView {
+    var onEffectiveAppearanceChanged: (() -> Void)?
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onEffectiveAppearanceChanged?()
     }
 }
 
@@ -440,6 +451,7 @@ final class WorkspaceViewController: NSViewController {
     /// non-Git folders, kept fresh from the same FSEvents pipeline that
     /// drives Explorer/index live updates.
     private var gitCoordinator: GitWorkspaceCoordinator!
+    private var gitDecorationColors = BundledThemes.dark.git
     private var gitBlamePanelController: GitBlamePanelController?
     let multiLanguageServicesCoordinator: MultiLanguageServicesCoordinator
     private let languageServerStateLabel = NSTextField(labelWithString: "")
@@ -519,6 +531,7 @@ final class WorkspaceViewController: NSViewController {
             diagnosticsLog: diagnosticsLog
         )
         super.init(nibName: nil, bundle: nil)
+        gitDecorationColors = AppearanceSettings.currentTheme().git
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(languageProfilesDidChange(_:)),
@@ -531,8 +544,14 @@ final class WorkspaceViewController: NSViewController {
             name: .kodLanguageSupportChanged,
             object: languageSupportService
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appearanceSettingsDidChange),
+            name: .kodAppearanceSettingsChanged,
+            object: nil
+        )
         self.gitCoordinator = GitWorkspaceCoordinator(root: identity.root, diagnosticsLog: diagnosticsLog) { [weak self] snapshot in
-            self?.sourceControlSidebarController.update(snapshot: snapshot)
+            self?.gitStatusDidChange(snapshot)
         }
     }
 
@@ -567,6 +586,12 @@ final class WorkspaceViewController: NSViewController {
         case .executableDiscovery:
             handleLanguageServerExecutableDiscovered(languageKey: languageKey)
         }
+    }
+
+    @objc
+    private func appearanceSettingsDidChange() {
+        gitDecorationColors = AppearanceSettings.currentTheme().git
+        reloadVisibleExplorerDecorations()
     }
 
     /// A profile's configuration changed (edited, enabled/disabled,
@@ -645,7 +670,10 @@ final class WorkspaceViewController: NSViewController {
 
 
     override func loadView() {
-        let container = NSView()
+        let container = WorkspaceRootView()
+        container.onEffectiveAppearanceChanged = { [weak self] in
+            self?.refreshGitDecorationAppearance()
+        }
         collapseEmptyGroupsKeepingOne()
 
         configureTrustBanner()
@@ -807,6 +835,35 @@ final class WorkspaceViewController: NSViewController {
         Task { [weak self] in
             await self?.gitCoordinator.start()
         }
+    }
+
+    private func gitStatusDidChange(_ snapshot: GitStatusSnapshot?) {
+        sourceControlSidebarController.update(
+            snapshot: snapshot,
+            presentationIndex: gitCoordinator.presentationIndex
+        )
+        reloadVisibleExplorerDecorations()
+    }
+
+    private func reloadVisibleExplorerDecorations() {
+        guard isViewLoaded, outlineView.numberOfRows > 0 else {
+            return
+        }
+        let visibleRows = outlineView.rows(in: outlineView.visibleRect)
+        guard visibleRows.location != NSNotFound, visibleRows.length > 0 else {
+            return
+        }
+        outlineView.reloadData(
+            forRowIndexes: IndexSet(
+                integersIn: visibleRows.location..<(visibleRows.location + visibleRows.length)
+            ),
+            columnIndexes: IndexSet(integer: 0)
+        )
+    }
+
+    private func refreshGitDecorationAppearance() {
+        gitDecorationColors = AppearanceSettings.currentTheme().git
+        reloadVisibleExplorerDecorations()
     }
 
     /// Reveals the Source Control sidebar (mirrors `searchWorkspace(_:)`).
@@ -2377,11 +2434,15 @@ final class WorkspaceViewController: NSViewController {
         problemsViewController.view.isHidden = segment != 2
         symbolsViewController.view.isHidden = segment != 3
         sourceControlSidebarController.view.isHidden = segment != 4
-        if segment == 1 {
+        if segment == 0 {
+            refreshGitDecorationAppearance()
+        } else if segment == 1 {
             searchSidebarController.focusSearchField()
         } else if segment == 3 {
             symbolsViewController.focusSearchField()
             symbolsViewController.refresh()
+        } else if segment == 4 {
+            sourceControlSidebarController.refreshAppearance()
         }
     }
 
@@ -2939,50 +3000,41 @@ extension WorkspaceViewController: NSOutlineViewDataSource, NSOutlineViewDelegat
         }
 
         let identifier = NSUserInterfaceItemIdentifier("workspace.fileCell")
-        let cell: NSTableCellView
+        let cell: WorkspaceExplorerCellView
         if let reused = outlineView.makeView(
             withIdentifier: identifier,
             owner: self
-        ) as? NSTableCellView {
+        ) as? WorkspaceExplorerCellView {
             cell = reused
         } else {
-            cell = NSTableCellView()
+            cell = WorkspaceExplorerCellView(frame: .zero)
             cell.identifier = identifier
-
-            let imageView = MaterialFileIconView()
-            imageView.imageScaling = .scaleProportionallyUpOrDown
-            imageView.setAccessibilityElement(false)
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            cell.imageView = imageView
-            cell.addSubview(imageView)
-
-            let textField = NSTextField(labelWithString: "")
-            textField.lineBreakMode = .byTruncatingMiddle
-            textField.translatesAutoresizingMaskIntoConstraints = false
-            cell.textField = textField
-            cell.addSubview(textField)
-
-            NSLayoutConstraint.activate([
-                imageView.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
-                imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                imageView.widthAnchor.constraint(equalToConstant: 16),
-                imageView.heightAnchor.constraint(equalToConstant: 16),
-                textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 5),
-                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-            ])
         }
 
-        cell.textField?.stringValue = node.entry.url.lastPathComponent
+        let displayName = node.entry.url.lastPathComponent
+        cell.textField?.stringValue = displayName
         cell.textField?.toolTip = node.entry.relativePath
         cell.textField?.textColor = .labelColor
-        var badgeDescription: String?
-        if node.entry.kind == .file, let badge = gitCoordinator.badge(forRelativePath: node.entry.relativePath) {
-            cell.textField?.stringValue += "  \(badge.letter)"
-            cell.textField?.textColor = badgeColor(for: badge)
-            badgeDescription = badge.accessibilityDescription
+        cell.statusBadge.stringValue = ""
+        cell.statusBadge.isHidden = true
+
+        let gitDecoration = gitCoordinator.explorerDecoration(
+            forRelativePath: node.entry.relativePath,
+            isDirectory: node.entry.kind == .directory
+        ) ?? (node.entry.isIgnored ? .ignored : nil)
+        if let gitDecoration {
+            let color = gitDecorationColors
+                .color(for: gitDecoration.presentation.colorRole)
+                .nsColor
+            cell.textField?.textColor = color
+            if let badgeText = gitDecoration.badgeText {
+                cell.statusBadge.stringValue = badgeText
+                cell.statusBadge.textColor = gitDecoration.indicator == .descendant
+                    ? color.withAlphaComponent(color.alphaComponent * 0.65)
+                    : color
+                cell.statusBadge.isHidden = false
+            }
         }
-        let displayName = node.entry.url.lastPathComponent
         let materialIconView = cell.imageView as? MaterialFileIconView
         var symbolName: String?
         let kindDescription: String
@@ -3012,37 +3064,59 @@ extension WorkspaceViewController: NSOutlineViewDataSource, NSOutlineViewDelegat
                 accessibilityDescription: nil
             )
         }
-        // A dedicated accessibility label — distinct from the visually
-        // displayed `stringValue`, which appends a terse single-letter
-        // badge — so VoiceOver reads the file/folder's name, its kind,
-        // and (when present) its full-word Git status rather than a
-        // color-only or letter-only cue (SPEC 14).
         cell.textField?.setAccessibilityLabel(
-            [displayName, kindDescription, badgeDescription]
+            [displayName, kindDescription, gitDecoration?.accessibilityDescription]
                 .compactMap { $0 }
                 .joined(separator: ", ")
         )
         return cell
     }
+}
 
-    /// Explorer badge tint (SPEC 9.1: "Explorer badges"), matching most
-    /// editors' color convention for added/modified/deleted/renamed/
-    /// untracked/conflicted.
-    private func badgeColor(for badge: GitExplorerBadge) -> NSColor {
-        switch badge {
-        case .added:
-            return .systemGreen
-        case .modified:
-            return .systemOrange
-        case .deleted:
-            return .systemRed
-        case .renamed:
-            return .systemBlue
-        case .untracked:
-            return .systemTeal
-        case .conflicted:
-            return .systemPurple
-        }
+@MainActor
+private final class WorkspaceExplorerCellView: NSTableCellView {
+    let statusBadge = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        let imageView = MaterialFileIconView()
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.setAccessibilityElement(false)
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        self.imageView = imageView
+
+        let textField = NSTextField(labelWithString: "")
+        textField.lineBreakMode = .byTruncatingMiddle
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        self.textField = textField
+
+        statusBadge.identifier = NSUserInterfaceItemIdentifier("workspace.gitStatusBadge")
+        statusBadge.alignment = .right
+        statusBadge.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
+        statusBadge.setAccessibilityElement(false)
+        statusBadge.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(imageView)
+        addSubview(textField)
+        addSubview(statusBadge)
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 16),
+            imageView.heightAnchor.constraint(equalToConstant: 16),
+            textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 5),
+            textField.trailingAnchor.constraint(lessThanOrEqualTo: statusBadge.leadingAnchor, constant: -5),
+            textField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            statusBadge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            statusBadge.centerYAnchor.constraint(equalTo: centerYAnchor),
+            statusBadge.widthAnchor.constraint(equalToConstant: 16)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
     }
 }
 

@@ -69,7 +69,7 @@ final class PseudolocalizationTests: XCTestCase {
         ("WorkspaceViewController trust banner text", "Workspace trust granted"),
         ("Language Support settings title", "Language Support"),
         ("GitBlamePanelController accessibility label", "Commit details"),
-        ("SourceControlSidebarViewController section title", "Merge Conflicts"),
+        ("SourceControlSidebarViewController section title", "Merge Changes"),
         ("GitDiffViewController segmented control label", "Side by Side"),
     ]
 
@@ -144,8 +144,9 @@ final class PseudolocalizationTests: XCTestCase {
 
     // MARK: - Genuine overflow detection
 
-    /// `GitExplorerBadge.letter` (see `GitWorkspaceCoordinator.swift`) is
-    /// deliberately a single glyph ("A"/"M"/"D"/"R"/"U") sized to fit a
+    /// `GitPresentedStatus.letter` (see `GitWorkspaceCoordinator.swift`) is
+    /// deliberately a single glyph ("A"/"M"/"D"/"R"/"C"/"T"/"U"/"!")
+    /// sized to fit a
     /// small fixed badge; its layout budget is exactly one glyph's
     /// width plus a hairline of padding. Pseudolocalizing a single
     /// letter (e.g. "A" -> "[A !!!]") should very obviously overflow
@@ -154,7 +155,7 @@ final class PseudolocalizationTests: XCTestCase {
     /// vacuous always-true/always-false check.
     func testGitStatusBadgeLetterOverflowsItsSingleGlyphBudgetWhenPseudolocalized() {
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-        let badgeLetters = ["A", "M", "D", "R", "U"]
+        let badgeLetters = ["A", "M", "D", "R", "C", "T", "U", "!"]
 
         for letter in badgeLetters {
             let singleGlyphBudget = (letter as NSString).size(withAttributes: [.font: font]).width + 1.0
