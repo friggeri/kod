@@ -54,7 +54,16 @@ enum RemoteMarkdownImageLoader {
 @MainActor
 final class MarkdownPreviewViewController: NSViewController {
     private let scrollView = NSScrollView()
-    private let textView = NSTextView()
+    private let textView: NSTextView = {
+        let textStorage = NSTextStorage()
+        let layoutManager = MarkdownPreviewLayoutManager()
+        let textContainer = NSTextContainer(
+            size: NSSize(width: 1, height: CGFloat.greatestFiniteMagnitude)
+        )
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(textContainer)
+        return NSTextView(frame: .zero, textContainer: textContainer)
+    }()
     private let statusBanner = NSVisualEffectView()
     private let statusStack = NSStackView()
     private let statusSpacer = NSView()
@@ -78,6 +87,7 @@ final class MarkdownPreviewViewController: NSViewController {
     /// Injected so tests can substitute a confirmation outcome without a
     /// real alert sheet; production uses a real `NSAlert`.
     var confirmBeforeOpening: @MainActor (URL) -> Bool
+    private let openExternalURL: @MainActor (URL) -> Void
     var openLocalRelativePath: ((String) -> Void)?
     private(set) var lastOpenedURL: URL?
     private(set) var lastConfirmationPrompted: URL?
@@ -97,6 +107,9 @@ final class MarkdownPreviewViewController: NSViewController {
         theme: KodTheme,
         fontSettings: FontSettings,
         remoteImageLoader: @escaping @Sendable (URL) async -> RemoteMarkdownImageLoad? = RemoteMarkdownImageLoader.load,
+        openExternalURL: @escaping @MainActor (URL) -> Void = { url in
+            _ = NSWorkspace.shared.open(url)
+        },
         confirmBeforeOpening: @escaping @MainActor (URL) -> Bool = { _ in false }
     ) {
         self.renderDocument = renderDocument
@@ -104,6 +117,7 @@ final class MarkdownPreviewViewController: NSViewController {
         self.theme = theme
         self.fontSettings = fontSettings
         self.remoteImageLoader = remoteImageLoader
+        self.openExternalURL = openExternalURL
         self.confirmBeforeOpening = confirmBeforeOpening
         super.init(nibName: nil, bundle: nil)
         self.remoteImageDestinations = Self.collectRemoteImageDestinations(renderDocument, policy: resourcePolicy)
@@ -374,7 +388,27 @@ extension MarkdownPreviewViewController {
     var previewScrollViewFrame: NSRect { scrollView.frame }
     var remoteImagesButtonIsEnabled: Bool { remoteImagesButton.isEnabled }
     var remoteImagesButtonIsHidden: Bool { remoteImagesButton.isHidden }
+    var usesMarkdownLayoutManager: Bool { textView.layoutManager is MarkdownPreviewLayoutManager }
     func beginRemoteImageLoadForTesting() { handleLoadRemoteImages(nil) }
+
+    func renderedLineFragmentCount(containing text: String) -> Int {
+        let characterRange = (textView.string as NSString).range(of: text)
+        guard characterRange.location != NSNotFound,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else {
+            return 0
+        }
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: characterRange,
+            actualCharacterRange: nil
+        )
+        var count = 0
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, _, _, _, _ in
+            count += 1
+        }
+        return count
+    }
 }
 
 extension MarkdownPreviewViewController: NSTextViewDelegate {
@@ -387,7 +421,7 @@ extension MarkdownPreviewViewController: NSTextViewDelegate {
             return true
         }
         guard let url = URL(string: rawValue) else {
-            return false
+            return true
         }
 
         if destination.scheme == .local {
@@ -403,7 +437,7 @@ extension MarkdownPreviewViewController: NSTextViewDelegate {
             }
         }
         lastOpenedURL = url
-        NSWorkspace.shared.open(url)
+        openExternalURL(url)
         return true
     }
 }

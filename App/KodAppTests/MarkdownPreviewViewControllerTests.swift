@@ -17,6 +17,7 @@ final class MarkdownPreviewViewControllerTests: XCTestCase {
         theme: KodTheme = BundledThemes.dark,
         fontSettings: FontSettings = .default,
         remoteImageLoader: @escaping @Sendable (URL) async -> RemoteMarkdownImageLoad? = RemoteMarkdownImageLoader.load,
+        openExternalURL: @escaping @MainActor (URL) -> Void = { _ in },
         confirmBeforeOpening: @escaping @MainActor (URL) -> Bool = { _ in false }
     ) async -> MarkdownPreviewViewController {
         let document = MarkdownParser.parse(markdown)
@@ -28,6 +29,7 @@ final class MarkdownPreviewViewControllerTests: XCTestCase {
             theme: theme,
             fontSettings: fontSettings,
             remoteImageLoader: remoteImageLoader,
+            openExternalURL: openExternalURL,
             confirmBeforeOpening: confirmBeforeOpening
         )
         controller.loadView()
@@ -56,8 +58,8 @@ final class MarkdownPreviewViewControllerTests: XCTestCase {
             markdown: "[site](https://example.com)",
             isWorkspaceTrusted: false,
             confirmBeforeOpening: { url in
-            confirmationPrompt = url
-            return false // user declines
+                confirmationPrompt = url
+                return false // user declines
             }
         )
         _ = controller.textView(NSTextView(), clickedOnLink: "https://example.com", at: 0)
@@ -68,16 +70,20 @@ final class MarkdownPreviewViewControllerTests: XCTestCase {
 
     func testRemoteLinkInTrustedWorkspaceOpensWithoutConfirmation() async {
         var confirmationCalls = 0
+        var openedURL: URL?
         let controller = await makeController(
             markdown: "[site](https://example.com)",
             isWorkspaceTrusted: true,
+            openExternalURL: { openedURL = $0 },
             confirmBeforeOpening: { _ in
                 confirmationCalls += 1
                 return true
             }
         )
         _ = controller.textView(NSTextView(), clickedOnLink: "https://example.com", at: 0)
+
         XCTAssertEqual(confirmationCalls, 0, "a trusted workspace must not require confirmation")
+        XCTAssertEqual(openedURL, URL(string: "https://example.com"))
     }
 
     func testRemoteImageIsBlockedByDefaultAndShowsOptInControl() async {
@@ -96,23 +102,25 @@ final class MarkdownPreviewViewControllerTests: XCTestCase {
         XCTAssertFalse(controller.renderDocument.sanitizerDiagnostics.isEmpty)
     }
 
-    func testJavascriptSchemeLinkNeverOpensEvenIfConfirmed() async {
-        var openCalls = 0
+    func testJavascriptSchemeLinkIsBlockedBeforeConfirmationOrOpening() async {
+        var confirmationCalls = 0
+        var openedURL: URL?
         let controller = await makeController(
             markdown: "[x](javascript:alert(1))",
             isWorkspaceTrusted: false,
-            confirmBeforeOpening: { _ in true }
+            openExternalURL: { openedURL = $0 },
+            confirmBeforeOpening: { _ in
+                confirmationCalls += 1
+                return true
+            }
         )
         let handled = controller.textView(NSTextView(), clickedOnLink: "javascript:alert(1)", at: 0)
-        // `javascript:` is not a valid `URL` destination Kod ever hands to
-        // `NSWorkspace.open` in a meaningful way, but even if it were,
-        // this asserts the confirmation gate was still exercised for a
-        // non-local scheme rather than silently short-circuiting.
-        _ = handled
-        openCalls += (controller.lastOpenedURL != nil) ? 1 : 0
-        if controller.lastOpenedURL != nil {
-            XCTAssertEqual(controller.lastOpenedURL?.scheme, "javascript")
-        }
+
+        XCTAssertTrue(handled, "unsafe links must be swallowed so NSTextView cannot open them")
+        XCTAssertEqual(confirmationCalls, 0)
+        XCTAssertNil(openedURL)
+        XCTAssertNil(controller.lastOpenedURL)
+        XCTAssertNil(controller.lastConfirmationPrompted)
     }
 
     func testRenderedMarkdownUsesAVisibleScrollingTextDocument() async {
@@ -138,6 +146,11 @@ final class MarkdownPreviewViewControllerTests: XCTestCase {
             "scroll frame: \(controller.previewScrollViewFrame), container frame: \(controller.view.frame)"
         )
         XCTAssertGreaterThan(controller.renderedTextViewFrame.height, 0)
+        XCTAssertEqual(
+            controller.renderedLineFragmentCount(containing: "Visible title"),
+            1,
+            "a heading separator block must occupy the readable width instead of collapsing to one character"
+        )
     }
 
     func testPlainDocumentCollapsesStatusBannerAndHasNoOuterTopGap() async {
@@ -193,6 +206,37 @@ final class MarkdownPreviewViewControllerTests: XCTestCase {
         XCTAssertFalse(proseFont.fontDescriptor.symbolicTraits.contains(.monoSpace))
         XCTAssertTrue(inlineFont.fontDescriptor.symbolicTraits.contains(.monoSpace))
         XCTAssertTrue(blockFont.fontDescriptor.symbolicTraits.contains(.monoSpace))
+        XCTAssertEqual(proseFont.pointSize, 16, accuracy: 0.01)
+        XCTAssertEqual(inlineFont.xHeight, proseFont.xHeight, accuracy: 0.05)
+        XCTAssertEqual(blockFont.xHeight, proseFont.xHeight, accuracy: 0.05)
+        XCTAssertEqual(blockFont.pointSize, inlineFont.pointSize, accuracy: 0.01)
+
+        let inlineBackground = attributed.attribute(
+            .kodMarkdownInlineCodeBackground,
+            at: inlineRange.location,
+            effectiveRange: nil
+        )
+        XCTAssertNotNil(inlineBackground)
+        XCTAssertTrue(controller.usesMarkdownLayoutManager)
+        let sourceRect = NSRect(x: 0, y: 0, width: 24, height: 24)
+        let baselineOffset: CGFloat = 17
+        let backgroundRect = MarkdownPreviewLayoutManager.inlineCodeBackgroundRect(
+            for: sourceRect,
+            font: inlineFont,
+            baselineOffset: baselineOffset
+        )
+        XCTAssertLessThan(backgroundRect.height, sourceRect.height)
+        XCTAssertEqual(
+            backgroundRect.minY,
+            max(sourceRect.minY + 0.5, baselineOffset - inlineFont.ascender - 1),
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            backgroundRect.maxY,
+            min(sourceRect.maxY - 0.5, baselineOffset - inlineFont.descender + 1),
+            accuracy: 0.01
+        )
+        XCTAssertGreaterThan(backgroundRect.width, sourceRect.width)
     }
 
     func testHeadingsQuotesListsAndCodeUseNativeTextKitStructure() async {
@@ -214,27 +258,38 @@ final class MarkdownPreviewViewControllerTests: XCTestCase {
         XCTAssertTrue(attributed.string.contains("6. Six"))
 
         var sawHeading = false
+        var sawFullWidthHeading = false
         var sawQuoteBlock = false
-        var sawCodeBackground = false
+        var sawPaddedCodeSurface = false
         attributed.enumerateAttributes(in: NSRange(location: 0, length: attributed.length)) { attributes, _, _ in
             sawHeading = sawHeading || attributes[.kodMarkdownHeadingLevel] as? Int == 1
             if let style = attributes[.paragraphStyle] as? NSParagraphStyle {
+                if attributes[.kodMarkdownHeadingLevel] as? Int == 1 {
+                    sawFullWidthHeading = sawFullWidthHeading || style.textBlocks.contains {
+                        $0.contentWidthValueType == .percentageValueType
+                    }
+                }
                 sawQuoteBlock = sawQuoteBlock || style.textBlocks.contains {
                     $0.width(for: .border, edge: .minX) >= 3
                 }
-                sawCodeBackground = sawCodeBackground || style.textBlocks.contains {
-                    $0.backgroundColor != nil && $0.contentWidthValueType == .percentageValueType
+                sawPaddedCodeSurface = sawPaddedCodeSurface || style.textBlocks.contains {
+                    $0 is MarkdownRoundedTextBlock
+                        && $0.backgroundColor != nil
+                        && $0.contentWidthValueType == .percentageValueType
+                        && $0.width(for: .padding, edge: .minX) >= 14
+                        && $0.width(for: .border, edge: .minX) == 0
                 }
             }
         }
         XCTAssertTrue(sawHeading)
+        XCTAssertTrue(sawFullWidthHeading)
         XCTAssertTrue(sawQuoteBlock)
-        XCTAssertTrue(sawCodeBackground)
+        XCTAssertTrue(sawPaddedCodeSurface)
     }
 
     func testTableUsesNSTextTableBlocksAndPreservesAlignment() async {
         let controller = await makeController(
-            markdown: "| Left | Right |\n| :--- | ---: |\n| wraps naturally | 42 |",
+            markdown: "| Left | Right |\n| :--- | ---: |\n| wraps naturally | 42 |\n| striped row | 7 |",
             isWorkspaceTrusted: true
         )
         let attributed = controller.renderedAttributedText
@@ -247,7 +302,35 @@ final class MarkdownPreviewViewControllerTests: XCTestCase {
         }
         XCTAssertFalse(tableBlocks.isEmpty)
         XCTAssertEqual(tableBlocks.first?.table.numberOfColumns, 2)
+        let table = tableBlocks.first?.table as? MarkdownTextTable
+        XCTAssertNotNil(table)
+        XCTAssertEqual(table?.numberOfRows, 3)
+        XCTAssertEqual(table?.cornerRadius, 7)
         XCTAssertTrue(sawRightAlignment)
+        XCTAssertTrue(tableBlocks.filter { $0.startingRow == 0 }.allSatisfy { $0.backgroundColor != nil })
+        XCTAssertTrue(tableBlocks.contains { $0.startingRow == 2 && $0.backgroundColor != nil })
+        XCTAssertGreaterThanOrEqual(
+            tableBlocks.first?.width(for: .padding, edge: .minX) ?? 0,
+            12
+        )
+    }
+
+    func testRoundedCodeAndTableSurfacesDrawThroughTextKit() async {
+        let controller = await makeController(
+            markdown: "Use `inline`.\n\n```\nblock\n```\n\n| A |\n| --- |\n| B |",
+            isWorkspaceTrusted: true
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        controller.view.frame = window.contentView?.bounds ?? .zero
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(controller.view.dataWithPDF(inside: controller.view.bounds).isEmpty)
     }
 
     func testImageStatesAreTextualAndMachineInspectable() async {
@@ -306,9 +389,22 @@ final class MarkdownPreviewViewControllerTests: XCTestCase {
             let largeFont = try font(for: text, in: large)
             XCTAssertEqual(largeFont.pointSize, smallFont.pointSize * 2, accuracy: 0.01, text)
         }
-        XCTAssertEqual(try font(for: "Heading", in: small).pointSize, 24, accuracy: 0.01)
-        XCTAssertEqual(try font(for: "Body", in: small).pointSize, 12, accuracy: 0.01)
-        XCTAssertEqual(try font(for: "Column", in: small).pointSize, 12, accuracy: 0.01)
+        let expectedSmallBodySize = CGFloat(16 * (12 / FontSettings.default.pointSize))
+        XCTAssertEqual(
+            try font(for: "Heading", in: small).pointSize,
+            expectedSmallBodySize * 2,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            try font(for: "Body", in: small).pointSize,
+            expectedSmallBodySize,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            try font(for: "Column", in: small).pointSize,
+            expectedSmallBodySize,
+            accuracy: 0.01
+        )
     }
 
     // MARK: - Accessibility (SPEC 14)
