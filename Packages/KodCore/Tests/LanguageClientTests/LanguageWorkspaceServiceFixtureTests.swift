@@ -296,4 +296,159 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
         let resumedTokens = try await service.semanticTokens(snapshot: snapshot)
         XCTAssertFalse(resumedTokens.isEmpty)
     }
+
+    @MainActor
+    func testAcceptsUnopenedWorkspacePushAndRejectsOutsideAndNonFilePushes() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let messages = LockedArray<String>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "swift"),
+            dependencies: try makeDependencies(scenario: "workspace-push"),
+            onDiagnostics: { _, diagnostics in
+                for diagnostic in diagnostics {
+                    messages.append(diagnostic.message)
+                }
+            }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+
+        let deadline = ContinuousClock.now + .seconds(3)
+        while messages.snapshot().isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertEqual(messages.snapshot(), ["Unopened workspace diagnostic"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("Unopened.swift").path))
+    }
+
+    @MainActor
+    func testWorkspaceDiagnosticsAreCapabilityGated() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let stateFile = root.appendingPathComponent("workspace-diagnostics-state")
+        FileManager.default.createFile(atPath: stateFile.path, contents: Data())
+        let service = try makeService(
+            identity: identity,
+            trustStore: store,
+            scenario: "normal",
+            environment: ["FAKE_LSP_STATE_FILE": stateFile.path]
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+        try await Task.sleep(for: .milliseconds(200))
+
+        let state = try String(contentsOf: stateFile, encoding: .utf8)
+        XCTAssertFalse(state.contains("request:workspace/diagnostic"))
+    }
+
+    @MainActor
+    func testWorkspaceDiagnosticsFullUnchangedResultIDsAndRefreshCoalescing() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let stateFile = root.appendingPathComponent("workspace-diagnostics-state")
+        FileManager.default.createFile(atPath: stateFile.path, contents: Data())
+        let messages = LockedArray<String>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "swift"),
+            dependencies: try makeDependencies(
+                scenario: "workspace-diagnostics-refresh",
+                environment: ["FAKE_LSP_STATE_FILE": stateFile.path]
+            ),
+            onDiagnostics: { _, diagnostics in
+                for diagnostic in diagnostics {
+                    messages.append(diagnostic.message)
+                }
+            }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+
+        let deadline = ContinuousClock.now + .seconds(3)
+        var state = ""
+        while ContinuousClock.now < deadline {
+            state = try String(contentsOf: stateFile, encoding: .utf8)
+            if state.contains("workspaceDiagnostic:2"),
+               state.contains("workspacePreviousResult:accepted") {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        state = try String(contentsOf: stateFile, encoding: .utf8)
+
+        XCTAssertTrue(state.contains("workspaceRefreshSupport"), "Got:\n\(state)")
+        XCTAssertTrue(state.contains("workspaceDiagnostic:2"), "Got:\n\(state)")
+        XCTAssertFalse(state.contains("workspaceDiagnostic:3"), "Refresh requests should coalesce. Got:\n\(state)")
+        XCTAssertTrue(state.contains("workspacePreviousResult:accepted"), "Got:\n\(state)")
+        XCTAssertEqual(
+            messages.snapshot(),
+            ["Workspace pulled diagnostic"],
+            "An unchanged report must preserve the full report without republishing or clearing it"
+        )
+    }
+
+    @MainActor
+    func testStoppingInvalidatesAnInFlightWorkspaceDiagnosticGeneration() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let stateFile = root.appendingPathComponent("workspace-diagnostics-state")
+        FileManager.default.createFile(atPath: stateFile.path, contents: Data())
+        let messages = LockedArray<String>()
+        let failures = LockedArray<String>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "swift"),
+            dependencies: try makeDependencies(
+                scenario: "workspace-diagnostics-slow",
+                environment: ["FAKE_LSP_STATE_FILE": stateFile.path]
+            ),
+            onDiagnostics: { _, diagnostics in
+                for diagnostic in diagnostics {
+                    messages.append(diagnostic.message)
+                }
+            },
+            onWorkspaceDiagnosticsFailure: { failures.append($0) }
+        )
+        try await service.start()
+        let deadline = ContinuousClock.now + .seconds(3)
+        while ContinuousClock.now < deadline {
+            let state = try String(contentsOf: stateFile, encoding: .utf8)
+            if state.contains("workspaceDiagnostic:1") {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        await service.stop()
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertTrue(messages.snapshot().isEmpty)
+        XCTAssertTrue(failures.snapshot().isEmpty)
+    }
+
+    @MainActor
+    func testWorkspaceDiagnosticFailureUsesExplicitCallback() async throws {
+        let (identity, store, _) = try makeTrustedIdentity()
+        let failures = LockedArray<String>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "swift"),
+            dependencies: try makeDependencies(scenario: "workspace-diagnostics-failure"),
+            onWorkspaceDiagnosticsFailure: { failures.append($0) }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+
+        let deadline = ContinuousClock.now + .seconds(3)
+        while failures.snapshot().isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(
+            failures.snapshot().first?.contains("Workspace diagnostics failed") == true,
+            "Got: \(failures.snapshot())"
+        )
+    }
 }

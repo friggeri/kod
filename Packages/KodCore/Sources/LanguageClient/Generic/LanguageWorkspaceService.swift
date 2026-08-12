@@ -289,12 +289,16 @@ public actor LanguageWorkspaceService {
     private let dependencies: Dependencies
     private let onStateChange: @Sendable (LanguageServerState) -> Void
     private let onDiagnostics: @Sendable (URL, [Diagnostic]) -> Void
+    private let onWorkspaceDiagnosticsFailure: @Sendable (String) -> Void
 
     private var connection: LanguageServerConnection?
     private var connectionGeneration = 0
     private var isRestarting = false
     private var openDocuments: [URL: SourceSnapshot] = [:]
     private var didCompleteFirstReady = false
+    private var isAwaitingConnectionReady = false
+    private var workspaceDiagnosticTask: Task<Void, Never>?
+    private var workspaceDiagnosticResultIDs: [URL: String] = [:]
 
     public init(
         identity: WorkspaceIdentity,
@@ -302,7 +306,8 @@ public actor LanguageWorkspaceService {
         configuration: Configuration,
         dependencies: Dependencies,
         onStateChange: @escaping @Sendable (LanguageServerState) -> Void = { _ in },
-        onDiagnostics: @escaping @Sendable (URL, [Diagnostic]) -> Void = { _, _ in }
+        onDiagnostics: @escaping @Sendable (URL, [Diagnostic]) -> Void = { _, _ in },
+        onWorkspaceDiagnosticsFailure: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.identity = identity
         self.trustStore = trustStore
@@ -310,6 +315,7 @@ public actor LanguageWorkspaceService {
         self.dependencies = dependencies
         self.onStateChange = onStateChange
         self.onDiagnostics = onDiagnostics
+        self.onWorkspaceDiagnosticsFailure = onWorkspaceDiagnosticsFailure
     }
 
     public var currentState: LanguageServerState? {
@@ -387,14 +393,21 @@ public actor LanguageWorkspaceService {
             return
         }
         onStateChange(newState)
-        guard newState == .ready else {
+        if newState == .starting {
+            isAwaitingConnectionReady = true
+            if didCompleteFirstReady {
+                cancelWorkspaceDiagnostics(resetResultIDs: true)
+            }
+        }
+        guard newState == .ready, isAwaitingConnectionReady else {
             return
         }
-        defer { didCompleteFirstReady = true }
-        guard didCompleteFirstReady else {
-            return
+        isAwaitingConnectionReady = false
+        if didCompleteFirstReady {
+            await resyncOpenDocumentsAfterRestart()
         }
-        await resyncOpenDocumentsAfterRestart()
+        didCompleteFirstReady = true
+        await scheduleWorkspaceDiagnostics(generation: generation)
     }
 
     private func resyncOpenDocumentsAfterRestart() async {
@@ -417,23 +430,128 @@ public actor LanguageWorkspaceService {
     private func handleServerNotification(
         _ notification: ServerNotification,
         generation: Int
-    ) {
+    ) async {
         guard generation == connectionGeneration else {
             return
         }
-        guard case .publishDiagnostics(let params) = notification, let url = params.uri.fileURL else {
+        switch notification {
+        case .workspaceDiagnosticRefresh:
+            await scheduleWorkspaceDiagnostics(generation: generation)
+        case .publishDiagnostics(let params):
+            handlePublishedDiagnostics(params)
+        case .progress, .logMessage, .showMessage, .unknown:
+            break
+        }
+    }
+
+    private func handlePublishedDiagnostics(_ params: PublishDiagnosticsParams) {
+        guard let url = workspaceFileURL(from: params.uri) else {
             return
         }
-        // A publish for a version older than what's currently open (or
-        // for a document Kod no longer has open) is stale and discarded
-        // rather than shown against a since-superseded snapshot (SPEC 6.3).
+        // Versioned reports for open files must match the live snapshot.
+        // Unopened files have no client-side version to compare and are
+        // accepted when their file URI remains inside the trusted workspace.
         if let version = params.version, let openSnapshot = openDocuments[url], version != openSnapshot.version {
             return
         }
-        guard openDocuments[url] != nil else {
+        onDiagnostics(url, params.diagnostics)
+    }
+
+    private func scheduleWorkspaceDiagnostics(generation: Int) async {
+        guard generation == connectionGeneration,
+              let connection,
+              await connection.serverCapabilities?.diagnosticProvider?.workspaceDiagnostics == true else {
             return
         }
-        onDiagnostics(url, params.diagnostics)
+        workspaceDiagnosticTask?.cancel()
+        workspaceDiagnosticTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(50))
+                guard !Task.isCancelled else {
+                    return
+                }
+                await self?.performWorkspaceDiagnostics(
+                    connection: connection,
+                    generation: generation
+                )
+            } catch {
+                // Cancellation is the expected coalescing path.
+            }
+        }
+    }
+
+    private func performWorkspaceDiagnostics(
+        connection: LanguageServerConnection,
+        generation: Int
+    ) async {
+        guard generation == connectionGeneration, self.connection === connection else {
+            return
+        }
+        let previousResultIDs = workspaceDiagnosticResultIDs
+            .map { PreviousResultID(uri: DocumentURI(fileURL: $0.key), value: $0.value) }
+            .sorted { $0.uri.stringValue < $1.uri.stringValue }
+        let identifier = await connection.serverCapabilities?.diagnosticProvider?.identifier
+        do {
+            let report: WorkspaceDiagnosticReport = try await connection.sendRequest(
+                .workspaceDiagnostic,
+                params: WorkspaceDiagnosticParams(
+                    identifier: identifier,
+                    previousResultIds: previousResultIDs
+                ),
+                priority: .background
+            )
+            try Task.checkCancellation()
+            guard generation == connectionGeneration, self.connection === connection else {
+                return
+            }
+            for item in report.items {
+                guard let url = workspaceFileURL(from: item.uri) else {
+                    continue
+                }
+                if let version = item.version,
+                   let openSnapshot = openDocuments[url],
+                   version != openSnapshot.version {
+                    continue
+                }
+                if let resultID = item.resultId {
+                    workspaceDiagnosticResultIDs[url] = resultID
+                } else if item.kind == .full {
+                    workspaceDiagnosticResultIDs.removeValue(forKey: url)
+                }
+                if item.kind == .full {
+                    onDiagnostics(url, item.items ?? [])
+                }
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard generation == connectionGeneration, self.connection === connection else {
+                return
+            }
+            onWorkspaceDiagnosticsFailure(String(describing: error))
+        }
+    }
+
+    private func cancelWorkspaceDiagnostics(resetResultIDs: Bool) {
+        workspaceDiagnosticTask?.cancel()
+        workspaceDiagnosticTask = nil
+        if resetResultIDs {
+            workspaceDiagnosticResultIDs.removeAll()
+        }
+    }
+
+    private func workspaceFileURL(from uri: DocumentURI) -> URL? {
+        guard let rawURL = uri.fileURL else {
+            return nil
+        }
+        let url = rawURL.standardizedFileURL
+        let root = identity.root.standardizedFileURL
+        let rootPath = root.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard url.path == rootPath || url.path.hasPrefix(prefix) else {
+            return nil
+        }
+        return url
     }
 
     /// Stops the current server (if any) and restarts it from scratch,
@@ -445,6 +563,7 @@ public actor LanguageWorkspaceService {
         }
         isRestarting = true
         defer { isRestarting = false }
+        cancelWorkspaceDiagnostics(resetResultIDs: true)
         connectionGeneration += 1
         if let connection {
             await connection.shutdown()
@@ -452,14 +571,18 @@ public actor LanguageWorkspaceService {
         connection = nil
         openDocuments.removeAll()
         didCompleteFirstReady = false
+        isAwaitingConnectionReady = false
         try await start()
     }
 
     public func stop() async {
+        cancelWorkspaceDiagnostics(resetResultIDs: true)
+        connectionGeneration += 1
         await connection?.shutdown()
         connection = nil
         openDocuments.removeAll()
         didCompleteFirstReady = false
+        isAwaitingConnectionReady = false
     }
 
     // MARK: - Document synchronization (SPEC 6.3)
@@ -477,7 +600,7 @@ public actor LanguageWorkspaceService {
             )
         )
         try await connection.sendNotification(.didOpen, params: params)
-        openDocuments[snapshot.url] = snapshot
+        openDocuments[snapshot.url.standardizedFileURL] = snapshot
     }
 
     /// Called for a newly-loaded snapshot of an already-open document,
@@ -487,7 +610,7 @@ public actor LanguageWorkspaceService {
         guard let connection else {
             throw LanguageWorkspaceServiceError.notStarted
         }
-        guard openDocuments[snapshot.url] != nil else {
+        guard openDocuments[snapshot.url.standardizedFileURL] != nil else {
             throw LanguageWorkspaceServiceError.documentNotOpen(snapshot.url)
         }
         let params = DidChangeTextDocumentParams(
@@ -498,14 +621,14 @@ public actor LanguageWorkspaceService {
             contentChanges: [TextDocumentContentChangeEvent(text: snapshot.text)]
         )
         try await connection.sendNotification(.didChange, params: params)
-        openDocuments[snapshot.url] = snapshot
+        openDocuments[snapshot.url.standardizedFileURL] = snapshot
     }
 
     public func didClose(url: URL) async throws {
         guard let connection else {
             throw LanguageWorkspaceServiceError.notStarted
         }
-        guard openDocuments.removeValue(forKey: url) != nil else {
+        guard openDocuments.removeValue(forKey: url.standardizedFileURL) != nil else {
             return
         }
         try await connection.sendNotification(
@@ -1002,7 +1125,7 @@ public actor LanguageWorkspaceService {
     }
 
     private func requireOpenAndCurrent(_ snapshot: SourceSnapshot) throws {
-        guard let openSnapshot = openDocuments[snapshot.url] else {
+        guard let openSnapshot = openDocuments[snapshot.url.standardizedFileURL] else {
             throw LanguageWorkspaceServiceError.documentNotOpen(snapshot.url)
         }
         guard openSnapshot.version == snapshot.version else {

@@ -16,6 +16,9 @@ public enum LanguageProfileServiceFactory {
         },
         onDiagnostics: @escaping @Sendable (URL, [Diagnostic]) -> Void = {
             _, _ in
+        },
+        onWorkspaceDiagnosticsFailure: @escaping @Sendable (String) -> Void = {
+            _ in
         }
     ) throws -> LanguageWorkspaceService {
         let profile = try profile.validated()
@@ -80,7 +83,8 @@ public enum LanguageProfileServiceFactory {
                 }
             ),
             onStateChange: onStateChange,
-            onDiagnostics: onDiagnostics
+            onDiagnostics: onDiagnostics,
+            onWorkspaceDiagnosticsFailure: onWorkspaceDiagnosticsFailure
         )
     }
 

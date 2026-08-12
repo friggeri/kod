@@ -92,6 +92,35 @@ final class MultiLanguageServicesCoordinatorTests: XCTestCase {
         )
     }
 
+    func testTrustRevocationClearsEveryDiagnosticOwner() throws {
+        let (identity, store) = try makeTrustedIdentity()
+        let diagnosticsStore = WorkspaceDiagnosticsStore()
+        let coordinator = MultiLanguageServicesCoordinator(
+            identity: identity,
+            trustStore: store,
+            profileRegistry: try makeRegistry(),
+            diagnosticsStore: diagnosticsStore
+        )
+        let url = identity.root.appendingPathComponent("Shared.swift")
+        let diagnostic = Diagnostic(
+            range: LSPRange(
+                start: LSPPosition(line: 0, character: 0),
+                end: LSPPosition(line: 0, character: 1)
+            ),
+            severity: .warning,
+            code: nil,
+            source: nil,
+            message: "Shared"
+        )
+        diagnosticsStore.replace(owner: "swift", resource: url, diagnostics: [diagnostic])
+        diagnosticsStore.replace(owner: "typescript", resource: url, diagnostics: [diagnostic])
+
+        store.revoke(identity)
+        coordinator.handleTrustRevoked()
+
+        XCTAssertTrue(diagnosticsStore.snapshot.diagnosticsByOwner.isEmpty)
+    }
+
     func testHandleDocumentReadyIsANoOpForAnUntrustedWorkspace() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

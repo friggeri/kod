@@ -16,6 +16,7 @@ final class MultiLanguageServicesCoordinator {
     private let overrideStore: LanguageServerOverrideStore
     private let diagnosticsLog: BoundedEventLog
     private let profileRegistry: LanguageProfileRegistry
+    let diagnosticsStore: WorkspaceDiagnosticsStore
 
     private var services: [String: LanguageWorkspaceService] = [:]
     private var serviceProfiles: [String: LanguageProfile] = [:]
@@ -29,7 +30,6 @@ final class MultiLanguageServicesCoordinator {
     private var profileObserver: UUID?
 
     var onStateChange: (() -> Void)?
-    var onDiagnostics: ((URL, [Diagnostic]) -> Void)?
     var onMissingServer: ((LanguageProfile) -> Void)?
     var onUnknownFileType: ((URL) -> Void)?
 
@@ -38,13 +38,15 @@ final class MultiLanguageServicesCoordinator {
         trustStore: WorkspaceTrustStore,
         profileRegistry: LanguageProfileRegistry,
         overrideStore: LanguageServerOverrideStore = LanguageServerOverrideStore(),
-        diagnosticsLog: BoundedEventLog = BoundedEventLog()
+        diagnosticsLog: BoundedEventLog = BoundedEventLog(),
+        diagnosticsStore: WorkspaceDiagnosticsStore = WorkspaceDiagnosticsStore()
     ) {
         self.identity = identity
         self.trustStore = trustStore
         self.profileRegistry = profileRegistry
         self.overrideStore = overrideStore
         self.diagnosticsLog = diagnosticsLog
+        self.diagnosticsStore = diagnosticsStore
         self.profileObserver = profileRegistry.store.observeChanges {
             [weak self] in
             self?.handleProfilesChanged()
@@ -102,6 +104,7 @@ final class MultiLanguageServicesCoordinator {
             return
         }
         cancelDecorations(for: profileIdentifier)
+        diagnosticsStore.clear(owner: profileIdentifier)
         Task {
             do {
                 try await service.restart()
@@ -442,7 +445,11 @@ final class MultiLanguageServicesCoordinator {
     func handleTrustRevoked() {
         semanticDecorationTasks.values.forEach { $0.cancel() }
         semanticDecorationTasks.removeAll()
-        for key in startupTasks.keys {
+        for identifier in diagnosticsStore.snapshot.diagnosticsByOwner.keys {
+            diagnosticsStore.clear(owner: identifier)
+        }
+        let affectedIdentifiers = Set(startupTasks.keys).union(services.keys)
+        for key in affectedIdentifiers {
             startupGenerations[key, default: 0] += 1
         }
         startupTasks.values.forEach { $0.cancel() }
@@ -537,8 +544,13 @@ final class MultiLanguageServicesCoordinator {
                 onStateChange: { [weak self] newState in
                     Task { @MainActor in
                         guard let self,
-                              self.startupGenerations[key] == generation else {
+                              self.startupGenerations[key] == generation,
+                              self.services[key] != nil else {
                             return
+                        }
+                        if newState == .starting,
+                           self.statesByProfile[key] != nil {
+                            self.diagnosticsStore.clear(owner: key)
                         }
                         self.statesByProfile[key] = newState
                         self.recordStateChangeIfDegraded(
@@ -553,7 +565,29 @@ final class MultiLanguageServicesCoordinator {
                 },
                 onDiagnostics: { [weak self] url, diagnostics in
                     Task { @MainActor in
-                        self?.onDiagnostics?(url, diagnostics)
+                        guard let self,
+                              self.startupGenerations[key] == generation,
+                              self.services[key] != nil else {
+                            return
+                        }
+                        self.diagnosticsStore.replace(
+                            owner: key,
+                            resource: url,
+                            diagnostics: diagnostics
+                        )
+                    }
+                },
+                onWorkspaceDiagnosticsFailure: { [weak self] reason in
+                    Task { @MainActor in
+                        guard let self,
+                              self.startupGenerations[key] == generation,
+                              self.services[key] != nil else {
+                            return
+                        }
+                        self.recordWorkspaceDiagnosticsFailure(
+                            profile: profile,
+                            reason: reason
+                        )
                     }
                 }
             )
@@ -709,6 +743,7 @@ final class MultiLanguageServicesCoordinator {
         default:
             return
         }
+
         Task {
             await diagnosticsLog.record(
                 subsystem: .languageServer,
@@ -716,6 +751,34 @@ final class MultiLanguageServicesCoordinator {
                 message: Localized.string(
                     "\(profile.identifier) language server entered \(newState.displayName.lowercased()) state",
                     comment: "Diagnostics log message recorded when a language profile's server transitions to a degraded state"
+                ),
+                context: [
+                    DiagnosticContextField(
+                        name: "workspaceRoot",
+                        category: .fullPath,
+                        value: identity.root.path
+                    ),
+                    DiagnosticContextField(
+                        name: "reason",
+                        category: .diagnosticMessage,
+                        value: reason
+                    )
+                ]
+            )
+        }
+    }
+
+    private func recordWorkspaceDiagnosticsFailure(
+        profile: LanguageProfile,
+        reason: String
+    ) {
+        Task {
+            await diagnosticsLog.record(
+                subsystem: .languageServer,
+                level: .warning,
+                message: Localized.string(
+                    "\(profile.identifier) workspace diagnostics request failed",
+                    comment: "Diagnostics log message recorded when a language server's workspace diagnostics request fails"
                 ),
                 context: [
                     DiagnosticContextField(
@@ -755,6 +818,7 @@ final class MultiLanguageServicesCoordinator {
             services.removeValue(forKey: identifier)
             serviceProfiles.removeValue(forKey: identifier)
             statesByProfile.removeValue(forKey: identifier)
+            diagnosticsStore.clear(owner: identifier)
             servicesToStop.append(service)
         }
         semanticDecorationTasks.values.forEach { $0.cancel() }

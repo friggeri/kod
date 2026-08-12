@@ -13,7 +13,8 @@ final class ProblemsViewControllerTests: XCTestCase {
     func testUpdateReplacesDiagnosticsForAFileAndReportsAnAccurateStatus() throws {
         var selections: [ProblemsViewController.DiagnosticSelection] = []
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        let controller = ProblemsViewController(root: root) { selection in
+        let store = WorkspaceDiagnosticsStore()
+        let controller = ProblemsViewController(root: root, diagnosticsStore: store) { selection in
             selections.append(selection)
         }
         controller.loadView()
@@ -26,7 +27,7 @@ final class ProblemsViewControllerTests: XCTestCase {
             source: "sourcekit-lsp",
             message: "Unused variable"
         )
-        controller.update(url: fileURL, diagnostics: [diagnostic])
+        store.replace(owner: "swift", resource: fileURL, diagnostics: [diagnostic])
 
         let outline = try XCTUnwrap(findOutlineView(in: controller.view))
         XCTAssertEqual(outline.numberOfChildren(ofItem: nil), 1)
@@ -35,14 +36,15 @@ final class ProblemsViewControllerTests: XCTestCase {
 
         // Clearing diagnostics for the file removes it entirely rather
         // than leaving a stale empty entry.
-        controller.update(url: fileURL, diagnostics: [])
+        store.replace(owner: "swift", resource: fileURL, diagnostics: [])
         XCTAssertEqual(outline.numberOfChildren(ofItem: nil), 0)
     }
 
     func testSelectingADiagnosticRowInvokesTheSelectionCallbackWithItsRange() throws {
         var selections: [ProblemsViewController.DiagnosticSelection] = []
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        let controller = ProblemsViewController(root: root) { selection in
+        let store = WorkspaceDiagnosticsStore()
+        let controller = ProblemsViewController(root: root, diagnosticsStore: store) { selection in
             selections.append(selection)
         }
         controller.loadView()
@@ -50,7 +52,7 @@ final class ProblemsViewControllerTests: XCTestCase {
         let fileURL = root.appendingPathComponent("Sources/Foo.swift")
         let range = LSPRange(start: LSPPosition(line: 4, character: 1), end: LSPPosition(line: 4, character: 9))
         let diagnostic = Diagnostic(range: range, severity: .error, code: nil, source: nil, message: "Boom")
-        controller.update(url: fileURL, diagnostics: [diagnostic])
+        store.replace(owner: "swift", resource: fileURL, diagnostics: [diagnostic])
 
         let outline = try XCTUnwrap(findOutlineView(in: controller.view))
         outline.expandItem(outline.child(0, ofItem: nil))
@@ -61,6 +63,45 @@ final class ProblemsViewControllerTests: XCTestCase {
         XCTAssertEqual(selections.count, 1)
         XCTAssertEqual(selections.first?.url, fileURL)
         XCTAssertEqual(selections.first?.range, range)
+    }
+
+    func testDisplaysUnionAcrossOwnersAndDeduplicatesIdenticalCrossOwnerDiagnostics() throws {
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let store = WorkspaceDiagnosticsStore()
+        let controller = ProblemsViewController(
+            root: root,
+            diagnosticsStore: store,
+            onSelectDiagnostic: { _ in }
+        )
+        controller.loadView()
+        let firstURL = root.appendingPathComponent("Sources/First.swift")
+        let secondURL = root.appendingPathComponent("Sources/Second.swift")
+        let shared = Diagnostic(
+            range: LSPRange(
+                start: LSPPosition(line: 1, character: 0),
+                end: LSPPosition(line: 1, character: 4)
+            ),
+            severity: .error,
+            code: nil,
+            source: "shared",
+            message: "Shared"
+        )
+        let distinct = Diagnostic(
+            range: shared.range,
+            severity: .warning,
+            code: nil,
+            source: "typescript",
+            message: "Distinct"
+        )
+
+        store.replace(owner: "swift", resource: firstURL, diagnostics: [shared])
+        store.replace(owner: "typescript", resource: firstURL, diagnostics: [shared, distinct])
+        store.replace(owner: "typescript", resource: secondURL, diagnostics: [distinct])
+
+        let outline = try XCTUnwrap(findOutlineView(in: controller.view))
+        XCTAssertEqual(outline.numberOfChildren(ofItem: nil), 2)
+        let firstFile = outline.child(0, ofItem: nil)
+        XCTAssertEqual(outline.numberOfChildren(ofItem: firstFile), 2)
     }
 
     private func findOutlineView(in view: NSView) -> NSOutlineView? {

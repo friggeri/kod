@@ -23,6 +23,7 @@ public enum LanguageClientOutboundMethod: String, CaseIterable, Sendable {
     case documentSymbol = "textDocument/documentSymbol"
     case workspaceSymbol = "workspace/symbol"
     case diagnostic = "textDocument/diagnostic"
+    case workspaceDiagnostic = "workspace/diagnostic"
     case semanticTokensFull = "textDocument/semanticTokens/full"
     case declaration = "textDocument/declaration"
     case typeDefinition = "textDocument/typeDefinition"
@@ -68,6 +69,7 @@ public enum LanguageClientInboundMethod: String, Sendable {
     case workspaceFolders = "workspace/workspaceFolders"
     case createWorkDoneProgress = "window/workDoneProgress/create"
     case showMessageRequest = "window/showMessageRequest"
+    case workspaceDiagnosticRefresh = "workspace/diagnostic/refresh"
 
     /// `applyEdit` is the only request always rejected unconditionally
     /// (Kod is read-only and can never mutate a document — SPEC 13.2).

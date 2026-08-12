@@ -288,14 +288,14 @@ public typealias WorkspaceSymbolResult = [SymbolInformation]
 
 // MARK: - Diagnostics
 
-public enum DiagnosticSeverity: Int, Decodable, Sendable {
+public enum DiagnosticSeverity: Int, Decodable, Equatable, Sendable {
     case error = 1
     case warning = 2
     case information = 3
     case hint = 4
 }
 
-public struct Diagnostic: Decodable, Sendable {
+public struct Diagnostic: Decodable, Equatable, Sendable {
     public let range: LSPRange
     public let severity: DiagnosticSeverity?
     public let code: JSONValue?
@@ -344,6 +344,60 @@ public struct DocumentDiagnosticReport: Decodable, Sendable {
         kind = try container.decode(String.self, forKey: .kind)
         items = try container.decodeIfPresent([Diagnostic].self, forKey: .items)
     }
+}
+
+public struct PreviousResultID: Encodable, Equatable, Sendable {
+    public let uri: DocumentURI
+    public let value: String
+
+    public init(uri: DocumentURI, value: String) {
+        self.uri = uri
+        self.value = value
+    }
+}
+
+public struct WorkspaceDiagnosticParams: Encodable, Sendable {
+    public let identifier: String?
+    public let previousResultIds: [PreviousResultID]
+
+    public init(identifier: String? = nil, previousResultIds: [PreviousResultID]) {
+        self.identifier = identifier
+        self.previousResultIds = previousResultIds
+    }
+}
+
+public struct WorkspaceDocumentDiagnosticReport: Decodable, Sendable {
+    public enum Kind: String, Decodable, Sendable {
+        case full
+        case unchanged
+    }
+
+    public let uri: DocumentURI
+    public let version: Int?
+    public let kind: Kind
+    public let resultId: String?
+    public let items: [Diagnostic]?
+
+    private enum CodingKeys: String, CodingKey {
+        case uri
+        case version
+        case kind
+        case resultId
+        case items
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        uri = try container.decode(DocumentURI.self, forKey: .uri)
+        version = try container.decodeIfPresent(Int.self, forKey: .version)
+        kind = try container.decode(Kind.self, forKey: .kind)
+        resultId = try container.decodeIfPresent(String.self, forKey: .resultId)
+        items = try container.decodeIfPresent([Diagnostic].self, forKey: .items)
+    }
+}
+
+public struct WorkspaceDiagnosticReport: Decodable, Sendable {
+    public let items: [WorkspaceDocumentDiagnosticReport]
 }
 
 // MARK: - Semantic tokens
