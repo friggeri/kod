@@ -1,13 +1,9 @@
 import AppKit
 import LanguageClient
 
-/// The Problems sidebar surface (SPEC 6.4): diagnostics merged by file,
-/// most recent per file first. Selecting a diagnostic navigates to it
-/// without changing the list. Populated entirely from
-/// `textDocument/publishDiagnostics` notifications forwarded by
-/// `LanguageServicesCoordinator`; empty and inert whenever no language
-/// server is running, per SPEC 6.2 ("Syntax viewing and text search
-/// remain available when a server is missing").
+/// The Problems sidebar surface (SPEC 6.4): the presentation union of every
+/// active language service's push and workspace-pull diagnostics, grouped by
+/// file. Selecting a diagnostic navigates to it without changing the list.
 @MainActor
 final class ProblemsViewController: NSViewController {
     struct DiagnosticSelection {
@@ -16,6 +12,7 @@ final class ProblemsViewController: NSViewController {
     }
 
     private let root: URL
+    private let diagnosticsStore: WorkspaceDiagnosticsStore
     private let onSelectDiagnostic: (DiagnosticSelection) -> Void
 
     private let statusLabel = NSTextField(labelWithString: Localized.string("No problems.", comment: "Status label shown in the Problems panel when there are no diagnostics"))
@@ -23,11 +20,20 @@ final class ProblemsViewController: NSViewController {
 
     private var diagnosticsByFile: [URL: [Diagnostic]] = [:]
     private var orderedFiles: [URL] = []
+    private var diagnosticsObserver: UUID?
 
-    init(root: URL, onSelectDiagnostic: @escaping (DiagnosticSelection) -> Void) {
+    init(
+        root: URL,
+        diagnosticsStore: WorkspaceDiagnosticsStore,
+        onSelectDiagnostic: @escaping (DiagnosticSelection) -> Void
+    ) {
         self.root = root
+        self.diagnosticsStore = diagnosticsStore
         self.onSelectDiagnostic = onSelectDiagnostic
         super.init(nibName: nil, bundle: nil)
+        diagnosticsObserver = diagnosticsStore.observeChanges { [weak self] snapshot in
+            self?.apply(snapshot)
+        }
     }
 
     @available(*, unavailable)
@@ -76,23 +82,24 @@ final class ProblemsViewController: NSViewController {
         ])
 
         view = container
-    }
-
-    /// Replaces the diagnostics known for `url`. An empty array clears any
-    /// previously reported problems for that file (e.g. the file was
-    /// fixed, closed, or the server republished a clean report).
-    func update(url: URL, diagnostics: [Diagnostic]) {
-        if diagnostics.isEmpty {
-            diagnosticsByFile.removeValue(forKey: url)
-            orderedFiles.removeAll { $0 == url }
-        } else {
-            if diagnosticsByFile[url] == nil {
-                orderedFiles.append(url)
-            }
-            diagnosticsByFile[url] = diagnostics
-        }
         outlineView.reloadData()
         updateStatusLabel()
+    }
+
+    private func apply(_ snapshot: WorkspaceDiagnosticsStore.Snapshot) {
+        diagnosticsByFile = snapshot.presentationDiagnosticsByFile
+        let activeFiles = Set(diagnosticsByFile.keys)
+        orderedFiles.removeAll { !activeFiles.contains($0) }
+        let existingFiles = Set(orderedFiles)
+        orderedFiles.append(
+            contentsOf: activeFiles
+                .subtracting(existingFiles)
+                .sorted { $0.absoluteString < $1.absoluteString }
+        )
+        if isViewLoaded {
+            outlineView.reloadData()
+            updateStatusLabel()
+        }
     }
 
     private func updateStatusLabel() {

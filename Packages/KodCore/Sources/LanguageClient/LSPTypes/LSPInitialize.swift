@@ -13,7 +13,11 @@ public struct ClientCapabilities: Encodable, Sendable {
         public struct Symbol: Encodable, Sendable {
             public let dynamicRegistration = false
         }
+        public struct Diagnostics: Encodable, Sendable {
+            public let refreshSupport = true
+        }
         public let symbol = Symbol()
+        public let diagnostics = Diagnostics()
         public let configuration = true
         /// Explicitly `false`, never omitted: some servers treat a
         /// missing field as "assume default support," so Kod states its
@@ -232,6 +236,7 @@ public struct ServerCapabilities: Decodable, Sendable {
     }
 
     public struct DiagnosticOptions: Decodable, Sendable {
+        public let identifier: String?
         public let interFileDependencies: Bool
         public let workspaceDiagnostics: Bool
     }

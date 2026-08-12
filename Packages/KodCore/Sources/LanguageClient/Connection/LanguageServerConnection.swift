@@ -14,6 +14,7 @@ public enum LanguageClientRequestPriority: Equatable, Sendable {
 /// mutate anything.
 public enum ServerNotification: Sendable {
     case publishDiagnostics(PublishDiagnosticsParams)
+    case workspaceDiagnosticRefresh
     case progress(ProgressToken, WorkDoneProgressValue)
     case logMessage(String)
     case showMessage(String)
@@ -594,6 +595,9 @@ public actor LanguageServerConnection {
                 responseError = nil
             case .applyEdit:
                 responseError = .operationNotPermitted(method)
+            case .workspaceDiagnosticRefresh:
+                responseError = nil
+                notificationHandler(.workspaceDiagnosticRefresh)
             case .workspaceConfiguration, .workspaceFolders, .createWorkDoneProgress, .showMessageRequest:
                 responseError = nil
                 resultValue = respondToSupportedInboundRequest(known, params: params)
@@ -684,7 +688,7 @@ public actor LanguageServerConnection {
             return .null
         case .showMessageRequest:
             return .null
-        case .registerCapability, .unregisterCapability, .applyEdit:
+        case .registerCapability, .unregisterCapability, .applyEdit, .workspaceDiagnosticRefresh:
             return .null
         }
     }

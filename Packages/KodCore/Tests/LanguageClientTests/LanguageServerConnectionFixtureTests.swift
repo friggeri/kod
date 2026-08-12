@@ -156,6 +156,34 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         XCTAssertEqual(receivedDiagnostics.get()?.diagnostics.first?.message, "Fake published diagnostic")
     }
 
+    func testWorkspaceDiagnosticRefreshRequestsReceiveSuccessResponses() async throws {
+        let configuration = try makeConfiguration(scenario: "workspace-diagnostics-refresh")
+        let messages = LockedArray<String>()
+        let connection = LanguageServerConnection(
+            configuration: configuration,
+            onNotification: { notification in
+                if case .logMessage(let message) = notification,
+                   message.hasPrefix("workspaceDiagnosticRefresh:") {
+                    messages.append(message)
+                }
+            }
+        )
+        try await connection.start()
+        defer { Task { await connection.shutdown() } }
+
+        let deadline = ContinuousClock.now + .seconds(3)
+        while messages.snapshot().count < 2, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(
+            messages.snapshot(),
+            [
+                "workspaceDiagnosticRefresh:accepted",
+                "workspaceDiagnosticRefresh:accepted"
+            ]
+        )
+    }
+
     // MARK: - Mutation rejection (process-spy / adversarial server)
 
     func testRejectsServerInitiatedDynamicRegistrationAndApplyEdit() async throws {

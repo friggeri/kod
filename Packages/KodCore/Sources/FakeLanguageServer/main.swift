@@ -90,6 +90,7 @@ final class RequestCountRegistry: @unchecked Sendable {
 let cancelledIDs = CancelledIDRegistry()
 let requestCounts = RequestCountRegistry()
 let initializationOptionsAccepted = LockedFlag()
+let workspaceRootURI = LockedString()
 let stateFilePath = ProcessInfo.processInfo.environment["FAKE_LSP_STATE_FILE"]
 let stateFileLock = NSLock()
 
@@ -129,6 +130,23 @@ final class LockedFlag: @unchecked Sendable {
     }
 }
 
+final class LockedString: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: String?
+
+    func set(_ newValue: String) {
+        lock.lock()
+        value = newValue
+        lock.unlock()
+    }
+
+    func get() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 func initializeResult() -> JSONValue {
     var capabilities: [String: JSONValue] = [
         "hoverProvider": .bool(true),
@@ -145,7 +163,8 @@ func initializeResult() -> JSONValue {
         ]),
         "diagnosticProvider": .object([
             "interFileDependencies": .bool(false),
-            "workspaceDiagnostics": .bool(false)
+            "workspaceDiagnostics": .bool(scenario.hasPrefix("workspace-diagnostics")),
+            "identifier": .string("fake-workspace-diagnostics")
         ])
     ]
     if scenario != "normal-utf16" {
@@ -180,6 +199,10 @@ func handleInitialize(id: JSONRPCID, params: JSONValue?) {
         )
         return
     }
+    if case .object(let fields)? = params,
+       case .string(let rootURI)? = fields["rootUri"] {
+        workspaceRootURI.set(rootURI)
+    }
     if scenario == "workspace-configuration",
        case .object(let fields)? = params,
        fields["initializationOptions"] == .object(["safe": .bool(true)]),
@@ -187,6 +210,14 @@ func handleInitialize(id: JSONRPCID, params: JSONValue?) {
        case .object(let workspace)? = capabilities["workspace"],
        workspace["configuration"] == .bool(true) {
         initializationOptionsAccepted.set(true)
+    }
+    if scenario.hasPrefix("workspace-diagnostics"),
+       case .object(let fields)? = params,
+       case .object(let capabilities)? = fields["capabilities"],
+       case .object(let workspace)? = capabilities["workspace"],
+       case .object(let diagnostics)? = workspace["diagnostics"],
+       diagnostics["refreshSupport"] == .bool(true) {
+        appendStateFileLine("workspaceRefreshSupport")
     }
     respond(id: id, result: initializeResult())
 }
@@ -310,6 +341,52 @@ func handleInitialized() {
                     ])
                 ])
             )
+        }
+
+    case "workspace-diagnostics-refresh":
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
+            requestClient(
+                id: .string("workspace-diagnostic-refresh-1"),
+                method: "workspace/diagnostic/refresh",
+                params: .null
+            )
+            requestClient(
+                id: .string("workspace-diagnostic-refresh-2"),
+                method: "workspace/diagnostic/refresh",
+                params: .null
+            )
+        }
+
+    case "workspace-push":
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            guard let rootURI = workspaceRootURI.get(),
+                  let rootURL = URL(string: rootURI) else {
+                return
+            }
+            let inWorkspaceURI = rootURL
+                .appendingPathComponent("Unopened.swift")
+                .absoluteString
+            for (uri, message) in [
+                (inWorkspaceURI, "Unopened workspace diagnostic"),
+                ("file:///outside/Rejected.swift", "Outside workspace diagnostic"),
+                ("https://example.com/not-a-file.swift", "Non-file diagnostic")
+            ] {
+                notify("textDocument/publishDiagnostics", .object([
+                    "uri": .string(uri),
+                    "diagnostics": .array([
+                        .object([
+                            "range": lspRange(
+                                startLine: 0,
+                                startChar: 0,
+                                endLine: 0,
+                                endChar: 4
+                            ),
+                            "severity": .number(2),
+                            "message": .string(message)
+                        ])
+                    ])
+                ]))
+            }
         }
 
     case "crash-immediately":
@@ -459,6 +536,90 @@ func handleDiagnostic(id: JSONRPCID) {
             ])
         ])
     ]))
+}
+
+func handleWorkspaceDiagnostic(id: JSONRPCID, params: JSONValue?) {
+    let requestCount = requestCounts.increment("workspace/diagnostic")
+    appendStateFileLine("workspaceDiagnostic:\(requestCount)")
+    guard scenario != "workspace-diagnostics-failure" else {
+        respondError(
+            id: id,
+            code: JSONRPCErrorCode.internalError,
+            message: "Workspace diagnostics failed"
+        )
+        return
+    }
+    guard let rootURI = workspaceRootURI.get(),
+          let rootURL = URL(string: rootURI) else {
+        respondError(
+            id: id,
+            code: JSONRPCErrorCode.invalidParams,
+            message: "Missing workspace root"
+        )
+        return
+    }
+    let uri = rootURL.appendingPathComponent("WorkspaceOnly.swift").absoluteString
+    if scenario == "workspace-diagnostics-slow" {
+        let result = workspaceFullDiagnosticResult(uri: uri)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.4) {
+            respond(id: id, result: result)
+        }
+        return
+    }
+    if requestCount > 1 {
+        let previousResultAccepted: Bool
+        if case .object(let fields)? = params,
+           case .array(let previous)? = fields["previousResultIds"] {
+            previousResultAccepted = previous.contains {
+                guard case .object(let item) = $0 else {
+                    return false
+                }
+                return item["uri"] == .string(uri)
+                    && item["value"] == .string("workspace-result-1")
+            }
+        } else {
+            previousResultAccepted = false
+        }
+        appendStateFileLine(
+            "workspacePreviousResult:\(previousResultAccepted ? "accepted" : "rejected")"
+        )
+        respond(id: id, result: .object([
+            "items": .array([
+                .object([
+                    "uri": .string(uri),
+                    "kind": .string("unchanged"),
+                    "resultId": .string("workspace-result-1")
+                ])
+            ])
+        ]))
+        return
+    }
+    respond(id: id, result: workspaceFullDiagnosticResult(uri: uri))
+}
+
+func workspaceFullDiagnosticResult(uri: String) -> JSONValue {
+    .object([
+        "items": .array([
+            .object([
+                "uri": .string(uri),
+                "version": .null,
+                "kind": .string("full"),
+                "resultId": .string("workspace-result-1"),
+                "items": .array([
+                    .object([
+                        "range": lspRange(
+                            startLine: 1,
+                            startChar: 0,
+                            endLine: 1,
+                            endChar: 4
+                        ),
+                        "severity": .number(1),
+                        "message": .string("Workspace pulled diagnostic")
+                    ])
+                ])
+            ])
+        ])
+    ])
 }
 
 func handleDeclaration(id: JSONRPCID, params: JSONValue?) {
@@ -677,6 +838,8 @@ func handleRequest(id: JSONRPCID, method: String, params: JSONValue?) {
         handleWorkspaceSymbol(id: id, params: params)
     case "textDocument/diagnostic":
         handleDiagnostic(id: id)
+    case "workspace/diagnostic":
+        handleWorkspaceDiagnostic(id: id, params: params)
     case "textDocument/semanticTokens/full":
         handleSemanticTokens(id: id)
     case "textDocument/declaration":
@@ -743,6 +906,14 @@ func handleResponseFromClient(id: JSONRPCID?, result: JSONValue?, error: JSONRPC
             .object([
                 "type": .number(3),
                 "message": .string("workspaceConfiguration:\(accepted ? "accepted" : "rejected")")
+            ])
+        )
+    case "workspace-diagnostic-refresh-1", "workspace-diagnostic-refresh-2":
+        notify(
+            "window/logMessage",
+            .object([
+                "type": .number(3),
+                "message": .string("workspaceDiagnosticRefresh:\(outcome)")
             ])
         )
     default:

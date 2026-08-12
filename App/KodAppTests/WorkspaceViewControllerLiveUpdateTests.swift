@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import LanguageClient
 import SearchCore
 import SourceModel
 import WorkspaceCore
@@ -191,11 +192,35 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
         try Data("content".utf8).write(to: fileURL)
         controller.handleChangedPath(fileURL.path)
         XCTAssertTrue((controller.entriesByParent[""] ?? []).contains { $0.relativePath == "gone.txt" })
+        let diagnostic = Diagnostic(
+            range: LSPRange(
+                start: LSPPosition(line: 0, character: 0),
+                end: LSPPosition(line: 0, character: 1)
+            ),
+            severity: .warning,
+            code: nil,
+            source: nil,
+            message: "Gone"
+        )
+        controller.multiLanguageServicesCoordinator.diagnosticsStore.replace(
+            owner: "swift",
+            resource: fileURL,
+            diagnostics: [diagnostic]
+        )
+        controller.multiLanguageServicesCoordinator.diagnosticsStore.replace(
+            owner: "typescript",
+            resource: fileURL,
+            diagnostics: [diagnostic]
+        )
 
         try FileManager.default.removeItem(at: fileURL)
         controller.handleChangedPath(fileURL.path)
 
         XCTAssertFalse((controller.entriesByParent[""] ?? []).contains { $0.relativePath == "gone.txt" })
+        XCTAssertNil(
+            controller.multiLanguageServicesCoordinator.diagnosticsStore
+                .snapshot.presentationDiagnosticsByFile[fileURL.standardizedFileURL]
+        )
     }
 
     func testIgnoredLiveUpdateStaysHiddenUntilExplorerRevealIsEnabled() async throws {

@@ -453,6 +453,7 @@ final class WorkspaceViewController: NSViewController {
     /// non-Git folders, kept fresh from the same FSEvents pipeline that
     /// drives Explorer/index live updates.
     private var gitCoordinator: GitWorkspaceCoordinator!
+    private let workspaceDiagnosticsStore: WorkspaceDiagnosticsStore
     private var gitDecorationColors = BundledThemes.dark.git
     private var gitBlamePanelController: GitBlamePanelController?
     let multiLanguageServicesCoordinator: MultiLanguageServicesCoordinator
@@ -540,6 +541,8 @@ final class WorkspaceViewController: NSViewController {
         self.layoutStore = layoutStore
         self.diagnosticsLog = diagnosticsLog
         self.languageSupportService = languageSupportService
+        let workspaceDiagnosticsStore = WorkspaceDiagnosticsStore()
+        self.workspaceDiagnosticsStore = workspaceDiagnosticsStore
         let restoredLayout = layoutStore.load(for: identity) ?? .singleGroup()
         self.layoutState = restoredLayout
         self.lastExpandedSidebarWidth = Self.clampedSidebarWidth(
@@ -550,7 +553,8 @@ final class WorkspaceViewController: NSViewController {
             trustStore: trustStore,
             profileRegistry: languageSupportService.profileRegistry,
             overrideStore: languageSupportService.overrideStore,
-            diagnosticsLog: diagnosticsLog
+            diagnosticsLog: diagnosticsLog,
+            diagnosticsStore: workspaceDiagnosticsStore
         )
         super.init(nibName: nil, bundle: nil)
         gitDecorationColors = AppearanceSettings.currentTheme().git
@@ -1704,9 +1708,6 @@ final class WorkspaceViewController: NSViewController {
     private func configureLanguageServicesCoordinator() {
         multiLanguageServicesCoordinator.onStateChange = { [weak self] in
             self?.languageServerStateDidChange()
-        }
-        multiLanguageServicesCoordinator.onDiagnostics = { [weak self] url, diagnostics in
-            self?.problemsViewController.update(url: url, diagnostics: diagnostics)
         }
         multiLanguageServicesCoordinator.onMissingServer = { [weak self] profile in
             self?.enqueueMissingLanguageServer(profile)
@@ -2994,6 +2995,7 @@ final class WorkspaceViewController: NSViewController {
 
         let problemsController = ProblemsViewController(
             root: identity.root,
+            diagnosticsStore: workspaceDiagnosticsStore,
             onSelectDiagnostic: { [weak self] selection in
                 self?.navigateToLSPLocation(url: selection.url, range: selection.range)
             }
@@ -3314,6 +3316,12 @@ final class WorkspaceViewController: NSViewController {
         Task { await gitCoordinator.handle(batch) }
 
         if batch.mayHaveChangedIgnoreRules {
+            for changed in batch.paths {
+                let url = URL(fileURLWithPath: changed.path)
+                if !FileManager.default.fileExists(atPath: changed.path) {
+                    workspaceDiagnosticsStore.clear(resource: url)
+                }
+            }
             // An ignore-defining file changed: ignored state anywhere in
             // the tree may now be stale, so re-derive it with a full
             // rescan rather than risk showing/hiding the wrong files.
@@ -3354,6 +3362,7 @@ final class WorkspaceViewController: NSViewController {
             }
             reloadOpenTabsIfNeeded(relativePath: relativePath)
         } else {
+            workspaceDiagnosticsStore.clear(resource: url)
             removeEntry(relativePath: relativePath)
             Task { await filenameIndex.remove(relativePaths: [relativePath]) }
             tombstoneOpenTabsIfNeeded(relativePath: relativePath)
