@@ -312,8 +312,14 @@ final class CodeMinimapPresentationTests: XCTestCase {
         let renderer = CodeMinimapRenderer()
         renderer.render(presentation: presentation, layout: layout, theme: theme)
         let image = try XCTUnwrap(renderer.image)
+        let backgroundPixel = try pixelRGBA(in: image, x: 0, y: 0)
         let firstRowPixel = try pixelRGBA(in: image, x: 4, y: 0)
         let lastRowPixel = try pixelRGBA(in: image, x: 4, y: 2)
+        XCTAssertEqual(
+            Int(backgroundPixel.alpha),
+            Int((CodeMinimapRenderer.maximumBackgroundOpacity * 255).rounded()),
+            accuracy: 1
+        )
         XCTAssertGreaterThan(firstRowPixel.red, firstRowPixel.blue)
         XCTAssertGreaterThan(lastRowPixel.blue, lastRowPixel.red)
 

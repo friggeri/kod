@@ -11,7 +11,7 @@ public final class CodeDocumentViewController: NSViewController {
 
     private let scrollView = NSScrollView()
     private lazy var minimapView = CodeMinimapView(viewport: viewport, scrollView: scrollView)
-    private var scrollTrailingConstraint: NSLayoutConstraint?
+    private var minimapTrailingConstraint: NSLayoutConstraint?
     private var minimapWidthConstraint: NSLayoutConstraint?
     private let findBar = NSView()
     private let findField = NSSearchField()
@@ -221,9 +221,12 @@ public final class CodeDocumentViewController: NSViewController {
         container.addSubview(minimapView)
         minimapView.translatesAutoresizingMaskIntoConstraints = false
 
-        let trailing = scrollView.trailingAnchor.constraint(equalTo: minimapView.leadingAnchor)
+        let minimapTrailing = minimapView.trailingAnchor.constraint(
+            equalTo: scrollView.trailingAnchor,
+            constant: -verticalScrollerWidth
+        )
         let minimapWidth = minimapView.widthAnchor.constraint(equalToConstant: 96)
-        scrollTrailingConstraint = trailing
+        minimapTrailingConstraint = minimapTrailing
         minimapWidthConstraint = minimapWidth
 
         NSLayoutConstraint.activate([
@@ -233,10 +236,10 @@ public final class CodeDocumentViewController: NSViewController {
             pathLabel.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
             scrollView.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 8),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            trailing,
+            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             minimapView.topAnchor.constraint(equalTo: scrollView.topAnchor),
-            minimapView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            minimapTrailing,
             minimapView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
             minimapWidth
         ])
@@ -258,6 +261,7 @@ public final class CodeDocumentViewController: NSViewController {
 
     public override func viewDidLayout() {
         super.viewDidLayout()
+        minimapTrailingConstraint?.constant = -verticalScrollerWidth
         viewport.setMinimumViewportWidth(scrollView.contentSize.width)
         if minimapEnabled {
             minimapWidthConstraint?.constant = CodeMinimapLayout.recommendedWidth(
@@ -277,7 +281,7 @@ public final class CodeDocumentViewController: NSViewController {
     }
 
     public var reservedMinimapWidth: CGFloat {
-        minimapEnabled ? (minimapWidthConstraint?.constant ?? 0) : 0
+        0
     }
 
     var activeMinimapMarkers: CodeMinimapMarkers {
@@ -321,6 +325,16 @@ public final class CodeDocumentViewController: NSViewController {
             minimapView.invalidate(.layout)
         }
         view.needsLayout = true
+    }
+
+    private var verticalScrollerWidth: CGFloat {
+        guard scrollView.hasVerticalScroller else {
+            return 0
+        }
+        return NSScroller.scrollerWidth(
+            for: scrollView.verticalScroller?.controlSize ?? .regular,
+            scrollerStyle: scrollView.scrollerStyle
+        )
     }
 
     private func refreshMinimapMarkers() {

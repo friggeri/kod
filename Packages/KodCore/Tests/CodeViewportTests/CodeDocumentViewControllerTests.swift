@@ -236,10 +236,29 @@ final class CodeDocumentViewControllerTests: XCTestCase {
         XCTAssertEqual(controller.captureNavigationAnchor().viewportAnchorLine, 0)
     }
 
-    func testMinimapIsEnabledByDefaultAndReleasesReservedWidthWhenDisabled() {
+    func testMinimapOverlaysContentAndKeepsVerticalScrollerOnItsRight() throws {
         let controller = makeController(text: String(repeating: "line\n", count: 100))
+        let scrollView = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: NSScrollView.self)
+        )
+        let minimap = try XCTUnwrap(
+            controller.view.firstDescendant(withIdentifier: "code.minimap")
+        )
+        let verticalScroller = try XCTUnwrap(scrollView.verticalScroller)
+        let verticalScrollerFrame = controller.view.convert(
+            verticalScroller.bounds,
+            from: verticalScroller
+        )
+
         XCTAssertTrue(controller.isMinimapVisible)
-        XCTAssertGreaterThan(controller.reservedMinimapWidth, 0)
+        XCTAssertEqual(controller.reservedMinimapWidth, 0)
+        XCTAssertEqual(scrollView.frame.maxX, controller.view.bounds.maxX, accuracy: 0.5)
+        XCTAssertEqual(minimap.frame.maxX, verticalScrollerFrame.minX, accuracy: 0.5)
+        XCTAssertEqual(
+            minimap.frame.intersection(scrollView.frame).width,
+            minimap.frame.width,
+            accuracy: 0.5
+        )
 
         controller.minimapEnabled = false
         controller.view.layoutSubtreeIfNeeded()
@@ -249,7 +268,7 @@ final class CodeDocumentViewControllerTests: XCTestCase {
         controller.minimapEnabled = true
         controller.view.layoutSubtreeIfNeeded()
         XCTAssertTrue(controller.isMinimapVisible)
-        XCTAssertGreaterThan(controller.reservedMinimapWidth, 0)
+        XCTAssertEqual(controller.reservedMinimapWidth, 0)
     }
 
     func testDiagnosticMarkersRejectWrongSnapshotAndAcceptCurrentSnapshot() {
