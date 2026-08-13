@@ -21,7 +21,10 @@ final class ProblemsViewControllerTests: XCTestCase {
 
         let fileURL = root.appendingPathComponent("Sources/Foo.swift")
         let diagnostic = Diagnostic(
-            range: LSPRange(start: LSPPosition(line: 2, character: 0), end: LSPPosition(line: 2, character: 5)),
+            range: LSPRange(
+                start: LSPPosition(line: 2, character: 0),
+                end: LSPPosition(line: 2, character: 5)
+            ),
             severity: .warning,
             code: nil,
             source: "sourcekit-lsp",

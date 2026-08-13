@@ -141,7 +141,7 @@ Opening a workspace must not automatically fetch network content.
 The code surface supports:
 
 - Text selection, multi-line selection, Select All, Copy, Copy Path, and Copy Symbol Name.
-- Scrolling, zooming, folding, sticky scope headers, line numbers, indentation guides, current-line emphasis, and optional minimap.
+- Scrolling, zooming, folding, sticky scope headers, line numbers, indentation guides, current-line emphasis, and a default-on right-side minimap with a persisted per-workspace `View > Minimap` toggle.
 - Word wrap off by default and configurable globally or per window.
 - Find in File with plain text, case, whole-word, and regular-expression modes.
 - Go to Line, Go to Symbol, Go to Matching Bracket, and breadcrumb navigation.
@@ -510,6 +510,9 @@ Encoding detection order is BOM, valid UTF-8, user-configured fallback, then bin
 - Initial paint uses plain text. Syntax and semantic decorations repaint affected visible ranges as they arrive.
 - Selection is represented as source ranges, not mutable attributed strings.
 - Accessibility exposes line-oriented text ranges, selections, rotor navigation for symbols and diagnostics, and stable screen-to-source mapping.
+- `CodeMinimapView` is a presentation-only sibling beside the scroll view, not a child in document coordinates. It reserves width from the effective viewport and consumes an immutable `CodeViewport` presentation snapshot so wrapping, folds, token composition, and embedded view-zone blank rows cannot diverge.
+- The minimap uses proportional behavior for large files: a viewport-sized miniature-text row window scrolls through the document. A cached glyph atlas and two reusable viewport-sized base buffers are capped at 120 columns; no full-document bitmap or per-line view is allocated. Selection, every Find in File match, snapshot-normalized diagnostics, primary/secondary Git gutter changes, and the hover/drag viewport slider are separate cheap overlay layers.
+- Minimap click navigation centers immediately through the native clip view and slider dragging continuously clamps native scrolling. It never accepts keyboard focus and contributes no duplicate accessibility elements.
 
 The renderer must correctly handle Unicode grapheme clusters, bidirectional text, combining marks, emoji, tabs, very long lines, variable fallback glyphs, and mixed line endings. A dedicated renderer spike is a release prerequisite, not post-launch optimization.
 

@@ -16,6 +16,9 @@ final class StandaloneDocumentViewController: NSViewController {
     private var wordWrapEnabled = false {
         didSet { documentController.wordWrapEnabled = wordWrapEnabled }
     }
+    private var minimapEnabled = true {
+        didSet { documentController.minimapEnabled = minimapEnabled }
+    }
 
     init(
         snapshot: SourceSnapshot,
@@ -85,6 +88,7 @@ final class StandaloneDocumentViewController: NSViewController {
             fontSettings: oldController.fontSettings
         )
         replacement.wordWrapEnabled = wordWrapEnabled
+        replacement.minimapEnabled = minimapEnabled
         replacement.viewport.restoreFoldedHeaderLines(foldedHeaderLines)
 
         if isViewLoaded {
@@ -150,6 +154,11 @@ final class StandaloneDocumentViewController: NSViewController {
         wordWrapEnabled.toggle()
     }
 
+    @objc
+    func toggleMinimap(_ sender: Any?) {
+        minimapEnabled.toggle()
+    }
+
     /// Cmd-W has no "tab" to close outside a workspace, so it falls back to
     /// closing the window (matching ordinary single-document apps).
     @objc
@@ -162,6 +171,8 @@ extension StandaloneDocumentViewController: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(toggleWordWrap(_:)) {
             menuItem.state = wordWrapEnabled ? .on : .off
+        } else if menuItem.action == #selector(toggleMinimap(_:)) {
+            menuItem.state = minimapEnabled ? .on : .off
         }
         return true
     }

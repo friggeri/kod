@@ -103,6 +103,16 @@ final class KeyboardCommandRegistryTests: XCTestCase {
         XCTAssertEqual(identifiers.count, Set(identifiers).count, "duplicate command identifiers found: \(identifiers)")
     }
 
+    func testMinimapCommandIsARealCheckedViewMenuAction() throws {
+        let command = try XCTUnwrap(
+            KeyboardCommandRegistry.commands(in: mainMenu()).first {
+                $0.displayName == "Minimap"
+            }
+        )
+        XCTAssertEqual(command.menuPath.first, "View")
+        XCTAssertTrue(command.isMenuOnly)
+    }
+
     /// Every primary-workflow command must have a real, non-empty
     /// display name and resolve to an actual `@objc` action selector on
     /// some object in the app (i.e. it corresponds to a real command,

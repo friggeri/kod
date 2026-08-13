@@ -207,6 +207,7 @@ final class EditorLayoutTests: XCTestCase {
         var state = WorkspaceLayoutState.singleGroup()
         state.activeGroup?.openTab(relativePath: "Sources/A.swift", pinned: true)
         state.wordWrapEnabled = true
+        state.minimapEnabled = false
         _ = state.split(orientation: .vertical)
         state.geometry = WorkspaceGeometryState(
             windowFrame: WorkspaceWindowFrame(
@@ -248,6 +249,7 @@ final class EditorLayoutTests: XCTestCase {
         XCTAssertEqual(decoded.groups, state.groups)
         XCTAssertEqual(decoded.activeGroupID, state.activeGroupID)
         XCTAssertNil(decoded.geometry)
+        XCTAssertTrue(decoded.minimapEnabled)
     }
 }
 

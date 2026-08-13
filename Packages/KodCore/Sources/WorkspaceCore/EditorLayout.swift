@@ -390,13 +390,14 @@ public indirect enum SplitLayoutNode: Equatable, Codable, Sendable {
 
 /// The full restorable layout of one workspace window: its split tree, the
 /// state of every group in that tree, the currently active group, and the
-/// global word-wrap preference. Window/sidebar geometry is optional so layout
+/// global word-wrap and minimap preferences. Window/sidebar geometry is optional so layout
 /// blobs written before geometry persistence was introduced remain decodable.
 public struct WorkspaceLayoutState: Equatable, Codable, Sendable {
     public var root: SplitLayoutNode
     public var groups: [EditorGroupID: EditorGroupState]
     public var activeGroupID: EditorGroupID
     public var wordWrapEnabled: Bool
+    public var minimapEnabled: Bool
     public var geometry: WorkspaceGeometryState?
 
     public init(
@@ -404,12 +405,14 @@ public struct WorkspaceLayoutState: Equatable, Codable, Sendable {
         groups: [EditorGroupID: EditorGroupState],
         activeGroupID: EditorGroupID,
         wordWrapEnabled: Bool = false,
+        minimapEnabled: Bool = true,
         geometry: WorkspaceGeometryState? = nil
     ) {
         self.root = root
         self.groups = groups
         self.activeGroupID = activeGroupID
         self.wordWrapEnabled = wordWrapEnabled
+        self.minimapEnabled = minimapEnabled
         self.geometry = geometry
     }
 
@@ -419,8 +422,28 @@ public struct WorkspaceLayoutState: Equatable, Codable, Sendable {
             root: .leaf(group.id),
             groups: [group.id: group],
             activeGroupID: group.id,
-            wordWrapEnabled: false
+            wordWrapEnabled: false,
+            minimapEnabled: true
         )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case root
+        case groups
+        case activeGroupID
+        case wordWrapEnabled
+        case minimapEnabled
+        case geometry
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        root = try container.decode(SplitLayoutNode.self, forKey: .root)
+        groups = try container.decode([EditorGroupID: EditorGroupState].self, forKey: .groups)
+        activeGroupID = try container.decode(EditorGroupID.self, forKey: .activeGroupID)
+        wordWrapEnabled = try container.decodeIfPresent(Bool.self, forKey: .wordWrapEnabled) ?? false
+        minimapEnabled = try container.decodeIfPresent(Bool.self, forKey: .minimapEnabled) ?? true
+        geometry = try container.decodeIfPresent(WorkspaceGeometryState.self, forKey: .geometry)
     }
 
     public var activeGroup: EditorGroupState? {

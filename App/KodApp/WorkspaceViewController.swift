@@ -1709,6 +1709,13 @@ final class WorkspaceViewController: NSViewController {
         multiLanguageServicesCoordinator.onStateChange = { [weak self] in
             self?.languageServerStateDidChange()
         }
+        // Problems is driven by the raw workspace diagnostics store; only
+        // snapshot-normalized diagnostics reach the open editors.
+        multiLanguageServicesCoordinator.onNormalizedDiagnostics = { [weak self] url, diagnostics in
+            self?.splitContainer.allGroupControllers.forEach {
+                $0.applyDiagnostics(url: url, diagnostics: diagnostics)
+            }
+        }
         multiLanguageServicesCoordinator.onMissingServer = { [weak self] profile in
             self?.enqueueMissingLanguageServer(profile)
         }
@@ -2155,7 +2162,9 @@ final class WorkspaceViewController: NSViewController {
     /// Opens `relativePath` in the active editor group and selects the
     /// UTF-8 range corresponding to `range`, used by both the Problems and
     /// Symbols sidebars to navigate to a server-reported location without
-    /// changing the originating list (SPEC 6.4).
+    /// changing the originating list (SPEC 6.4). The wire range is
+    /// converted through the owning language service's negotiated position
+    /// encoding rather than an assumed UTF-16.
     private func navigateToLSPLocation(url: URL, range: LSPRange) {
         guard let relativePath = relativePath(of: url) else {
             return
@@ -2167,20 +2176,19 @@ final class WorkspaceViewController: NSViewController {
             }
             do {
                 let snapshot = try await self.loadSnapshot(relativePath: relativePath)
-                guard !Task.isCancelled,
-                      let groupController = self.splitContainer.controller(for: self.layoutState.activeGroupID) else {
+                guard !Task.isCancelled else {
                     return
                 }
-                let utf8Range = (try? snapshot.utf8Offset(for: SourcePosition(line: range.start.line, character: range.start.character), encoding: .utf16))
-                    .flatMap { start -> Range<Int>? in
-                        guard let end = try? snapshot.utf8Offset(
-                            for: SourcePosition(line: range.end.line, character: range.end.character),
-                            encoding: .utf16
-                        ), start <= end else {
-                            return nil
-                        }
-                        return start..<end
-                    }
+                let utf8Range = await self.multiLanguageServicesCoordinator.utf8Range(
+                    for: range,
+                    in: snapshot
+                )
+                guard !Task.isCancelled,
+                      let groupController = self.splitContainer.controller(
+                        for: self.layoutState.activeGroupID
+                      ) else {
+                    return
+                }
                 groupController.openTab(
                     relativePath: relativePath,
                     pinned: true,
@@ -2193,6 +2201,26 @@ final class WorkspaceViewController: NSViewController {
                 // Best-effort navigation: a since-deleted or unreadable
                 // file simply does not navigate; the Problems/Symbols
                 // list itself is unaffected.
+                await diagnosticsLog.record(
+                    subsystem: .languageServer,
+                    level: .warning,
+                    message: Localized.string(
+                        "Diagnostic navigation failed",
+                        comment: "Diagnostics log message recorded when a Problems item cannot be opened"
+                    ),
+                    context: [
+                        DiagnosticContextField(
+                            name: "path",
+                            category: .fullPath,
+                            value: url.path
+                        ),
+                        DiagnosticContextField(
+                            name: "reason",
+                            category: .diagnosticMessage,
+                            value: String(describing: error)
+                        )
+                    ]
+                )
             }
         }
     }
@@ -2324,6 +2352,13 @@ final class WorkspaceViewController: NSViewController {
     }
 
     @objc
+    func toggleMinimap(_ sender: Any?) {
+        layoutState.minimapEnabled.toggle()
+        splitContainer.allGroupControllers.forEach { $0.minimapEnabled = layoutState.minimapEnabled }
+        persistLayout()
+    }
+
+    @objc
     func splitActiveGroupRight(_ sender: Any?) {
         handleSplit(groupID: layoutState.activeGroupID, orientation: .horizontal)
     }
@@ -2393,6 +2428,9 @@ final class WorkspaceViewController: NSViewController {
             },
             PaletteCommand(id: "command.toggleWordWrap", title: Localized.string("Toggle Word Wrap", comment: "Command palette entry that toggles word wrap")) { [weak self] in
                 self?.toggleWordWrap(nil)
+            },
+            PaletteCommand(id: "command.toggleMinimap", title: Localized.string("Toggle Minimap", comment: "Command palette entry that toggles the source minimap")) { [weak self] in
+                self?.toggleMinimap(nil)
             },
             PaletteCommand(id: "command.splitRight", title: Localized.string("Split Editor Right", comment: "Command palette entry that splits the active editor group to the right")) { [weak self] in
                 self?.splitActiveGroupRight(nil)
@@ -2536,6 +2574,7 @@ final class WorkspaceViewController: NSViewController {
         let state = layoutState.groups[id] ?? EditorGroupState(id: id)
         let controller = EditorGroupViewController(groupID: id, state: state)
         controller.wordWrapEnabled = layoutState.wordWrapEnabled
+        controller.minimapEnabled = layoutState.minimapEnabled
         controller.syntaxLanguageForSnapshot = { [weak self] snapshot in
             self?.languageSupportService.syntaxLanguage(for: snapshot)
         }
@@ -3729,6 +3768,9 @@ extension WorkspaceViewController: NSMenuItemValidation {
         switch menuItem.action {
         case #selector(toggleWordWrap(_:)):
             menuItem.state = layoutState.wordWrapEnabled ? .on : .off
+            return true
+        case #selector(toggleMinimap(_:)):
+            menuItem.state = layoutState.minimapEnabled ? .on : .off
             return true
         case #selector(navigateBack(_:)):
             return activeGroupController?.canGoBack ?? false

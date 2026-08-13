@@ -10,6 +10,9 @@ public final class CodeDocumentViewController: NSViewController {
     public let viewport: CodeViewport
 
     private let scrollView = NSScrollView()
+    private lazy var minimapView = CodeMinimapView(viewport: viewport, scrollView: scrollView)
+    private var scrollTrailingConstraint: NSLayoutConstraint?
+    private var minimapWidthConstraint: NSLayoutConstraint?
     private let findBar = NSView()
     private let findField = NSSearchField()
     private let matchCaseButton = NSButton(checkboxWithTitle: "Case", target: nil, action: nil)
@@ -21,6 +24,16 @@ public final class CodeDocumentViewController: NSViewController {
     private var currentMatchIndex: Int?
     private var isFindBarVisible = false
     private var hoverPopover: NSPopover?
+    private var diagnosticMarkers: [CodeMinimapDiagnosticMarker] = []
+
+    public var minimapEnabled = true {
+        didSet {
+            guard oldValue != minimapEnabled else {
+                return
+            }
+            updateMinimapVisibility()
+        }
+    }
 
     private let syntaxEngine: SyntaxEngine
     /// Exposed so tests can `await` the initial parse-and-highlight pass
@@ -75,6 +88,17 @@ public final class CodeDocumentViewController: NSViewController {
         )
         self.syntaxEngine = syntaxEngine
         super.init(nibName: nil, bundle: nil)
+        self.viewport.onMinimapInvalidation = { [weak self] invalidation in
+            guard let self else {
+                return
+            }
+            if invalidation == .selection {
+                self.minimapView.updateSelection(self.viewport.selectedUTF8Range)
+            } else if invalidation == .markers {
+                self.refreshMinimapMarkers()
+            }
+            self.minimapView.invalidate(invalidation)
+        }
         startSyntaxHighlighting()
     }
 
@@ -181,9 +205,7 @@ public final class CodeDocumentViewController: NSViewController {
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
         // Sticky headers are painted relative to the clip view's visible
-        // origin. Scroll blitting would preserve those pixels at their old
-        // document coordinates, producing repeated header bands.
-        scrollView.contentView.copiesOnScroll = false
+        // origin, so every bounds change explicitly invalidates the viewport.
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
             self,
@@ -196,6 +218,13 @@ public final class CodeDocumentViewController: NSViewController {
 
         container.addSubview(headerStack)
         container.addSubview(scrollView)
+        container.addSubview(minimapView)
+        minimapView.translatesAutoresizingMaskIntoConstraints = false
+
+        let trailing = scrollView.trailingAnchor.constraint(equalTo: minimapView.leadingAnchor)
+        let minimapWidth = minimapView.widthAnchor.constraint(equalToConstant: 96)
+        scrollTrailingConstraint = trailing
+        minimapWidthConstraint = minimapWidth
 
         NSLayoutConstraint.activate([
             headerStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
@@ -204,15 +233,17 @@ public final class CodeDocumentViewController: NSViewController {
             pathLabel.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
             scrollView.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 8),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            trailing,
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            minimapView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            minimapView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            minimapView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            minimapWidth
         ])
 
         view = container
-    }
-
-    var usesScrollCopying: Bool {
-        scrollView.contentView.copiesOnScroll
+        updateMinimapVisibility()
+        refreshMinimapMarkers()
     }
 
     var postsScrollBoundsChanges: Bool {
@@ -222,16 +253,86 @@ public final class CodeDocumentViewController: NSViewController {
     @objc
     private func clipViewBoundsDidChange(_ notification: Notification) {
         viewport.needsDisplay = true
+        minimapView.viewportDidScroll()
     }
 
     public override func viewDidLayout() {
         super.viewDidLayout()
         viewport.setMinimumViewportWidth(scrollView.contentSize.width)
+        if minimapEnabled {
+            minimapWidthConstraint?.constant = CodeMinimapLayout.recommendedWidth(
+                containerWidth: view.bounds.width,
+                requestedColumns: viewport.minimapMaximumRenderedColumns
+            )
+        }
     }
 
     public override func viewDidAppear() {
         super.viewDidAppear()
         view.window?.makeFirstResponder(viewport)
+    }
+
+    public var isMinimapVisible: Bool {
+        minimapEnabled && isViewLoaded && !minimapView.isHidden
+    }
+
+    public var reservedMinimapWidth: CGFloat {
+        minimapEnabled ? (minimapWidthConstraint?.constant ?? 0) : 0
+    }
+
+    var activeMinimapMarkers: CodeMinimapMarkers {
+        minimapView.currentMarkers
+    }
+
+    public func applyDiagnosticMarkers(
+        _ markers: [CodeMinimapDiagnosticMarker],
+        snapshotVersion: Int
+    ) -> Bool {
+        guard snapshotVersion == snapshot.version,
+              markers.allSatisfy({
+                  $0.utf8Range.lowerBound >= 0
+                      && $0.utf8Range.upperBound <= snapshot.utf8Count
+                      && $0.utf8Range.lowerBound <= $0.utf8Range.upperBound
+              }) else {
+            return false
+        }
+        diagnosticMarkers = markers
+        refreshMinimapMarkers()
+        return true
+    }
+
+    public func clearDiagnosticMarkers() {
+        diagnosticMarkers = []
+        refreshMinimapMarkers()
+    }
+
+    private func updateMinimapVisibility() {
+        guard isViewLoaded else {
+            return
+        }
+        minimapView.isHidden = !minimapEnabled
+        minimapWidthConstraint?.constant = minimapEnabled
+            ? CodeMinimapLayout.recommendedWidth(
+                containerWidth: view.bounds.width,
+                requestedColumns: viewport.minimapMaximumRenderedColumns
+            )
+            : 0
+        if !minimapEnabled {
+            minimapView.invalidate(.layout)
+        }
+        view.needsLayout = true
+    }
+
+    private func refreshMinimapMarkers() {
+        guard isViewLoaded else {
+            return
+        }
+        minimapView.updateMarkerCollections(
+            findMatches: isFindBarVisible ? matches.map(\.utf8Range) : [],
+            diagnostics: diagnosticMarkers,
+            gitChanges: viewport.activeGutterChanges
+        )
+        minimapView.updateSelection(viewport.selectedUTF8Range)
     }
 
     public func presentHover(_ contents: String, atViewportRect anchorRect: NSRect) {
@@ -349,6 +450,7 @@ public final class CodeDocumentViewController: NSViewController {
         }
         isFindBarVisible = false
         findBar.isHidden = true
+        refreshMinimapMarkers()
         view.window?.makeFirstResponder(viewport)
     }
 
@@ -490,6 +592,7 @@ public final class CodeDocumentViewController: NSViewController {
             currentMatchIndex = nil
             matchCountLabel.stringValue = ""
             findField.backgroundColor = .textBackgroundColor
+            refreshMinimapMarkers()
             return
         }
 
@@ -504,11 +607,13 @@ public final class CodeDocumentViewController: NSViewController {
         guard !matches.isEmpty else {
             currentMatchIndex = nil
             matchCountLabel.stringValue = "No Results"
+            refreshMinimapMarkers()
             return
         }
 
         let anchor = viewport.selectedUTF8Range?.lowerBound ?? 0
         currentMatchIndex = matches.firstIndex { $0.utf8Range.lowerBound >= anchor } ?? 0
+        refreshMinimapMarkers()
         applyCurrentMatch()
     }
 

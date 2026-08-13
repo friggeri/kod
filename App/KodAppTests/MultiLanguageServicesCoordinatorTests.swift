@@ -121,6 +121,114 @@ final class MultiLanguageServicesCoordinatorTests: XCTestCase {
         XCTAssertTrue(diagnosticsStore.snapshot.diagnosticsByOwner.isEmpty)
     }
 
+    func testTrustRevocationClearsNormalizedMarkersForTrackedDocuments() throws {
+        let (identity, store) = try makeTrustedIdentity()
+        store.revoke(identity)
+        let coordinator = MultiLanguageServicesCoordinator(
+            identity: identity,
+            trustStore: store,
+            profileRegistry: try makeRegistry()
+        )
+        var emissions: [(URL, [NormalizedDiagnostic])] = []
+        coordinator.onNormalizedDiagnostics = { url, diagnostics in
+            emissions.append((url, diagnostics))
+        }
+        let snapshot = SourceSnapshot(
+            text: "let value = 1\n",
+            url: identity.root.appendingPathComponent("Tracked.swift"),
+            version: 1
+        )
+        let controller = CodeDocumentViewController(snapshot: snapshot)
+        coordinator.handleDocumentReady(
+            relativePath: "Tracked.swift",
+            controller: controller
+        )
+
+        withExtendedLifetime(controller) {
+            coordinator.handleTrustRevoked()
+        }
+
+        XCTAssertEqual(emissions.count, 1)
+        XCTAssertEqual(emissions.first?.0, snapshot.url.standardizedFileURL)
+        XCTAssertTrue(emissions.first?.1.isEmpty == true)
+    }
+
+    /// Problems navigation converts wire ranges through the coordinator so
+    /// the owning service's negotiated encoding is used. With no service
+    /// started for the file it must still convert, falling back to the LSP
+    /// default (UTF-16) rather than failing to navigate.
+    func testUTF8RangeConversionFallsBackToUTF16WithoutAService() async throws {
+        let (identity, store) = try makeTrustedIdentity()
+        let coordinator = MultiLanguageServicesCoordinator(
+            identity: identity,
+            trustStore: store,
+            profileRegistry: try makeRegistry()
+        )
+        let snapshot = SourceSnapshot(
+            text: "lét value\n",
+            url: identity.root.appendingPathComponent("Encoding.ts"),
+            version: 1
+        )
+        XCTAssertNil(coordinator.service(forURL: snapshot.url))
+
+        let converted = await coordinator.utf8Range(
+            for: LSPRange(
+                start: LSPPosition(line: 0, character: 0),
+                end: LSPPosition(line: 0, character: 4)
+            ),
+            in: snapshot
+        )
+        XCTAssertEqual(converted, 0..<5, "\"lét \" is four UTF-16 code units")
+
+        let outOfBounds = await coordinator.utf8Range(
+            for: LSPRange(
+                start: LSPPosition(line: 42, character: 0),
+                end: LSPPosition(line: 42, character: 1)
+            ),
+            in: snapshot
+        )
+        XCTAssertNil(outOfBounds)
+    }
+
+    /// A close must not discard workspace problems: only the editor-facing
+    /// normalized callback is cleared, and the raw store keeps reporting
+    /// files that are not open at all.
+    func testRawWorkspaceDiagnosticsSurviveWithoutAnOpenDocument() throws {
+        let (identity, store) = try makeTrustedIdentity()
+        let diagnosticsStore = WorkspaceDiagnosticsStore()
+        let coordinator = MultiLanguageServicesCoordinator(
+            identity: identity,
+            trustStore: store,
+            profileRegistry: try makeRegistry(),
+            diagnosticsStore: diagnosticsStore
+        )
+        var normalized: [(URL, [NormalizedDiagnostic])] = []
+        coordinator.onNormalizedDiagnostics = { url, diagnostics in
+            normalized.append((url, diagnostics))
+        }
+        let url = identity.root.appendingPathComponent("Unopened.swift")
+        let diagnostic = Diagnostic(
+            range: LSPRange(
+                start: LSPPosition(line: 0, character: 0),
+                end: LSPPosition(line: 0, character: 1)
+            ),
+            severity: .error,
+            code: nil,
+            source: nil,
+            message: "Unopened"
+        )
+        diagnosticsStore.replace(owner: "swift", resource: url, diagnostics: [diagnostic])
+
+        XCTAssertEqual(
+            diagnosticsStore.snapshot.presentationDiagnosticsByFile[url.standardizedFileURL],
+            [diagnostic]
+        )
+        XCTAssertTrue(normalized.isEmpty)
+
+        coordinator.diagnosticsStore.clear(owner: "swift")
+        XCTAssertTrue(diagnosticsStore.snapshot.presentationDiagnosticsByFile.isEmpty)
+    }
+
     func testHandleDocumentReadyIsANoOpForAnUntrustedWorkspace() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

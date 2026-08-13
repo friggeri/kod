@@ -23,6 +23,7 @@ public final class CodeViewport: NSView {
     public var onHoverExit: (() -> Void)?
     public var onGutterChangeClick: ((String) -> Void)?
     public var onCancelEmbeddedViewZone: (() -> Bool)?
+    var onMinimapInvalidation: ((CodeMinimapInvalidation) -> Void)?
 
     struct GutterLaneLayout {
         let lineNumbers: NSRect
@@ -41,6 +42,7 @@ public final class CodeViewport: NSView {
             invalidateWrapCache()
             updateDocumentSize()
             needsDisplay = true
+            onMinimapInvalidation?(.layout)
         }
     }
 
@@ -55,6 +57,7 @@ public final class CodeViewport: NSView {
             reapplyLexicalLayerForThemeChange()
             invalidateWrapCache()
             needsDisplay = true
+            onMinimapInvalidation?(.appearance)
         }
     }
 
@@ -145,6 +148,7 @@ public final class CodeViewport: NSView {
     private var visualRowStarts: [Int]?
     private var wrapColumnsUsed = 0
     private var wrappedSegmentCache: [Int: [Range<Int>]] = [:]
+    private(set) var minimapMappingVisitCount = 0
 
     /// Wide enough for the line-number, Git-status, and folding lanes at the
     /// current font size without clipping into the code column.
@@ -258,6 +262,7 @@ public final class CodeViewport: NSView {
             needsDisplay = true
         }
         layoutEmbeddedViewZone()
+        onMinimapInvalidation?(.layout)
     }
 
     /// Replaces the gutter's current change markers. Applications are
@@ -314,6 +319,7 @@ public final class CodeViewport: NSView {
         }
         gutterChangeLayerVersion = layerVersion
         needsDisplay = true
+        onMinimapInvalidation?(.markers)
         return true
     }
 
@@ -324,10 +330,423 @@ public final class CodeViewport: NSView {
         deletionGutterChangesByAnchor = [:]
         gutterChangeLayerVersion = -1
         needsDisplay = true
+        onMinimapInvalidation?(.markers)
     }
 
     public var activeGutterChanges: [CodeGutterChange] {
         gutterChanges
+    }
+
+    var minimapLineHeight: CGFloat {
+        lineHeight
+    }
+
+    var minimapTotalVisualRows: Int {
+        rebuildVisualMetricsIfNeeded()
+        return totalVisualRows
+    }
+
+    var minimapMaximumRenderedColumns: Int {
+        min(CodeMinimapLayout.maximumColumns, max(24, snapshot.longestLineUTF8Length))
+    }
+
+    func minimapPresentation(
+        visualRows requestedRows: Range<Int>,
+        maxColumns: Int
+    ) -> CodeMinimapPresentation {
+        rebuildVisualMetricsIfNeeded()
+        let safeRows = max(0, requestedRows.lowerBound)..<min(
+            totalVisualRows,
+            max(requestedRows.lowerBound, requestedRows.upperBound)
+        )
+        let cappedColumns = min(CodeMinimapLayout.maximumColumns, max(1, maxColumns))
+        var rows: [CodeMinimapVisualRow] = []
+        rows.reserveCapacity(safeRows.count)
+
+        for visualRow in safeRows {
+            if isEmbeddedViewZoneRow(visualRow) {
+                rows.append(CodeMinimapVisualRow(
+                    visualRow: visualRow,
+                    sourceLine: nil,
+                    segmentIndex: nil,
+                    utf8Range: nil,
+                    text: "",
+                    tokenSpans: [],
+                    isViewZone: true
+                ))
+                continue
+            }
+
+            let identity = sourceLine(forVisualRow: visualRow)
+            let segments = wrapSegments(forLine: identity.line)
+            guard segments.indices.contains(identity.segmentIndex),
+                  let segmentText = try? snapshot.text(inUTF8Range: segments[identity.segmentIndex]) else {
+                continue
+            }
+            let segmentRange = segments[identity.segmentIndex]
+            let capped = Self.minimapCappedText(segmentText, maxColumns: cappedColumns)
+            let tokenSpans = decorationCompositor
+                .composedRuns(inUTF8Range: segmentRange)
+                .compactMap { run -> CodeMinimapTokenSpan? in
+                    let lower = max(segmentRange.lowerBound, run.utf8Range.lowerBound)
+                    let upper = min(segmentRange.upperBound, run.utf8Range.upperBound)
+                    guard lower < upper else {
+                        return nil
+                    }
+                    let lowerColumn = Self.minimapDisplayColumn(
+                        in: segmentText,
+                        utf8Offset: lower - segmentRange.lowerBound,
+                        maximum: cappedColumns
+                    )
+                    let upperColumn = Self.minimapDisplayColumn(
+                        in: segmentText,
+                        utf8Offset: upper - segmentRange.lowerBound,
+                        maximum: cappedColumns
+                    )
+                    guard lowerColumn < upperColumn else {
+                        return nil
+                    }
+                    return CodeMinimapTokenSpan(
+                        columns: lowerColumn..<upperColumn,
+                        color: run.attributes.foreground ?? theme.editor.foreground
+                    )
+                }
+            rows.append(CodeMinimapVisualRow(
+                visualRow: visualRow,
+                sourceLine: identity.line,
+                segmentIndex: identity.segmentIndex,
+                utf8Range: segmentRange,
+                text: capped,
+                tokenSpans: tokenSpans,
+                isViewZone: false
+            ))
+        }
+        return CodeMinimapPresentation(
+            totalVisualRows: totalVisualRows,
+            rows: rows,
+            requestedRows: safeRows
+        )
+    }
+
+    func resetMinimapMappingVisitCount() {
+        minimapMappingVisitCount = 0
+    }
+
+    func minimapVisualRows(forUTF8Range range: Range<Int>) -> [Int] {
+        rebuildVisualMetricsIfNeeded()
+        return minimapVisualRows(
+            forUTF8Ranges: [range],
+            limitedTo: 0..<totalVisualRows
+        )
+    }
+
+    /// Maps marker ranges by visiting only the minimap rows currently being
+    /// rasterized. `sortedRanges` must be ordered and non-overlapping; the
+    /// minimap view normalizes its marker arrays once when marker data changes.
+    func minimapVisualRows(
+        forUTF8Ranges sortedRanges: [Range<Int>],
+        limitedTo requestedRows: Range<Int>
+    ) -> [Int] {
+        rebuildVisualMetricsIfNeeded()
+        guard !sortedRanges.isEmpty else {
+            return []
+        }
+        let safeRows = max(0, requestedRows.lowerBound)..<min(
+            totalVisualRows,
+            max(requestedRows.lowerBound, requestedRows.upperBound)
+        )
+        var result: [Int] = []
+        result.reserveCapacity(safeRows.count)
+        for visualRow in safeRows {
+            minimapMappingVisitCount += 1
+            guard !isEmbeddedViewZoneRow(visualRow) else {
+                continue
+            }
+            let identity = sourceLine(forVisualRow: visualRow)
+            let segments = wrapSegments(forLine: identity.line)
+            guard segments.indices.contains(identity.segmentIndex) else {
+                continue
+            }
+            let segmentRange = segments[identity.segmentIndex]
+            var intersects = Self.minimapSortedRanges(
+                sortedRanges,
+                intersect: segmentRange
+            )
+            if !intersects,
+               identity.segmentIndex == 0,
+               let fold = foldRangesByHeaderLine[identity.line],
+               foldedHeaderLines.contains(identity.line),
+               fold.headerLine < fold.endLine,
+               let hiddenStart = snapshot.utf8RangeForLine(fold.headerLine + 1)?.lowerBound,
+               let hiddenEnd = snapshot.utf8RangeForLine(fold.endLine)?.upperBound {
+                intersects = Self.minimapSortedRanges(
+                    sortedRanges,
+                    intersect: hiddenStart..<hiddenEnd
+                )
+            }
+            if intersects {
+                result.append(visualRow)
+            }
+        }
+        return result
+    }
+
+    func minimapVisualRows(forGutterChange change: CodeGutterChange) -> [Int] {
+        rebuildVisualMetricsIfNeeded()
+        return minimapVisualRows(
+            forGutterChange: change,
+            limitedTo: 0..<totalVisualRows
+        )
+    }
+
+    func minimapVisualRows(
+        forGutterChange change: CodeGutterChange,
+        limitedTo requestedRows: Range<Int>
+    ) -> [Int] {
+        rebuildVisualMetricsIfNeeded()
+        let safeRows = max(0, requestedRows.lowerBound)..<min(
+            totalVisualRows,
+            max(requestedRows.lowerBound, requestedRows.upperBound)
+        )
+        switch change.location {
+        case .lines(let lines):
+            var result: [Int] = []
+            result.reserveCapacity(safeRows.count)
+            for visualRow in safeRows {
+                minimapMappingVisitCount += 1
+                guard !isEmbeddedViewZoneRow(visualRow) else {
+                    continue
+                }
+                let identity = sourceLine(forVisualRow: visualRow)
+                var intersects = lines.contains(identity.line)
+                if !intersects,
+                   identity.segmentIndex == 0,
+                   let fold = foldRangesByHeaderLine[identity.line],
+                   foldedHeaderLines.contains(identity.line) {
+                    let hiddenLines = (fold.headerLine + 1)..<(fold.endLine + 1)
+                    intersects = lines.overlaps(hiddenLines)
+                }
+                if intersects {
+                    result.append(visualRow)
+                }
+            }
+
+            return result
+        case .deletion(let afterLine):
+            let row: Int
+            if afterLine < 0 {
+                row = 0
+            } else {
+                let rowRange = visualRowRange(forLine: afterLine)
+                row = rowRange.isEmpty
+                    ? minimapVisibleFoldHeaderRow(containingLine: afterLine)
+                    : max(rowRange.lowerBound, rowRange.upperBound - 1)
+            }
+            minimapMappingVisitCount += 1
+            return safeRows.contains(row) ? [row] : []
+        }
+    }
+
+    func minimapVisualRows(
+        forGutterMarkers markers: CodeMinimapGutterMarkerSet,
+        limitedTo requestedRows: Range<Int>
+    ) -> [Int] {
+        rebuildVisualMetricsIfNeeded()
+        guard !markers.lineRanges.isEmpty || !markers.deletionAfterLines.isEmpty else {
+            return []
+        }
+        let safeRows = max(0, requestedRows.lowerBound)..<min(
+            totalVisualRows,
+            max(requestedRows.lowerBound, requestedRows.upperBound)
+        )
+        var result: [Int] = []
+        result.reserveCapacity(safeRows.count)
+        for visualRow in safeRows {
+            minimapMappingVisitCount += 1
+            guard !isEmbeddedViewZoneRow(visualRow) else {
+                continue
+            }
+            let identity = sourceLine(forVisualRow: visualRow)
+            let segments = wrapSegments(forLine: identity.line)
+            var intersects = Self.minimapSortedLineRanges(
+                markers.lineRanges,
+                contain: identity.line
+            )
+            let isLastSegment = identity.segmentIndex == max(0, segments.count - 1)
+            if !intersects, isLastSegment {
+                intersects = Self.minimapSortedIntegers(
+                    markers.deletionAfterLines,
+                    contain: identity.line
+                )
+            }
+            if !intersects, visualRow == 0 {
+                intersects = Self.minimapSortedIntegers(
+                    markers.deletionAfterLines,
+                    contain: -1
+                )
+            }
+            if !intersects,
+               identity.segmentIndex == 0,
+               let fold = foldRangesByHeaderLine[identity.line],
+               foldedHeaderLines.contains(identity.line) {
+                let hiddenLines = (fold.headerLine + 1)..<(fold.endLine + 1)
+                intersects = Self.minimapSortedLineRanges(
+                    markers.lineRanges,
+                    overlap: hiddenLines
+                ) || Self.minimapSortedIntegers(
+                    markers.deletionAfterLines,
+                    containAnyIn: hiddenLines
+                )
+            }
+            if intersects {
+                result.append(visualRow)
+            }
+        }
+        return result
+    }
+
+    private static func minimapSortedRanges(
+        _ ranges: [Range<Int>],
+        intersect target: Range<Int>
+    ) -> Bool {
+        var lower = 0
+        var upper = ranges.count
+        while lower < upper {
+            let midpoint = (lower + upper) / 2
+            if ranges[midpoint].upperBound <= target.lowerBound {
+                lower = midpoint + 1
+            } else {
+                upper = midpoint
+            }
+        }
+        guard ranges.indices.contains(lower) else {
+            return false
+        }
+        let candidate = ranges[lower]
+        if target.isEmpty {
+            return candidate.contains(target.lowerBound)
+        }
+        return candidate.lowerBound < target.upperBound
+            && candidate.upperBound > target.lowerBound
+    }
+
+    private static func minimapSortedLineRanges(
+        _ ranges: [Range<Int>],
+        contain line: Int
+    ) -> Bool {
+        minimapSortedLineRanges(ranges, overlap: line..<(line + 1))
+    }
+
+    private static func minimapSortedLineRanges(
+        _ ranges: [Range<Int>],
+        overlap target: Range<Int>
+    ) -> Bool {
+        var lower = 0
+        var upper = ranges.count
+        while lower < upper {
+            let midpoint = (lower + upper) / 2
+            if ranges[midpoint].upperBound <= target.lowerBound {
+                lower = midpoint + 1
+            } else {
+                upper = midpoint
+            }
+        }
+        guard ranges.indices.contains(lower) else {
+            return false
+        }
+        return ranges[lower].lowerBound < target.upperBound
+    }
+
+    private static func minimapSortedIntegers(
+        _ values: [Int],
+        contain value: Int
+    ) -> Bool {
+        let index = minimapInsertionIndex(in: values, for: value)
+        return values.indices.contains(index) && values[index] == value
+    }
+
+    private static func minimapSortedIntegers(
+        _ values: [Int],
+        containAnyIn range: Range<Int>
+    ) -> Bool {
+        let index = minimapInsertionIndex(in: values, for: range.lowerBound)
+        guard values.indices.contains(index) else {
+            return false
+        }
+        return values[index] < range.upperBound
+    }
+
+    private static func minimapInsertionIndex(
+        in values: [Int],
+        for value: Int
+    ) -> Int {
+        var lower = 0
+        var upper = values.count
+        while lower < upper {
+            let midpoint = (lower + upper) / 2
+            if values[midpoint] < value {
+                lower = midpoint + 1
+            } else {
+                upper = midpoint
+            }
+        }
+        return lower
+    }
+
+    private func minimapVisibleFoldHeaderRow(containingLine line: Int) -> Int {
+        let header = foldedHeaderLines
+            .filter { header in
+                guard let fold = foldRangesByHeaderLine[header] else {
+                    return false
+                }
+                return line > fold.headerLine && line <= fold.endLine
+            }
+            .max() ?? line
+        return visualRowRange(forLine: header).lowerBound
+    }
+
+    static func minimapCappedText(_ text: String, maxColumns: Int) -> String {
+        var result = ""
+        var column = 0
+        for character in text {
+            if character == "\t" {
+                let width = 4 - (column % 4)
+                guard column + width <= maxColumns else {
+                    break
+                }
+                result.append(character)
+                column += width
+                continue
+            }
+            let width = CodeMinimapGlyphAtlas.shared.glyph(for: character).columns
+            guard column + width <= maxColumns else {
+                break
+            }
+            result.append(character)
+            column += width
+        }
+        return result
+    }
+
+    private static func minimapDisplayColumn(
+        in text: String,
+        utf8Offset: Int,
+        maximum: Int
+    ) -> Int {
+        var consumedBytes = 0
+        var column = 0
+        for character in text {
+            guard consumedBytes < utf8Offset, column < maximum else {
+                break
+            }
+            consumedBytes += String(character).utf8.count
+            if character == "\t" {
+                column += 4 - (column % 4)
+            } else {
+                column += CodeMinimapGlyphAtlas.shared.glyph(for: character).columns
+            }
+        }
+        return min(maximum, column)
     }
 
     /// Installs one embedded view zone after `afterLine`; `-1` places it
@@ -361,6 +780,7 @@ public final class CodeViewport: NSView {
         updateDocumentSize()
         layoutEmbeddedViewZone()
         needsDisplay = true
+        onMinimapInvalidation?(.layout)
         return true
     }
 
@@ -373,6 +793,7 @@ public final class CodeViewport: NSView {
         lineCache.removeAll(keepingCapacity: true)
         updateDocumentSize()
         needsDisplay = true
+        onMinimapInvalidation?(.layout)
     }
 
     public var activeViewZoneID: CodeViewZoneID? {
@@ -447,6 +868,7 @@ public final class CodeViewport: NSView {
         }
         selectedUTF8Range = range
         needsDisplay = true
+        onMinimapInvalidation?(.selection)
     }
 
     /// Scrolls the given UTF-8 offset into view (centering it when it is
@@ -507,6 +929,7 @@ public final class CodeViewport: NSView {
         anchorUTF8Offset = offset
         selectedUTF8Range = nil
         needsDisplay = true
+        onMinimapInvalidation?(.selection)
     }
 
     public override func mouseMoved(with event: NSEvent) {
@@ -569,11 +992,13 @@ public final class CodeViewport: NSView {
         )
         autoscroll(with: event)
         needsDisplay = true
+        onMinimapInvalidation?(.selection)
     }
 
     public override func mouseUp(with event: NSEvent) {
         if selectedUTF8Range?.isEmpty == true {
             selectedUTF8Range = nil
+            onMinimapInvalidation?(.selection)
         }
         anchorUTF8Offset = nil
     }
@@ -612,6 +1037,7 @@ public final class CodeViewport: NSView {
     public override func selectAll(_ sender: Any?) {
         selectedUTF8Range = 0..<snapshot.utf8Count
         needsDisplay = true
+        onMinimapInvalidation?(.selection)
     }
 
     @objc
@@ -676,6 +1102,7 @@ public final class CodeViewport: NSView {
             .filter { foldRangesByHeaderLine[$0] != nil }
         foldStateVersion += 1
         needsDisplay = true
+        onMinimapInvalidation?(.layout)
     }
 
     /// Applies a `.lexical` decoration layer built from Tree-sitter
@@ -696,6 +1123,7 @@ public final class CodeViewport: NSView {
         lastLexicalCaptures = captures
         lineCache.removeAll(keepingCapacity: true)
         needsDisplay = true
+        onMinimapInvalidation?(.tokens)
     }
 
     private func reapplyLexicalLayerForThemeChange() {
@@ -726,6 +1154,7 @@ public final class CodeViewport: NSView {
         }
         lineCache.removeAll(keepingCapacity: true)
         needsDisplay = true
+        onMinimapInvalidation?(.tokens)
         return true
     }
 
@@ -877,6 +1306,7 @@ public final class CodeViewport: NSView {
         foldStateVersion += 1
         updateDocumentSize()
         needsDisplay = true
+        onMinimapInvalidation?(.layout)
     }
 
     /// Toggles the fold at `line` if it is a fold header. No-op otherwise.
@@ -892,6 +1322,7 @@ public final class CodeViewport: NSView {
         foldStateVersion += 1
         updateDocumentSize()
         needsDisplay = true
+        onMinimapInvalidation?(.layout)
     }
 
     private static func computeFoldRanges(from tree: SyntaxTree) -> [Int: FoldRange] {
@@ -1021,6 +1452,7 @@ public final class CodeViewport: NSView {
         updateDocumentSize()
         layoutEmbeddedViewZone()
         needsDisplay = true
+        onMinimapInvalidation?(.appearance)
     }
 
     /// Measures enough room for line numbers followed by fixed Git-status

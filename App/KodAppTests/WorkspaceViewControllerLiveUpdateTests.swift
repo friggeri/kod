@@ -223,6 +223,76 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
         )
     }
 
+    /// Problems stays bound to the raw workspace diagnostics store — it
+    /// shows files that were never opened — while the coordinator's
+    /// normalized callback only decorates open editors and never mutates
+    /// that store.
+    func testUnopenedDiagnosticsStayInTheStoreWhileNormalizedMarkersFeedEditorsOnly() throws {
+        let fixture = try makeFixture()
+        let controller = fixture.controller
+        controller.viewDidAppear() // wires the language-services callbacks
+        let diagnosticsStore = controller.multiLanguageServicesCoordinator.diagnosticsStore
+        let unopenedURL = fixture.root.appendingPathComponent("Unopened.swift")
+        let diagnostic = Diagnostic(
+            range: LSPRange(
+                start: LSPPosition(line: 0, character: 0),
+                end: LSPPosition(line: 0, character: 3)
+            ),
+            severity: .error,
+            code: nil,
+            source: nil,
+            message: "Unopened"
+        )
+        diagnosticsStore.replace(
+            owner: "swift",
+            resource: unopenedURL,
+            diagnostics: [diagnostic]
+        )
+        XCTAssertEqual(
+            diagnosticsStore.snapshot
+                .presentationDiagnosticsByFile[unopenedURL.standardizedFileURL],
+            [diagnostic]
+        )
+
+        let openedURL = fixture.root.appendingPathComponent("Open.swift")
+        try Data("let value = 1\n".utf8).write(to: openedURL)
+        let group = try XCTUnwrap(
+            controller.splitContainer.controller(for: controller.layoutState.activeGroupID)
+        )
+        group.openTab(
+            relativePath: "Open.swift",
+            pinned: true,
+            snapshot: SourceSnapshot(text: "let value = 1\n", url: openedURL, version: 1)
+        )
+
+        let normalizedCallback = try XCTUnwrap(
+            controller.multiLanguageServicesCoordinator.onNormalizedDiagnostics,
+            "Editor markers must be wired to the normalized callback"
+        )
+        normalizedCallback(openedURL, [
+            NormalizedDiagnostic(
+                snapshotVersion: 1,
+                utf8Range: 0..<3,
+                startLine: 0,
+                severity: .warning,
+                code: nil,
+                source: nil,
+                message: "Marker"
+            )
+        ])
+
+        // Editor markers must never be mistaken for workspace problems.
+        XCTAssertNil(
+            diagnosticsStore.snapshot
+                .presentationDiagnosticsByFile[openedURL.standardizedFileURL]
+        )
+        XCTAssertEqual(
+            diagnosticsStore.snapshot
+                .presentationDiagnosticsByFile[unopenedURL.standardizedFileURL],
+            [diagnostic]
+        )
+    }
+
     func testIgnoredLiveUpdateStaysHiddenUntilExplorerRevealIsEnabled() async throws {
         let fixture = try makeFixture()
         try Data("data/\n".utf8).write(to: fixture.root.appendingPathComponent(".gitignore"))

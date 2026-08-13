@@ -30,6 +30,9 @@ final class MultiLanguageServicesCoordinator {
     private var profileObserver: UUID?
 
     var onStateChange: (() -> Void)?
+    /// Snapshot-normalized diagnostics for the currently open editors.
+    /// Raw, workspace-wide diagnostics live in `diagnosticsStore` instead.
+    var onNormalizedDiagnostics: ((URL, [NormalizedDiagnostic]) -> Void)?
     var onMissingServer: ((LanguageProfile) -> Void)?
     var onUnknownFileType: ((URL) -> Void)?
 
@@ -148,6 +151,44 @@ final class MultiLanguageServicesCoordinator {
             return nil
         }
         return services[resolved.profile.identifier]
+    }
+
+    /// Converts a raw LSP range into a UTF-8 byte range validated against
+    /// `snapshot`, using the position encoding negotiated with whichever
+    /// language service owns the file. Falls back to the LSP default
+    /// (UTF-16) only when no service exists for it, so navigation still
+    /// works for files whose server never started.
+    func utf8Range(
+        for range: LSPRange,
+        in snapshot: SourceSnapshot
+    ) async -> Range<Int>? {
+        guard let service = service(forURL: snapshot.url) else {
+            return Self.utf8Range(range, in: snapshot, encoding: .utf16)
+        }
+        return await service.utf8Range(for: range, in: snapshot)
+    }
+
+    private static func utf8Range(
+        _ range: LSPRange,
+        in snapshot: SourceSnapshot,
+        encoding: LSPPositionEncoding
+    ) -> Range<Int>? {
+        guard let start = try? snapshot.utf8Offset(
+            for: SourcePosition(
+                line: range.start.line,
+                character: range.start.character
+            ),
+            encoding: encoding
+        ), let end = try? snapshot.utf8Offset(
+            for: SourcePosition(
+                line: range.end.line,
+                character: range.end.character
+            ),
+            encoding: encoding
+        ), start <= end else {
+            return nil
+        }
+        return start..<end
     }
 
     func workspaceSymbols(
@@ -445,6 +486,7 @@ final class MultiLanguageServicesCoordinator {
     func handleTrustRevoked() {
         semanticDecorationTasks.values.forEach { $0.cancel() }
         semanticDecorationTasks.removeAll()
+        clearNormalizedDiagnosticsForOpenDocuments()
         for identifier in diagnosticsStore.snapshot.diagnosticsByOwner.keys {
             diagnosticsStore.clear(owner: identifier)
         }
@@ -577,6 +619,16 @@ final class MultiLanguageServicesCoordinator {
                         )
                     }
                 },
+                onNormalizedDiagnostics: { [weak self] url, diagnostics in
+                    Task { @MainActor in
+                        guard let self,
+                              self.startupGenerations[key] == generation,
+                              self.services[key] != nil else {
+                            return
+                        }
+                        self.onNormalizedDiagnostics?(url, diagnostics)
+                    }
+                },
                 onWorkspaceDiagnosticsFailure: { [weak self] reason in
                     Task { @MainActor in
                         guard let self,
@@ -622,6 +674,36 @@ final class MultiLanguageServicesCoordinator {
         return newService
     }
 
+    /// Normalizes whatever raw diagnostics the workspace store already
+    /// holds for a just-synchronized document and forwards them to the
+    /// editor callback, so a file opened *after* its workspace/push
+    /// diagnostics arrived still gets minimap markers. An empty result is
+    /// published too, clearing markers left over from another version.
+    private func publishStoredDiagnostics(
+        owner: String,
+        snapshot: SourceSnapshot,
+        service: LanguageWorkspaceService
+    ) async {
+        let raw = diagnosticsStore.diagnostics(
+            owner: owner,
+            resource: snapshot.url
+        )
+        guard let normalized = await service.normalizedStoredDiagnostics(
+            raw,
+            for: snapshot
+        ) else {
+            return
+        }
+        // A report that landed while normalizing already published its own
+        // markers through the service's normalized callback; republishing
+        // this now-stale set would clobber it.
+        guard services[owner] === service,
+              diagnosticsStore.diagnostics(owner: owner, resource: snapshot.url) == raw else {
+            return
+        }
+        onNormalizedDiagnostics?(snapshot.url.standardizedFileURL, normalized)
+    }
+
     private func syncAndDecorate(
         resolved: ResolvedLanguageProfile,
         relativePath: String,
@@ -633,19 +715,23 @@ final class MultiLanguageServicesCoordinator {
         ) else {
             return
         }
+        let synchronization: LanguageDocumentSynchronizationResult
         do {
-            try await service.didOpen(snapshot)
+            synchronization = try await service.synchronize(snapshot)
         } catch {
-            do {
-                try await service.didChange(snapshot)
-            } catch {
-                return
-            }
+            return
         }
         guard let liveController =
                 controllersByRelativePath[relativePath]?.controller,
               liveController.snapshot.version == snapshot.version else {
             return
+        }
+        if synchronization != .changed {
+            await publishStoredDiagnostics(
+                owner: resolved.profile.identifier,
+                snapshot: snapshot,
+                service: service
+            )
         }
         scheduleSemanticDecoration(
             profileIdentifier: resolved.profile.identifier,
@@ -653,6 +739,20 @@ final class MultiLanguageServicesCoordinator {
             controller: liveController,
             service: service
         )
+    }
+
+    private func clearNormalizedDiagnosticsForOpenDocuments() {
+        clearNormalizedDiagnostics(at: Set(
+            controllersByRelativePath.values.compactMap {
+                $0.controller?.snapshot.url.standardizedFileURL
+            }
+        ))
+    }
+
+    private func clearNormalizedDiagnostics(at urls: Set<URL>) {
+        for url in urls {
+            onNormalizedDiagnostics?(url, [])
+        }
     }
 
     private func scheduleSemanticDecoration(
@@ -808,6 +908,25 @@ final class MultiLanguageServicesCoordinator {
             activeProfiles[identifier] == serviceProfiles[identifier]
                 ? nil
                 : identifier
+        }
+        let changedProfiles = changedServiceIdentifiers.compactMap {
+            serviceProfiles[$0]
+        }
+        if !changedProfiles.isEmpty {
+            let previousProfiles = LanguageProfileRegistrySnapshot(
+                profiles: changedProfiles
+            )
+            let affectedURLs = Set(
+                controllersByRelativePath.values.compactMap {
+                    weakController -> URL? in
+                    guard let snapshot = weakController.controller?.snapshot,
+                          previousProfiles.resolve(snapshot: snapshot) != nil else {
+                        return nil
+                    }
+                    return snapshot.url.standardizedFileURL
+                }
+            )
+            clearNormalizedDiagnostics(at: affectedURLs)
         }
         for identifier in changedServiceIdentifiers {
             guard let service = services[identifier] else {

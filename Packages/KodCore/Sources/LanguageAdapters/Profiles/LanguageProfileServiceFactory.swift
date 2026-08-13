@@ -17,6 +17,10 @@ public enum LanguageProfileServiceFactory {
         onDiagnostics: @escaping @Sendable (URL, [Diagnostic]) -> Void = {
             _, _ in
         },
+        onNormalizedDiagnostics: @escaping @Sendable (
+            URL,
+            [NormalizedDiagnostic]
+        ) -> Void = { _, _ in },
         onWorkspaceDiagnosticsFailure: @escaping @Sendable (String) -> Void = {
             _ in
         }
@@ -84,6 +88,7 @@ public enum LanguageProfileServiceFactory {
             ),
             onStateChange: onStateChange,
             onDiagnostics: onDiagnostics,
+            onNormalizedDiagnostics: onNormalizedDiagnostics,
             onWorkspaceDiagnosticsFailure: onWorkspaceDiagnosticsFailure
         )
     }

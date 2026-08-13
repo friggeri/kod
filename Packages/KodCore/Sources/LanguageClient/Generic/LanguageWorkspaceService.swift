@@ -154,6 +154,37 @@ public struct ValidatedInlayHint: Sendable {
     }
 }
 
+/// A published diagnostic converted through the server-negotiated position
+/// encoding and validated against the exact immutable snapshot version that
+/// was open when the notification arrived.
+public struct NormalizedDiagnostic: Sendable {
+    public let snapshotVersion: Int
+    public let utf8Range: Range<Int>
+    public let startLine: Int
+    public let severity: DiagnosticSeverity?
+    public let code: JSONValue?
+    public let source: String?
+    public let message: String
+
+    public init(
+        snapshotVersion: Int,
+        utf8Range: Range<Int>,
+        startLine: Int,
+        severity: DiagnosticSeverity?,
+        code: JSONValue?,
+        source: String?,
+        message: String
+    ) {
+        self.snapshotVersion = snapshotVersion
+        self.utf8Range = utf8Range
+        self.startLine = startLine
+        self.severity = severity
+        self.code = code
+        self.source = source
+        self.message = message
+    }
+}
+
 /// A `CallHierarchyItem`/`TypeHierarchyItem`, structurally validated like
 /// `NavigationTarget` (its `uri`/`range` need not be inside the currently
 /// open snapshot) with its opaque `data` preserved verbatim so it can be
@@ -214,6 +245,12 @@ public enum LanguageWorkspaceServiceError: Error, Equatable, Sendable {
     case staleRequest(url: URL, expectedVersion: Int, actualVersion: Int)
     case capabilityUnavailable(String)
     case invalidTargetURI(String)
+}
+
+public enum LanguageDocumentSynchronizationResult: Equatable, Sendable {
+    case opened
+    case unchanged
+    case changed
 }
 
 /// Owns exactly one `LanguageServerConnection` for one (workspace,
@@ -288,13 +325,25 @@ public actor LanguageWorkspaceService {
     private let configuration: Configuration
     private let dependencies: Dependencies
     private let onStateChange: @Sendable (LanguageServerState) -> Void
+    /// Raw, workspace-wide diagnostics for storage/presentation. Fires for
+    /// every accepted report, including push reports for files Kod has not
+    /// opened (which therefore have no `SourceSnapshot` to validate against)
+    /// and `workspace/diagnostic` pull results.
     private let onDiagnostics: @Sendable (URL, [Diagnostic]) -> Void
+    /// Snapshot-normalized diagnostics for live editor decorations. Fires
+    /// only for documents that are currently open in this service, against
+    /// the exact immutable snapshot version that was open when the report
+    /// arrived.
+    private let onNormalizedDiagnostics: @Sendable (URL, [NormalizedDiagnostic]) -> Void
     private let onWorkspaceDiagnosticsFailure: @Sendable (String) -> Void
+    private let diagnosticNormalizationYield: @Sendable () async -> Void
 
     private var connection: LanguageServerConnection?
     private var connectionGeneration = 0
     private var isRestarting = false
     private var openDocuments: [URL: SourceSnapshot] = [:]
+    private var diagnosticPublishSequenceByURL: [URL: UInt64] = [:]
+    private var diagnosticsRequiringFreshPublish: Set<URL> = []
     private var didCompleteFirstReady = false
     private var isAwaitingConnectionReady = false
     private var workspaceDiagnosticTask: Task<Void, Never>?
@@ -307,7 +356,35 @@ public actor LanguageWorkspaceService {
         dependencies: Dependencies,
         onStateChange: @escaping @Sendable (LanguageServerState) -> Void = { _ in },
         onDiagnostics: @escaping @Sendable (URL, [Diagnostic]) -> Void = { _, _ in },
+        onNormalizedDiagnostics: @escaping @Sendable (URL, [NormalizedDiagnostic]) -> Void = { _, _ in },
         onWorkspaceDiagnosticsFailure: @escaping @Sendable (String) -> Void = { _ in }
+    ) {
+        self.init(
+            identity: identity,
+            trustStore: trustStore,
+            configuration: configuration,
+            dependencies: dependencies,
+            onStateChange: onStateChange,
+            onDiagnostics: onDiagnostics,
+            onNormalizedDiagnostics: onNormalizedDiagnostics,
+            onWorkspaceDiagnosticsFailure: onWorkspaceDiagnosticsFailure,
+            diagnosticNormalizationYield: {}
+        )
+    }
+
+    /// Test-facing designated initializer: `diagnosticNormalizationYield`
+    /// is an injectable suspension point inside diagnostic normalization,
+    /// used to exercise close/change/version races deterministically.
+    init(
+        identity: WorkspaceIdentity,
+        trustStore: WorkspaceTrustStore,
+        configuration: Configuration,
+        dependencies: Dependencies,
+        onStateChange: @escaping @Sendable (LanguageServerState) -> Void = { _ in },
+        onDiagnostics: @escaping @Sendable (URL, [Diagnostic]) -> Void = { _, _ in },
+        onNormalizedDiagnostics: @escaping @Sendable (URL, [NormalizedDiagnostic]) -> Void = { _, _ in },
+        onWorkspaceDiagnosticsFailure: @escaping @Sendable (String) -> Void = { _ in },
+        diagnosticNormalizationYield: @escaping @Sendable () async -> Void
     ) {
         self.identity = identity
         self.trustStore = trustStore
@@ -315,7 +392,9 @@ public actor LanguageWorkspaceService {
         self.dependencies = dependencies
         self.onStateChange = onStateChange
         self.onDiagnostics = onDiagnostics
+        self.onNormalizedDiagnostics = onNormalizedDiagnostics
         self.onWorkspaceDiagnosticsFailure = onWorkspaceDiagnosticsFailure
+        self.diagnosticNormalizationYield = diagnosticNormalizationYield
     }
 
     public var currentState: LanguageServerState? {
@@ -397,6 +476,10 @@ public actor LanguageWorkspaceService {
             isAwaitingConnectionReady = true
             if didCompleteFirstReady {
                 cancelWorkspaceDiagnostics(resetResultIDs: true)
+                // A relaunching server's previously published markers no
+                // longer describe anything; raw workspace problems stay
+                // until their owner is cleared by the coordinator.
+                clearNormalizedDiagnosticsForOpenDocuments()
             }
         }
         guard newState == .ready, isAwaitingConnectionReady else {
@@ -438,13 +521,16 @@ public actor LanguageWorkspaceService {
         case .workspaceDiagnosticRefresh:
             await scheduleWorkspaceDiagnostics(generation: generation)
         case .publishDiagnostics(let params):
-            handlePublishedDiagnostics(params)
+            await handlePublishedDiagnostics(params, generation: generation)
         case .progress, .logMessage, .showMessage, .unknown:
             break
         }
     }
 
-    private func handlePublishedDiagnostics(_ params: PublishDiagnosticsParams) {
+    private func handlePublishedDiagnostics(
+        _ params: PublishDiagnosticsParams,
+        generation: Int
+    ) async {
         guard let url = workspaceFileURL(from: params.uri) else {
             return
         }
@@ -454,7 +540,57 @@ public actor LanguageWorkspaceService {
         if let version = params.version, let openSnapshot = openDocuments[url], version != openSnapshot.version {
             return
         }
+        // Raw diagnostics always reach the workspace-wide store, whether
+        // or not Kod has the file open; normalization additionally runs
+        // for open documents so editors get snapshot-validated markers.
         onDiagnostics(url, params.diagnostics)
+        await publishNormalizedDiagnostics(
+            url: url,
+            diagnostics: params.diagnostics,
+            generation: generation
+        )
+    }
+
+    /// Converts `diagnostics` against the exact snapshot that is open for
+    /// `url` right now and forwards them to `onNormalizedDiagnostics`.
+    /// No-ops for files that are not open: an unopened workspace file has
+    /// no `SourceSnapshot` to validate against, and its problems remain
+    /// raw-only. A per-URL monotonically increasing publish sequence, the
+    /// connection generation and the snapshot version are all re-checked
+    /// after the normalization suspension point so a close, a `didChange`,
+    /// a restart, or a newer same-version publish can never be overwritten
+    /// by an older in-flight normalization.
+    private func publishNormalizedDiagnostics(
+        url: URL,
+        diagnostics: [Diagnostic],
+        generation: Int
+    ) async {
+        guard let snapshot = openDocuments[url] else {
+            return
+        }
+        let publishSequence = diagnosticPublishSequenceByURL[url, default: 0] &+ 1
+        diagnosticPublishSequenceByURL[url] = publishSequence
+        let encoding = await resolvedPositionEncoding()
+        await diagnosticNormalizationYield()
+        guard generation == connectionGeneration,
+              let currentSnapshot = openDocuments[url],
+              currentSnapshot.version == snapshot.version,
+              diagnosticPublishSequenceByURL[url] == publishSequence else {
+            return
+        }
+        diagnosticsRequiringFreshPublish.remove(url)
+        onNormalizedDiagnostics(
+            url,
+            normalizedDiagnostics(diagnostics, snapshot: snapshot, encoding: encoding)
+        )
+    }
+
+    private func clearNormalizedDiagnosticsForOpenDocuments() {
+        for url in openDocuments.keys {
+            diagnosticPublishSequenceByURL[url] = diagnosticPublishSequenceByURL[url, default: 0] &+ 1
+            diagnosticsRequiringFreshPublish.insert(url)
+            onNormalizedDiagnostics(url, [])
+        }
     }
 
     private func scheduleWorkspaceDiagnostics(generation: Int) async {
@@ -519,7 +655,13 @@ public actor LanguageWorkspaceService {
                     workspaceDiagnosticResultIDs.removeValue(forKey: url)
                 }
                 if item.kind == .full {
-                    onDiagnostics(url, item.items ?? [])
+                    let diagnostics = item.items ?? []
+                    onDiagnostics(url, diagnostics)
+                    await publishNormalizedDiagnostics(
+                        url: url,
+                        diagnostics: diagnostics,
+                        generation: generation
+                    )
                 }
             }
         } catch is CancellationError {
@@ -554,6 +696,10 @@ public actor LanguageWorkspaceService {
         return url
     }
 
+    func handleServerNotificationForTesting(_ notification: ServerNotification) async {
+        await handleServerNotification(notification, generation: connectionGeneration)
+    }
+
     /// Stops the current server (if any) and restarts it from scratch,
     /// clearing all tracked open-document state (SPEC 6.2's manual
     /// Restart action).
@@ -569,6 +715,7 @@ public actor LanguageWorkspaceService {
             await connection.shutdown()
         }
         connection = nil
+        clearNormalizedDiagnosticsForOpenDocuments()
         openDocuments.removeAll()
         didCompleteFirstReady = false
         isAwaitingConnectionReady = false
@@ -580,12 +727,32 @@ public actor LanguageWorkspaceService {
         connectionGeneration += 1
         await connection?.shutdown()
         connection = nil
+        clearNormalizedDiagnosticsForOpenDocuments()
         openDocuments.removeAll()
         didCompleteFirstReady = false
         isAwaitingConnectionReady = false
     }
 
     // MARK: - Document synchronization (SPEC 6.3)
+
+    /// Synchronizes `snapshot` without sending duplicate `didOpen`
+    /// notifications. Callers can use the result to avoid projecting raw
+    /// diagnostics from a superseded snapshot onto newly loaded content.
+    public func synchronize(
+        _ snapshot: SourceSnapshot
+    ) async throws -> LanguageDocumentSynchronizationResult {
+        let url = snapshot.url.standardizedFileURL
+        guard let current = openDocuments[url] else {
+            try await didOpen(snapshot)
+            return .opened
+        }
+        guard current.version != snapshot.version
+                || current.text != snapshot.text else {
+            return .unchanged
+        }
+        try await didChange(snapshot)
+        return .changed
+    }
 
     public func didOpen(_ snapshot: SourceSnapshot) async throws {
         guard let connection else {
@@ -621,16 +788,31 @@ public actor LanguageWorkspaceService {
             contentChanges: [TextDocumentContentChangeEvent(text: snapshot.text)]
         )
         try await connection.sendNotification(.didChange, params: params)
-        openDocuments[snapshot.url.standardizedFileURL] = snapshot
+        let url = snapshot.url.standardizedFileURL
+        openDocuments[url] = snapshot
+        // Markers validated against the superseded snapshot are dropped
+        // immediately; the raw workspace store keeps this file's problems
+        // until the server republishes for the new version.
+        diagnosticPublishSequenceByURL[url] = diagnosticPublishSequenceByURL[url, default: 0] &+ 1
+        diagnosticsRequiringFreshPublish.insert(url)
+        onNormalizedDiagnostics(url, [])
     }
 
     public func didClose(url: URL) async throws {
         guard let connection else {
             throw LanguageWorkspaceServiceError.notStarted
         }
-        guard openDocuments.removeValue(forKey: url.standardizedFileURL) != nil else {
+        let standardizedURL = url.standardizedFileURL
+        guard openDocuments.removeValue(forKey: standardizedURL) != nil else {
             return
         }
+        // Only editor markers are cleared here: a closed file's problems
+        // stay in the workspace-wide store, exactly like a file that was
+        // never opened at all.
+        diagnosticPublishSequenceByURL[standardizedURL] =
+            diagnosticPublishSequenceByURL[standardizedURL, default: 0] &+ 1
+        diagnosticsRequiringFreshPublish.insert(standardizedURL)
+        onNormalizedDiagnostics(standardizedURL, [])
         try await connection.sendNotification(
             .didClose,
             params: DidCloseTextDocumentParams(textDocument: TextDocumentIdentifier(uri: DocumentURI(fileURL: url)))
@@ -652,6 +834,91 @@ public actor LanguageWorkspaceService {
             return .utf16
         }
         return raw == "utf-8" ? .utf8 : .utf16
+    }
+
+    // MARK: - Negotiated-encoding conversion
+
+    /// Converts a raw LSP range (a diagnostic, a definition, a symbol —
+    /// anything still in wire form) into a UTF-8 byte range validated
+    /// against `snapshot`, using the server-negotiated position encoding
+    /// rather than assuming UTF-16.
+    ///
+    /// `snapshot` is used purely as the coordinate space of the
+    /// conversion: it is never recorded as this service's open-document
+    /// state, so passing an arbitrary (possibly stale) snapshot here can
+    /// never make it the basis of live editor markers.
+    public func utf8Range(for range: LSPRange, in snapshot: SourceSnapshot) async -> Range<Int>? {
+        let encoding = await resolvedPositionEncoding()
+        return utf8Range(range, snapshot: snapshot, encoding: encoding)
+    }
+
+    /// Converts raw diagnostics into snapshot-validated normalized values
+    /// through the same conversion the push/pull paths use. Diagnostics
+    /// whose range does not resolve inside `snapshot` are dropped rather
+    /// than shown at the wrong offset (SPEC 6.3).
+    public func normalizedDiagnostics(
+        _ diagnostics: [Diagnostic],
+        for snapshot: SourceSnapshot
+    ) async -> [NormalizedDiagnostic] {
+        let encoding = await resolvedPositionEncoding()
+        return normalizedDiagnostics(diagnostics, snapshot: snapshot, encoding: encoding)
+    }
+
+    /// Normalizes diagnostics already retained by the workspace store only
+    /// when they are known to describe `snapshot`. A changed, closed, or
+    /// restarted document remains blocked until a fresh server publish
+    /// succeeds, preventing another editor for the same URL from re-stamping
+    /// stale wire ranges with the new snapshot version.
+    public func normalizedStoredDiagnostics(
+        _ diagnostics: [Diagnostic],
+        for snapshot: SourceSnapshot
+    ) async -> [NormalizedDiagnostic]? {
+        let url = snapshot.url.standardizedFileURL
+        guard let currentSnapshot = openDocuments[url],
+              currentSnapshot.version == snapshot.version,
+              currentSnapshot.text == snapshot.text,
+              !diagnosticsRequiringFreshPublish.contains(url) else {
+            return nil
+        }
+        let publishSequence = diagnosticPublishSequenceByURL[url, default: 0]
+        let encoding = await resolvedPositionEncoding()
+        guard let latestSnapshot = openDocuments[url],
+              latestSnapshot.version == snapshot.version,
+              latestSnapshot.text == snapshot.text,
+              diagnosticPublishSequenceByURL[url, default: 0] == publishSequence,
+              !diagnosticsRequiringFreshPublish.contains(url) else {
+            return nil
+        }
+        return normalizedDiagnostics(
+            diagnostics,
+            snapshot: snapshot,
+            encoding: encoding
+        )
+    }
+
+    private func normalizedDiagnostics(
+        _ diagnostics: [Diagnostic],
+        snapshot: SourceSnapshot,
+        encoding: LSPPositionEncoding
+    ) -> [NormalizedDiagnostic] {
+        diagnostics.compactMap { diagnostic in
+            guard let range = utf8Range(
+                diagnostic.range,
+                snapshot: snapshot,
+                encoding: encoding
+            ) else {
+                return nil
+            }
+            return NormalizedDiagnostic(
+                snapshotVersion: snapshot.version,
+                utf8Range: range,
+                startLine: diagnostic.range.start.line,
+                severity: diagnostic.severity,
+                code: diagnostic.code,
+                source: diagnostic.source,
+                message: diagnostic.message
+            )
+        }
     }
 
     /// Whether `method` is currently usable, per static `initialize`

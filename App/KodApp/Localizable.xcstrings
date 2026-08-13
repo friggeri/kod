@@ -734,6 +734,18 @@
     "Details" : {
 
     },
+    "Diagnostic navigation failed" : {
+      "comment" : "Diagnostics log message recorded when a Problems item cannot be opened",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagnostic navigation failed"
+          }
+        }
+      }
+    },
     "Diagnostics" : {
 
     },
@@ -1471,6 +1483,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Merge Changes"
+          }
+        }
+      }
+    },
+    "Minimap" : {
+      "comment" : "View menu item that toggles the source minimap",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minimap"
           }
         }
       }
@@ -2672,6 +2696,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Toggle Fold"
+          }
+        }
+      }
+    },
+    "Toggle Minimap" : {
+      "comment" : "Command palette entry that toggles the source minimap",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Minimap"
           }
         }
       }

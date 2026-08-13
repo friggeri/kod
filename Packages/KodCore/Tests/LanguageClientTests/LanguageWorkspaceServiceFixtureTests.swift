@@ -4,6 +4,57 @@ import WorkspaceCore
 import XCTest
 @testable import LanguageClient
 
+private actor DiagnosticNormalizationGate {
+    private var entered = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func suspend() async {
+        entered = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitUntilEntered() async {
+        while !entered {
+            await Task.yield()
+        }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+private actor FirstDiagnosticNormalizationGate {
+    private var callCount = 0
+    private var firstEntered = false
+    private var firstContinuation: CheckedContinuation<Void, Never>?
+
+    func suspendFirst() async {
+        callCount += 1
+        guard callCount == 1 else {
+            return
+        }
+        firstEntered = true
+        await withCheckedContinuation { continuation in
+            firstContinuation = continuation
+        }
+    }
+
+    func waitUntilFirstEntered() async {
+        while !firstEntered {
+            await Task.yield()
+        }
+    }
+
+    func releaseFirst() {
+        firstContinuation?.resume()
+        firstContinuation = nil
+    }
+}
+
 /// Exercises `LanguageWorkspaceService` directly — the language-agnostic
 /// engine every non-Swift adapter (TypeScript/JavaScript, HTML, CSS,
 /// Python, Rust) uses as-is via `LanguageProfileServiceFactory` —
@@ -86,6 +137,241 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
         XCTAssertEqual(hints.count, 1)
         let items = try await service.prepareCallHierarchy(snapshot: snapshot, utf8Offset: 0)
         XCTAssertEqual(items.count, 1)
+    }
+
+    @MainActor
+    func testPublishedDiagnosticsNormalizeNegotiatedUTF8RangesAndClearOnClose() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let received = LockedArray<[NormalizedDiagnostic]>()
+        let raw = LockedArray<[Diagnostic]>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
+            dependencies: try makeDependencies(scenario: "normal"),
+            onDiagnostics: { _, diagnostics in
+                raw.append(diagnostics)
+            },
+            onNormalizedDiagnostics: { _, diagnostics in
+                received.append(diagnostics)
+            }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+
+        let snapshot = SourceSnapshot(
+            text: "éabc\n",
+            url: root.appendingPathComponent("UTF8.ts"),
+            version: 42
+        )
+        try await service.didOpen(snapshot)
+
+        let deadline = Date().addingTimeInterval(2)
+        while received.snapshot().allSatisfy(\.isEmpty), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let diagnostic = try XCTUnwrap(received.snapshot().first(where: { !$0.isEmpty })?.first)
+        XCTAssertEqual(diagnostic.snapshotVersion, 42)
+        XCTAssertEqual(diagnostic.utf8Range, 0..<4)
+        XCTAssertEqual(try snapshot.text(inUTF8Range: diagnostic.utf8Range), "éab")
+        XCTAssertEqual(diagnostic.severity, .warning)
+
+        // The same report reaches the raw workspace-wide callback in wire
+        // form, so unopened files and the Problems list stay consistent.
+        let rawDiagnostic = try XCTUnwrap(raw.snapshot().first(where: { !$0.isEmpty })?.first)
+        XCTAssertEqual(rawDiagnostic.message, diagnostic.message)
+        XCTAssertEqual(rawDiagnostic.range.start.character, 0)
+        XCTAssertEqual(rawDiagnostic.range.end.character, 4)
+
+        let rawCountBeforeClose = raw.snapshot().count
+        try await service.didClose(url: snapshot.url)
+        XCTAssertTrue(received.snapshot().last?.isEmpty == true)
+        XCTAssertEqual(
+            raw.snapshot().count,
+            rawCountBeforeClose,
+            "Closing a document clears editor markers only; workspace problems survive"
+        )
+    }
+
+    @MainActor
+    func testSynchronizeDistinguishesOpenUnchangedAndReloadedSnapshots() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let received = LockedArray<[NormalizedDiagnostic]>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
+            dependencies: try makeDependencies(scenario: "no-diagnostics"),
+            onNormalizedDiagnostics: { _, diagnostics in
+                received.append(diagnostics)
+            }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+
+        let url = root.appendingPathComponent("Reloaded.ts")
+        let initial = SourceSnapshot(text: "old\n", url: url, version: 1)
+        let opened = try await service.synchronize(initial)
+        XCTAssertEqual(opened, .opened)
+        let unchanged = try await service.synchronize(initial)
+        XCTAssertEqual(unchanged, .unchanged)
+        let diagnostic = Diagnostic(
+            range: LSPRange(
+                start: LSPPosition(line: 0, character: 0),
+                end: LSPPosition(line: 0, character: 3)
+            ),
+            severity: .warning,
+            code: nil,
+            source: nil,
+            message: "Stored"
+        )
+        let initiallyStored = await service.normalizedStoredDiagnostics(
+            [diagnostic],
+            for: initial
+        )
+        XCTAssertEqual(initiallyStored?.first?.utf8Range, 0..<3)
+
+        let reloaded = SourceSnapshot(text: "new\n", url: url, version: 2)
+        let changed = try await service.synchronize(reloaded)
+        XCTAssertEqual(changed, .changed)
+        let unchangedAfterReload = try await service.synchronize(reloaded)
+        XCTAssertEqual(unchangedAfterReload, .unchanged)
+        let staleStored = await service.normalizedStoredDiagnostics(
+            [diagnostic],
+            for: reloaded
+        )
+        XCTAssertNil(
+            staleStored,
+            "A second editor must not re-stamp pre-reload diagnostics onto the new snapshot"
+        )
+        XCTAssertTrue(
+            received.snapshot().last?.isEmpty == true,
+            "Changing snapshots must clear normalized markers until the server republishes"
+        )
+    }
+
+    @MainActor
+    func testMalformedPublishedDiagnosticDoesNotKeepPreviousFileStateStale() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let received = LockedArray<[NormalizedDiagnostic]>()
+        let raw = LockedArray<[Diagnostic]>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
+            dependencies: try makeDependencies(scenario: "invalid-publish"),
+            onDiagnostics: { _, diagnostics in raw.append(diagnostics) },
+            onNormalizedDiagnostics: { _, diagnostics in received.append(diagnostics) }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+
+        let snapshot = SourceSnapshot(
+            text: "valid\n",
+            url: root.appendingPathComponent("InvalidPublish.ts"),
+            version: 1
+        )
+        try await service.didOpen(snapshot)
+        let deadline = Date().addingTimeInterval(2)
+        while received.snapshot().allSatisfy(\.isEmpty), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let diagnostics = try XCTUnwrap(received.snapshot().first(where: { !$0.isEmpty }))
+        XCTAssertEqual(diagnostics.count, 1)
+        XCTAssertEqual(diagnostics.first?.message, "Fake published diagnostic")
+        XCTAssertEqual(diagnostics.first?.utf8Range, 0..<4)
+
+        // The out-of-bounds range is dropped from editor markers only:
+        // the raw workspace report is forwarded exactly as published.
+        let rawDiagnostics = try XCTUnwrap(raw.snapshot().first(where: { !$0.isEmpty }))
+        XCTAssertEqual(rawDiagnostics.count, 2)
+        XCTAssertEqual(rawDiagnostics.first?.message, "Invalid diagnostic")
+    }
+
+    @MainActor
+    func testDidCloseWhileDiagnosticNormalizationIsSuspendedCannotResurrectDiagnostics() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let gate = DiagnosticNormalizationGate()
+        let received = LockedArray<[NormalizedDiagnostic]>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
+            dependencies: try makeDependencies(scenario: "normal"),
+            onStateChange: { _ in },
+            onNormalizedDiagnostics: { _, diagnostics in received.append(diagnostics) },
+            diagnosticNormalizationYield: { await gate.suspend() }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+
+        let snapshot = SourceSnapshot(
+            text: "value\n",
+            url: root.appendingPathComponent("DiagnosticRace.ts"),
+            version: 7
+        )
+        try await service.didOpen(snapshot)
+        await gate.waitUntilEntered()
+        try await service.didClose(url: snapshot.url)
+        await gate.release()
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertFalse(received.snapshot().isEmpty)
+        XCTAssertTrue(received.snapshot().allSatisfy(\.isEmpty))
+    }
+
+    @MainActor
+    func testNewerSameVersionDiagnosticPublishWinsWhenOlderNormalizationResumesLast() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let gate = FirstDiagnosticNormalizationGate()
+        let received = LockedArray<[NormalizedDiagnostic]>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
+            dependencies: try makeDependencies(scenario: "no-diagnostics"),
+            onStateChange: { _ in },
+            onNormalizedDiagnostics: { _, diagnostics in received.append(diagnostics) },
+            diagnosticNormalizationYield: { await gate.suspendFirst() }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+        let snapshot = SourceSnapshot(
+            text: "value\n",
+            url: root.appendingPathComponent("DiagnosticOrder.ts"),
+            version: 12
+        )
+        try await service.didOpen(snapshot)
+
+        func notification(_ diagnostics: [Diagnostic]) -> ServerNotification {
+            .publishDiagnostics(PublishDiagnosticsParams(
+                uri: DocumentURI(fileURL: snapshot.url),
+                version: snapshot.version,
+                diagnostics: diagnostics
+            ))
+        }
+        let older = Task {
+            await service.handleServerNotificationForTesting(notification([
+                Diagnostic(
+                    range: LSPRange(
+                        start: LSPPosition(line: 0, character: 0),
+                        end: LSPPosition(line: 0, character: 5)
+                    ),
+                    severity: .warning,
+                    code: nil,
+                    source: nil,
+                    message: "Older"
+                )
+            ]))
+        }
+        await gate.waitUntilFirstEntered()
+        await service.handleServerNotificationForTesting(notification([]))
+        await gate.releaseFirst()
+        await older.value
+
+        XCTAssertEqual(received.snapshot().count, 1)
+        XCTAssertTrue(received.snapshot().first?.isEmpty == true)
     }
 
     @MainActor
@@ -301,6 +587,7 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
     func testAcceptsUnopenedWorkspacePushAndRejectsOutsideAndNonFilePushes() async throws {
         let (identity, store, root) = try makeTrustedIdentity()
         let messages = LockedArray<String>()
+        let normalizedURLs = LockedArray<URL>()
         let service = LanguageWorkspaceService(
             identity: identity,
             trustStore: store,
@@ -310,7 +597,8 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
                 for diagnostic in diagnostics {
                     messages.append(diagnostic.message)
                 }
-            }
+            },
+            onNormalizedDiagnostics: { url, _ in normalizedURLs.append(url) }
         )
         try await service.start()
         defer { Task { await service.stop() } }
@@ -321,7 +609,56 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
         }
 
         XCTAssertEqual(messages.snapshot(), ["Unopened workspace diagnostic"])
+        XCTAssertTrue(
+            normalizedURLs.snapshot().isEmpty,
+            "A file Kod has never opened has no snapshot to normalize against"
+        )
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("Unopened.swift").path))
+    }
+
+    /// The shared conversion helper Problems/definition navigation uses
+    /// must honor the negotiated position encoding instead of assuming
+    /// UTF-16: the same wire range resolves to different UTF-8 byte
+    /// ranges under the two encodings.
+    @MainActor
+    func testNegotiatedRangeConversionUsesTheServerPositionEncoding() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let snapshot = SourceSnapshot(
+            text: "lét value\n",
+            url: root.appendingPathComponent("Encoding.ts"),
+            version: 1
+        )
+        let range = LSPRange(
+            start: LSPPosition(line: 0, character: 0),
+            end: LSPPosition(line: 0, character: 4)
+        )
+
+        let utf8Service = try makeService(identity: identity, trustStore: store, scenario: "normal")
+        try await utf8Service.start()
+        defer { Task { await utf8Service.stop() } }
+        let utf8Range = await utf8Service.utf8Range(for: range, in: snapshot)
+        XCTAssertEqual(utf8Range, 0..<4)
+        XCTAssertEqual(try snapshot.text(inUTF8Range: try XCTUnwrap(utf8Range)), "lét")
+
+        let utf16Service = try makeService(identity: identity, trustStore: store, scenario: "normal-utf16")
+        try await utf16Service.start()
+        defer { Task { await utf16Service.stop() } }
+        let utf16Range = await utf16Service.utf8Range(for: range, in: snapshot)
+        XCTAssertEqual(utf16Range, 0..<5)
+
+        // Converting an arbitrary snapshot never adopts it as live state.
+        let unopened = await utf8Service.normalizedDiagnostics(
+            [Diagnostic(range: range, severity: .error, code: nil, source: nil, message: "Converted")],
+            for: snapshot
+        )
+        XCTAssertEqual(unopened.first?.utf8Range, 0..<4)
+        XCTAssertEqual(unopened.first?.snapshotVersion, 1)
+        do {
+            _ = try await utf8Service.documentSymbols(snapshot: snapshot)
+            XCTFail("Converting a range must not register the snapshot as open")
+        } catch LanguageWorkspaceServiceError.documentNotOpen {
+            // Expected.
+        }
     }
 
     @MainActor
@@ -388,6 +725,56 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
             ["Workspace pulled diagnostic"],
             "An unchanged report must preserve the full report without republishing or clearing it"
         )
+    }
+
+    @MainActor
+    func testWorkspacePullDiagnosticsForAnOpenDocumentAlsoProduceNormalizedMarkers() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let messages = LockedArray<String>()
+        let normalized = LockedArray<[NormalizedDiagnostic]>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "swift"),
+            dependencies: try makeDependencies(scenario: "workspace-diagnostics-slow"),
+            onDiagnostics: { _, diagnostics in
+                for diagnostic in diagnostics {
+                    messages.append(diagnostic.message)
+                }
+            },
+            onNormalizedDiagnostics: { _, diagnostics in normalized.append(diagnostics) }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+
+        // "lét" is 4 UTF-8 bytes but 3 UTF-16 code units, so a report of
+        // characters 0..<4 on line 1 can only normalize to 14..<18 when
+        // the negotiated UTF-8 encoding is honored.
+        let snapshot = SourceSnapshot(
+            text: "let first = 1\nlét value = 2\n",
+            url: root.appendingPathComponent("WorkspaceOnly.swift"),
+            version: 5
+        )
+        try await service.didOpen(snapshot)
+
+        func pulled(_ batches: [[NormalizedDiagnostic]]) -> NormalizedDiagnostic? {
+            batches
+                .flatMap { $0 }
+                .first { $0.message == "Workspace pulled diagnostic" }
+        }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while pulled(normalized.snapshot()) == nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        // Both the didOpen push and the workspace pull reach the raw
+        // callback; only the pull is asserted on here.
+        XCTAssertTrue(messages.snapshot().contains("Workspace pulled diagnostic"))
+        let diagnostic = try XCTUnwrap(pulled(normalized.snapshot()))
+        XCTAssertEqual(diagnostic.snapshotVersion, 5)
+        XCTAssertEqual(diagnostic.startLine, 1)
+        XCTAssertEqual(diagnostic.utf8Range, 14..<18)
+        XCTAssertEqual(try snapshot.text(inUTF8Range: diagnostic.utf8Range), "lét")
     }
 
     @MainActor

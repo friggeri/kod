@@ -2,6 +2,7 @@ import AppKit
 import CodeViewport
 import FontCore
 import GitCore
+import LanguageClient
 import PreviewCore
 import QuartzCore
 import SourceModel
@@ -127,6 +128,16 @@ final class EditorGroupViewController: NSViewController {
             }
             documentControllers.values.forEach { $0.wordWrapEnabled = wordWrapEnabled }
             quickDiffDocumentControllers.values.forEach { $0.wordWrapEnabled = wordWrapEnabled }
+        }
+    }
+
+    var minimapEnabled = true {
+        didSet {
+            guard oldValue != minimapEnabled else {
+                return
+            }
+            documentControllers.values.forEach { $0.minimapEnabled = minimapEnabled }
+            quickDiffDocumentControllers.values.forEach { $0.minimapEnabled = minimapEnabled }
         }
     }
 
@@ -340,6 +351,7 @@ final class EditorGroupViewController: NSViewController {
 
         let documentController = makeDocumentController(snapshot: snapshot)
         documentController.wordWrapEnabled = wordWrapEnabled
+        documentController.minimapEnabled = minimapEnabled
         let quickDiffController = GitQuickDiffController(documentController: documentController)
         wireQuickDiffController(
             quickDiffController,
@@ -434,6 +446,7 @@ final class EditorGroupViewController: NSViewController {
                 snapshot: newSnapshot
             )
             newController.wordWrapEnabled = wordWrapEnabled
+            newController.minimapEnabled = minimapEnabled
             documentControllers[tab.id] = newController
             if !preservesQuickDiff {
                 diffControllers.removeValue(forKey: tab.id)
@@ -610,6 +623,7 @@ final class EditorGroupViewController: NSViewController {
         if insertedID == payload.tab.id {
             if let documentController = payload.documentController {
                 documentController.wordWrapEnabled = wordWrapEnabled
+                documentController.minimapEnabled = minimapEnabled
                 documentControllers[insertedID] = documentController
             }
             if let previewController = payload.previewController {
@@ -620,6 +634,7 @@ final class EditorGroupViewController: NSViewController {
             }
             if let quickDiffDocumentController = payload.quickDiffDocumentController {
                 quickDiffDocumentController.wordWrapEnabled = wordWrapEnabled
+                quickDiffDocumentController.minimapEnabled = minimapEnabled
                 quickDiffDocumentControllers[insertedID] = quickDiffDocumentController
             }
             if let quickDiffController = payload.quickDiffController {
@@ -688,7 +703,34 @@ final class EditorGroupViewController: NSViewController {
               quickDiffDocumentControllers[selectedTabID] == nil else {
             return nil
         }
+
         return documentControllers[selectedTabID]
+    }
+
+    func applyDiagnostics(url: URL, diagnostics: [NormalizedDiagnostic]) {
+        let markerDiagnostics = diagnostics.map { diagnostic in
+            let severity: CodeMinimapDiagnosticSeverity
+            switch diagnostic.severity {
+            case .error:
+                severity = .error
+            case .warning:
+                severity = .warning
+            case .information, .hint, nil:
+                severity = .information
+            }
+            return CodeMinimapDiagnosticMarker(
+                utf8Range: diagnostic.utf8Range,
+                severity: severity
+            )
+        }
+        for controller in Array(documentControllers.values) + Array(quickDiffDocumentControllers.values)
+        where controller.snapshot.url.standardizedFileURL == url.standardizedFileURL {
+            guard let version = diagnostics.first?.snapshotVersion else {
+                controller.clearDiagnosticMarkers()
+                continue
+            }
+            _ = controller.applyDiagnosticMarkers(markerDiagnostics, snapshotVersion: version)
+        }
     }
 
     var currentVisibleDocumentController: CodeDocumentViewController? {
@@ -854,6 +896,7 @@ final class EditorGroupViewController: NSViewController {
         }
         let controller = makeDocumentController(snapshot: snapshot)
         controller.wordWrapEnabled = wordWrapEnabled
+        controller.minimapEnabled = minimapEnabled
         documentControllers[tabID] = controller
         return controller
     }
@@ -861,19 +904,23 @@ final class EditorGroupViewController: NSViewController {
     private func makeDocumentController(
         snapshot: SourceSnapshot
     ) -> CodeDocumentViewController {
+        let controller: CodeDocumentViewController
         if let syntaxLanguageForSnapshot {
-            return CodeDocumentViewController(
+            controller = CodeDocumentViewController(
                 snapshot: snapshot,
                 syntaxLanguage: syntaxLanguageForSnapshot(snapshot),
                 theme: AppearanceSettings.currentTheme(),
                 fontSettings: AppearanceSettings.currentFontSettings()
             )
+        } else {
+            controller = CodeDocumentViewController(
+                snapshot: snapshot,
+                theme: AppearanceSettings.currentTheme(),
+                fontSettings: AppearanceSettings.currentFontSettings()
+            )
         }
-        return CodeDocumentViewController(
-            snapshot: snapshot,
-            theme: AppearanceSettings.currentTheme(),
-            fontSettings: AppearanceSettings.currentFontSettings()
-        )
+        controller.minimapEnabled = minimapEnabled
+        return controller
     }
 
     private func loadAndShow(tabID: EditorTabID, restoring entry: EditorNavigationEntry?) {

@@ -138,6 +138,17 @@ final class WorkspaceLayoutPersistenceTests: XCTestCase {
         XCTAssertTrue(geometry.isSidebarCollapsed)
     }
 
+    func testMinimapTogglePersistsPerWorkspaceAndDefaultsOn() throws {
+        let fixture = try makeFixture()
+        _ = host(fixture.controller)
+        XCTAssertTrue(fixture.controller.layoutState.minimapEnabled)
+
+        fixture.controller.toggleMinimap(nil)
+
+        XCTAssertFalse(fixture.controller.layoutState.minimapEnabled)
+        XCTAssertFalse(try XCTUnwrap(fixture.store.load(for: fixture.identity)).minimapEnabled)
+    }
+
     func testSavedWindowAndSidebarGeometryRestoreForReconstructedWorkspace() async throws {
         guard let visibleFrame = NSScreen.screens.first?.visibleFrame else {
             throw XCTSkip("No screen is available to constrain a test window")

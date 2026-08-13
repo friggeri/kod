@@ -968,16 +968,27 @@ func handleNotification(method: String, params: JSONValue?) {
         } else {
             diagnosticMessage = "Fake published diagnostic"
         }
+        var publishedDiagnostics: [JSONValue] = [
+            .object([
+                "range": lspRange(startLine: 0, startChar: 0, endLine: 0, endChar: 4),
+                "severity": .number(2),
+                "message": .string(diagnosticMessage)
+            ])
+        ]
+        if scenario == "invalid-publish" {
+            publishedDiagnostics.insert(
+                .object([
+                    "range": lspRange(startLine: 999, startChar: 0, endLine: 999, endChar: 1),
+                    "severity": .number(1),
+                    "message": .string("Invalid diagnostic")
+                ]),
+                at: 0
+            )
+        }
         notify("textDocument/publishDiagnostics", .object([
             "uri": .string(uri),
             "version": .number(Double(version)),
-            "diagnostics": .array([
-                .object([
-                    "range": lspRange(startLine: 0, startChar: 0, endLine: 0, endChar: 4),
-                    "severity": .number(2),
-                    "message": .string(diagnosticMessage)
-                ])
-            ])
+            "diagnostics": .array(publishedDiagnostics)
         ]))
 
     default:

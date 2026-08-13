@@ -51,14 +51,16 @@ final class LanguageProfileServiceFactoryTests: XCTestCase {
             )
         ).validated()
         let discoveries = LockedProfileValues<DiscoveredExecutable>()
-        let diagnostics = LockedProfileValues<[Diagnostic]>()
+        let diagnostics = LockedProfileValues<[NormalizedDiagnostic]>()
+        let rawDiagnostics = LockedProfileValues<[Diagnostic]>()
         let service = try LanguageProfileServiceFactory.makeService(
             for: profile,
             identity: identity,
             trustStore: trustStore,
             overrideStore: LanguageServerOverrideStore(defaults: defaults),
             onDiscovery: { discoveries.append($0) },
-            onDiagnostics: { _, values in diagnostics.append(values) }
+            onDiagnostics: { _, values in rawDiagnostics.append(values) },
+            onNormalizedDiagnostics: { _, values in diagnostics.append(values) }
         )
 
         do {
@@ -99,6 +101,12 @@ final class LanguageProfileServiceFactoryTests: XCTestCase {
             diagnostics.snapshot().joined().contains(where: {
                 $0.message == "Profile configuration accepted"
             })
+        )
+        XCTAssertTrue(
+            rawDiagnostics.snapshot().joined().contains(where: {
+                $0.message == "Profile configuration accepted"
+            }),
+            "The factory must also wire the raw workspace-wide callback"
         )
         let currentState = await service.currentState
         XCTAssertEqual(currentState, LanguageServerState.ready)
