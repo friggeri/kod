@@ -92,7 +92,7 @@ public actor SwiftWorkspaceLanguageService {
         trustStore: WorkspaceTrustStore,
         dependencies: Dependencies = Dependencies(),
         onStateChange: @escaping @Sendable (LanguageServerState) -> Void = { _ in },
-        onDiagnostics: @escaping @Sendable (URL, [Diagnostic]) -> Void = { _, _ in }
+        onDiagnostics: @escaping @Sendable (URL, [NormalizedDiagnostic]) -> Void = { _, _ in }
     ) {
         core = LanguageWorkspaceService(
             identity: identity,

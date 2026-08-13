@@ -139,6 +139,19 @@ public enum VSCodeThemeImporter {
         WorkbenchColorTarget(key: "editorWarning.foreground", assign: { $0.diagnosticWarning = $1 }),
         WorkbenchColorTarget(key: "editorInfo.foreground", assign: { $0.diagnosticInformation = $1 }),
         WorkbenchColorTarget(key: "editorHint.foreground", assign: { $0.diagnosticHint = $1 }),
+        WorkbenchColorTarget(key: "minimap.background", assign: { $0.minimapBackground = $1 }),
+        WorkbenchColorTarget(key: "minimap.foregroundOpacity", assign: { $0.minimapForegroundOpacity = $1.alpha }),
+        WorkbenchColorTarget(key: "minimap.selectionHighlight", assign: { $0.minimapSelection = $1 }),
+        WorkbenchColorTarget(key: "minimap.findMatchHighlight", assign: { $0.minimapFind = $1 }),
+        WorkbenchColorTarget(key: "minimap.infoHighlight", assign: { $0.minimapInformation = $1 }),
+        WorkbenchColorTarget(key: "minimap.warningHighlight", assign: { $0.minimapWarning = $1 }),
+        WorkbenchColorTarget(key: "minimap.errorHighlight", assign: { $0.minimapError = $1 }),
+        WorkbenchColorTarget(key: "minimapSlider.background", assign: { $0.minimapSlider = $1 }),
+        WorkbenchColorTarget(key: "minimapSlider.hoverBackground", assign: { $0.minimapSliderHover = $1 }),
+        WorkbenchColorTarget(key: "minimapSlider.activeBackground", assign: { $0.minimapSliderActive = $1 }),
+        WorkbenchColorTarget(key: "minimapGutter.addedBackground", assign: { $0.minimapGutterAdded = $1 }),
+        WorkbenchColorTarget(key: "minimapGutter.modifiedBackground", assign: { $0.minimapGutterModified = $1 }),
+        WorkbenchColorTarget(key: "minimapGutter.deletedBackground", assign: { $0.minimapGutterDeleted = $1 }),
         WorkbenchColorTarget(
             key: "gitDecoration.addedResourceForeground",
             assign: { $0.gitAdded = $1 }
@@ -302,6 +315,21 @@ public enum VSCodeThemeImporter {
                     ?? base.git.insertedTextBackground,
                 removedTextBackground: mutable.gitRemovedTextBackground
                     ?? base.git.removedTextBackground
+            ),
+            minimap: MinimapColors(
+                background: mutable.minimapBackground ?? base.minimap.background,
+                foregroundOpacity: mutable.minimapForegroundOpacity ?? base.minimap.foregroundOpacity,
+                selection: mutable.minimapSelection ?? base.minimap.selection,
+                find: mutable.minimapFind ?? base.minimap.find,
+                information: mutable.minimapInformation ?? base.minimap.information,
+                warning: mutable.minimapWarning ?? base.minimap.warning,
+                error: mutable.minimapError ?? base.minimap.error,
+                slider: mutable.minimapSlider ?? base.minimap.slider,
+                sliderHover: mutable.minimapSliderHover ?? base.minimap.sliderHover,
+                sliderActive: mutable.minimapSliderActive ?? base.minimap.sliderActive,
+                gutterAdded: mutable.minimapGutterAdded ?? base.minimap.gutterAdded,
+                gutterModified: mutable.minimapGutterModified ?? base.minimap.gutterModified,
+                gutterDeleted: mutable.minimapGutterDeleted ?? base.minimap.gutterDeleted
             )
         )
 
@@ -429,6 +457,19 @@ struct MutableWorkbenchColors {
     var diagnosticWarning: ThemeColor?
     var diagnosticInformation: ThemeColor?
     var diagnosticHint: ThemeColor?
+    var minimapBackground: ThemeColor?
+    var minimapForegroundOpacity: Double?
+    var minimapSelection: ThemeColor?
+    var minimapFind: ThemeColor?
+    var minimapInformation: ThemeColor?
+    var minimapWarning: ThemeColor?
+    var minimapError: ThemeColor?
+    var minimapSlider: ThemeColor?
+    var minimapSliderHover: ThemeColor?
+    var minimapSliderActive: ThemeColor?
+    var minimapGutterAdded: ThemeColor?
+    var minimapGutterModified: ThemeColor?
+    var minimapGutterDeleted: ThemeColor?
     var gitAdded: ThemeColor?
     var gitModified: ThemeColor?
     var gitDeleted: ThemeColor?

@@ -4,6 +4,57 @@ import WorkspaceCore
 import XCTest
 @testable import LanguageClient
 
+private actor DiagnosticNormalizationGate {
+    private var entered = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func suspend() async {
+        entered = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitUntilEntered() async {
+        while !entered {
+            await Task.yield()
+        }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+private actor FirstDiagnosticNormalizationGate {
+    private var callCount = 0
+    private var firstEntered = false
+    private var firstContinuation: CheckedContinuation<Void, Never>?
+
+    func suspendFirst() async {
+        callCount += 1
+        guard callCount == 1 else {
+            return
+        }
+        firstEntered = true
+        await withCheckedContinuation { continuation in
+            firstContinuation = continuation
+        }
+    }
+
+    func waitUntilFirstEntered() async {
+        while !firstEntered {
+            await Task.yield()
+        }
+    }
+
+    func releaseFirst() {
+        firstContinuation?.resume()
+        firstContinuation = nil
+    }
+}
+
 /// Exercises `LanguageWorkspaceService` directly — the language-agnostic
 /// engine every non-Swift adapter (TypeScript/JavaScript, HTML, CSS,
 /// Python, Rust) uses as-is via `LanguageProfileServiceFactory` —
@@ -86,6 +137,159 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
         XCTAssertEqual(hints.count, 1)
         let items = try await service.prepareCallHierarchy(snapshot: snapshot, utf8Offset: 0)
         XCTAssertEqual(items.count, 1)
+    }
+
+    @MainActor
+    func testPublishedDiagnosticsNormalizeNegotiatedUTF8RangesAndClearOnClose() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let received = LockedArray<[NormalizedDiagnostic]>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
+            dependencies: try makeDependencies(scenario: "normal"),
+            onDiagnostics: { _, diagnostics in
+                received.append(diagnostics)
+            }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+
+        let snapshot = SourceSnapshot(
+            text: "éabc\n",
+            url: root.appendingPathComponent("UTF8.ts"),
+            version: 42
+        )
+        try await service.didOpen(snapshot)
+
+        let deadline = Date().addingTimeInterval(2)
+        while received.snapshot().allSatisfy(\.isEmpty), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let diagnostic = try XCTUnwrap(received.snapshot().first(where: { !$0.isEmpty })?.first)
+        XCTAssertEqual(diagnostic.snapshotVersion, 42)
+        XCTAssertEqual(diagnostic.utf8Range, 0..<4)
+        XCTAssertEqual(try snapshot.text(inUTF8Range: diagnostic.utf8Range), "éab")
+        XCTAssertEqual(diagnostic.severity, .warning)
+
+        try await service.didClose(url: snapshot.url)
+        XCTAssertTrue(received.snapshot().last?.isEmpty == true)
+    }
+
+    @MainActor
+    func testMalformedPublishedDiagnosticDoesNotKeepPreviousFileStateStale() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let received = LockedArray<[NormalizedDiagnostic]>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
+            dependencies: try makeDependencies(scenario: "invalid-publish"),
+            onDiagnostics: { _, diagnostics in received.append(diagnostics) }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+
+        let snapshot = SourceSnapshot(
+            text: "valid\n",
+            url: root.appendingPathComponent("InvalidPublish.ts"),
+            version: 1
+        )
+        try await service.didOpen(snapshot)
+        let deadline = Date().addingTimeInterval(2)
+        while received.snapshot().allSatisfy(\.isEmpty), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let diagnostics = try XCTUnwrap(received.snapshot().first(where: { !$0.isEmpty }))
+        XCTAssertEqual(diagnostics.count, 1)
+        XCTAssertEqual(diagnostics.first?.message, "Fake published diagnostic")
+        XCTAssertEqual(diagnostics.first?.utf8Range, 0..<4)
+    }
+
+    @MainActor
+    func testDidCloseWhileDiagnosticNormalizationIsSuspendedCannotResurrectDiagnostics() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let gate = DiagnosticNormalizationGate()
+        let received = LockedArray<[NormalizedDiagnostic]>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
+            dependencies: try makeDependencies(scenario: "normal"),
+            onStateChange: { _ in },
+            onDiagnostics: { _, diagnostics in received.append(diagnostics) },
+            diagnosticNormalizationYield: { await gate.suspend() }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+
+        let snapshot = SourceSnapshot(
+            text: "value\n",
+            url: root.appendingPathComponent("DiagnosticRace.ts"),
+            version: 7
+        )
+        try await service.didOpen(snapshot)
+        await gate.waitUntilEntered()
+        try await service.didClose(url: snapshot.url)
+        await gate.release()
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertFalse(received.snapshot().isEmpty)
+        XCTAssertTrue(received.snapshot().allSatisfy(\.isEmpty))
+    }
+
+    @MainActor
+    func testNewerSameVersionDiagnosticPublishWinsWhenOlderNormalizationResumesLast() async throws {
+        let (identity, store, root) = try makeTrustedIdentity()
+        let gate = FirstDiagnosticNormalizationGate()
+        let received = LockedArray<[NormalizedDiagnostic]>()
+        let service = LanguageWorkspaceService(
+            identity: identity,
+            trustStore: store,
+            configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
+            dependencies: try makeDependencies(scenario: "no-diagnostics"),
+            onStateChange: { _ in },
+            onDiagnostics: { _, diagnostics in received.append(diagnostics) },
+            diagnosticNormalizationYield: { await gate.suspendFirst() }
+        )
+        try await service.start()
+        defer { Task { await service.stop() } }
+        let snapshot = SourceSnapshot(
+            text: "value\n",
+            url: root.appendingPathComponent("DiagnosticOrder.ts"),
+            version: 12
+        )
+        try await service.didOpen(snapshot)
+
+        func notification(_ diagnostics: [Diagnostic]) -> ServerNotification {
+            .publishDiagnostics(PublishDiagnosticsParams(
+                uri: DocumentURI(fileURL: snapshot.url),
+                version: snapshot.version,
+                diagnostics: diagnostics
+            ))
+        }
+        let older = Task {
+            await service.handleServerNotificationForTesting(notification([
+                Diagnostic(
+                    range: LSPRange(
+                        start: LSPPosition(line: 0, character: 0),
+                        end: LSPPosition(line: 0, character: 5)
+                    ),
+                    severity: .warning,
+                    code: nil,
+                    source: nil,
+                    message: "Older"
+                )
+            ]))
+        }
+        await gate.waitUntilFirstEntered()
+        await service.handleServerNotificationForTesting(notification([]))
+        await gate.releaseFirst()
+        await older.value
+
+        XCTAssertEqual(received.snapshot().count, 1)
+        XCTAssertTrue(received.snapshot().first?.isEmpty == true)
     }
 
     @MainActor

@@ -325,6 +325,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ""
         )
         menu.addItem(
+            withTitle: Localized.string("Minimap", comment: "View menu item that toggles the source minimap"),
+            action: #selector(WorkspaceViewController.toggleMinimap(_:)),
+            keyEquivalent: ""
+        )
+        menu.addItem(
             withTitle: Localized.string("Toggle Fold", comment: "View menu item that toggles the code fold at the current line"),
             action: #selector(CodeViewport.toggleFoldAtCurrentLine(_:)),
             keyEquivalent: "]"

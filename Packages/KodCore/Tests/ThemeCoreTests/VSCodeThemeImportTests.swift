@@ -109,4 +109,38 @@ final class VSCodeThemeImportTests: XCTestCase {
         let decoded = try ThemeFileCodec.decode(data)
         XCTAssertEqual(decoded, theme)
     }
+
+    func testImportMapsVSCodeMinimapColorRolesWithoutReportingThemUnsupported() throws {
+        let json = """
+        {
+          "name": "Minimap",
+          "type": "dark",
+          "colors": {
+            "minimap.background": "#101112",
+            "minimap.foregroundOpacity": "#00000080",
+            "minimap.selectionHighlight": "#223344",
+            "minimap.findMatchHighlight": "#334455",
+            "minimap.errorHighlight": "#AA1122",
+            "minimap.warningHighlight": "#BB8833",
+            "minimap.infoHighlight": "#3388CC",
+            "minimapSlider.background": "#FFFFFF20",
+            "minimapSlider.hoverBackground": "#FFFFFF30",
+            "minimapSlider.activeBackground": "#FFFFFF40",
+            "minimapGutter.addedBackground": "#22AA44",
+            "minimapGutter.modifiedBackground": "#4488CC",
+            "minimapGutter.deletedBackground": "#CC3344"
+          }
+        }
+        """
+        let (theme, report) = try VSCodeThemeImporter.import(
+            jsonData: Data(json.utf8),
+            identifier: "minimap"
+        )
+
+        XCTAssertEqual(theme.minimap.background, ThemeColor(hex: "#101112"))
+        XCTAssertEqual(theme.minimap.foregroundOpacity, 128.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(theme.minimap.sliderActive, ThemeColor(hex: "#FFFFFF40"))
+        XCTAssertEqual(theme.minimap.gutterModified, ThemeColor(hex: "#4488CC"))
+        XCTAssertTrue(report.unmappedColorKeys.isEmpty)
+    }
 }

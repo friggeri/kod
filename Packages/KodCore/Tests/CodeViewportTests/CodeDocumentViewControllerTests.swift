@@ -16,6 +16,18 @@ private extension NSView {
         }
         return nil
     }
+
+    func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+        if let match = self as? T {
+            return match
+        }
+        for subview in subviews {
+            if let found = subview.firstDescendant(ofType: type) {
+                return found
+            }
+        }
+        return nil
+    }
 }
 
 @MainActor
@@ -82,9 +94,14 @@ final class CodeDocumentViewControllerTests: XCTestCase {
     }
 
     func testScrollingRedrawsViewportRelativeStickyHeaders() {
-        let controller = makeController(text: "func outer() {\n    let value = 1\n}\n")
-        XCTAssertFalse(controller.usesScrollCopying)
+        let controller = makeController(text: String(repeating: "line\n", count: 200))
         XCTAssertTrue(controller.postsScrollBoundsChanges)
+        controller.viewport.needsDisplay = false
+        guard let scrollView = controller.view.firstDescendant(ofType: NSScrollView.self) else {
+            return XCTFail("source scroll view not found")
+        }
+        scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: 100))
+        XCTAssertTrue(controller.viewport.needsDisplay)
     }
 
     func testFindHighlightsFirstMatchAndNavigatesToNext() throws {
@@ -98,6 +115,8 @@ final class CodeDocumentViewControllerTests: XCTestCase {
         controller.controlTextDidChange(Notification(name: .init("test")))
 
         XCTAssertEqual(controller.viewport.selectedUTF8Range, 0..<3)
+        XCTAssertEqual(controller.activeMinimapMarkers.findMatches, [0..<3, 8..<11, 16..<19])
+        XCTAssertEqual(controller.activeMinimapMarkers.selection, 0..<3)
 
         guard let matchCountLabel = controller.view.firstDescendant(withIdentifier: "find.matchCount") as? NSTextField
         else {
@@ -120,6 +139,24 @@ final class CodeDocumentViewControllerTests: XCTestCase {
         )
         XCTAssertEqual(controller.viewport.selectedUTF8Range, 0..<3)
         XCTAssertEqual(matchCountLabel.stringValue, "1 of 3")
+    }
+
+    func testHidingFindBarClearsProjectedMinimapMatches() throws {
+        let controller = makeController(text: "foo bar foo")
+        controller.toggleFindBar()
+        let findField = try XCTUnwrap(
+            controller.view.firstDescendant(withIdentifier: "find.query")
+                as? NSSearchField
+        )
+        findField.stringValue = "foo"
+        controller.controlTextDidChange(Notification(name: .init("test")))
+        XCTAssertEqual(controller.activeMinimapMarkers.findMatches, [0..<3, 8..<11])
+
+        controller.toggleFindBar()
+
+        XCTAssertFalse(controller.isFindBarShown)
+        XCTAssertTrue(controller.activeMinimapMarkers.findMatches.isEmpty)
+        XCTAssertEqual(controller.captureFindState().query, "foo")
     }
 
     func testFindMatchCaseNarrowsResults() throws {
@@ -197,5 +234,53 @@ final class CodeDocumentViewControllerTests: XCTestCase {
         let controller = CodeDocumentViewController(snapshot: snapshot)
 
         XCTAssertEqual(controller.captureNavigationAnchor().viewportAnchorLine, 0)
+    }
+
+    func testMinimapIsEnabledByDefaultAndReleasesReservedWidthWhenDisabled() {
+        let controller = makeController(text: String(repeating: "line\n", count: 100))
+        XCTAssertTrue(controller.isMinimapVisible)
+        XCTAssertGreaterThan(controller.reservedMinimapWidth, 0)
+
+        controller.minimapEnabled = false
+        controller.view.layoutSubtreeIfNeeded()
+        XCTAssertFalse(controller.isMinimapVisible)
+        XCTAssertEqual(controller.reservedMinimapWidth, 0)
+
+        controller.minimapEnabled = true
+        controller.view.layoutSubtreeIfNeeded()
+        XCTAssertTrue(controller.isMinimapVisible)
+        XCTAssertGreaterThan(controller.reservedMinimapWidth, 0)
+    }
+
+    func testDiagnosticMarkersRejectWrongSnapshotAndAcceptCurrentSnapshot() {
+        let controller = makeController(text: "alpha\nbeta\n")
+        let marker = CodeMinimapDiagnosticMarker(utf8Range: 0..<5, severity: .error)
+
+        XCTAssertFalse(controller.applyDiagnosticMarkers([marker], snapshotVersion: 999))
+        XCTAssertTrue(controller.applyDiagnosticMarkers(
+            [marker],
+            snapshotVersion: controller.snapshot.version
+        ))
+        XCTAssertEqual(controller.activeMinimapMarkers.diagnostics, [marker])
+        controller.clearDiagnosticMarkers()
+        XCTAssertTrue(controller.activeMinimapMarkers.diagnostics.isEmpty)
+    }
+
+    func testGitMarkersFlowFromViewportIntoMinimapOverlay() {
+        let controller = makeController(text: "alpha\nbeta\n")
+        let change = CodeGutterChange(
+            id: "modified",
+            kind: .modified,
+            layer: .secondary,
+            location: .lines(1..<2),
+            accessibilityLabel: "Modified"
+        )
+
+        XCTAssertTrue(controller.viewport.applyGutterChanges(
+            [change],
+            snapshotVersion: controller.snapshot.version,
+            layerVersion: 1
+        ))
+        XCTAssertEqual(controller.activeMinimapMarkers.gitChanges, [change])
     }
 }

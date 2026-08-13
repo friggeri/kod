@@ -1706,7 +1706,13 @@ final class WorkspaceViewController: NSViewController {
             self?.languageServerStateDidChange()
         }
         multiLanguageServicesCoordinator.onDiagnostics = { [weak self] url, diagnostics in
-            self?.problemsViewController.update(url: url, diagnostics: diagnostics)
+            guard let self else {
+                return
+            }
+            self.problemsViewController.update(url: url, diagnostics: diagnostics)
+            self.splitContainer.allGroupControllers.forEach {
+                $0.applyDiagnostics(url: url, diagnostics: diagnostics)
+            }
         }
         multiLanguageServicesCoordinator.onMissingServer = { [weak self] profile in
             self?.enqueueMissingLanguageServer(profile)
@@ -2152,13 +2158,14 @@ final class WorkspaceViewController: NSViewController {
     }
 
     /// Opens `relativePath` in the active editor group and selects the
-    /// UTF-8 range corresponding to `range`, used by both the Problems and
-    /// Symbols sidebars to navigate to a server-reported location without
-    /// changing the originating list (SPEC 6.4).
+    /// UTF-8 range corresponding to an unnormalized LSP location used by
+    /// navigation/symbol requests. Published diagnostics use their already
+    /// snapshot-validated UTF-8 range through `navigateToNormalizedDiagnostic`.
     private func navigateToLSPLocation(url: URL, range: LSPRange) {
         guard let relativePath = relativePath(of: url) else {
             return
         }
+
         sourceLoadTask?.cancel()
         sourceLoadTask = Task { [weak self] in
             guard let self else {
@@ -2192,6 +2199,62 @@ final class WorkspaceViewController: NSViewController {
                 // Best-effort navigation: a since-deleted or unreadable
                 // file simply does not navigate; the Problems/Symbols
                 // list itself is unaffected.
+            }
+        }
+    }
+
+    private func navigateToNormalizedDiagnostic(
+        url: URL,
+        utf8Range: Range<Int>
+    ) {
+        guard let relativePath = relativePath(of: url) else {
+            return
+        }
+        sourceLoadTask?.cancel()
+        sourceLoadTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                let snapshot = try await self.loadSnapshot(relativePath: relativePath)
+                guard !Task.isCancelled,
+                      utf8Range.lowerBound >= 0,
+                      utf8Range.upperBound <= snapshot.utf8Count,
+                      (try? snapshot.text(inUTF8Range: utf8Range)) != nil,
+                      let groupController = self.splitContainer.controller(
+                        for: self.layoutState.activeGroupID
+                      ) else {
+                    return
+                }
+                groupController.openTab(
+                    relativePath: relativePath,
+                    pinned: true,
+                    snapshot: snapshot,
+                    selectingUTF8Range: utf8Range
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                await diagnosticsLog.record(
+                    subsystem: .languageServer,
+                    level: .warning,
+                    message: Localized.string(
+                        "Diagnostic navigation failed",
+                        comment: "Diagnostics log message recorded when a Problems item cannot be opened"
+                    ),
+                    context: [
+                        DiagnosticContextField(
+                            name: "path",
+                            category: .fullPath,
+                            value: url.path
+                        ),
+                        DiagnosticContextField(
+                            name: "reason",
+                            category: .diagnosticMessage,
+                            value: String(describing: error)
+                        )
+                    ]
+                )
             }
         }
     }
@@ -2323,6 +2386,13 @@ final class WorkspaceViewController: NSViewController {
     }
 
     @objc
+    func toggleMinimap(_ sender: Any?) {
+        layoutState.minimapEnabled.toggle()
+        splitContainer.allGroupControllers.forEach { $0.minimapEnabled = layoutState.minimapEnabled }
+        persistLayout()
+    }
+
+    @objc
     func splitActiveGroupRight(_ sender: Any?) {
         handleSplit(groupID: layoutState.activeGroupID, orientation: .horizontal)
     }
@@ -2392,6 +2462,9 @@ final class WorkspaceViewController: NSViewController {
             },
             PaletteCommand(id: "command.toggleWordWrap", title: Localized.string("Toggle Word Wrap", comment: "Command palette entry that toggles word wrap")) { [weak self] in
                 self?.toggleWordWrap(nil)
+            },
+            PaletteCommand(id: "command.toggleMinimap", title: Localized.string("Toggle Minimap", comment: "Command palette entry that toggles the source minimap")) { [weak self] in
+                self?.toggleMinimap(nil)
             },
             PaletteCommand(id: "command.splitRight", title: Localized.string("Split Editor Right", comment: "Command palette entry that splits the active editor group to the right")) { [weak self] in
                 self?.splitActiveGroupRight(nil)
@@ -2535,6 +2608,7 @@ final class WorkspaceViewController: NSViewController {
         let state = layoutState.groups[id] ?? EditorGroupState(id: id)
         let controller = EditorGroupViewController(groupID: id, state: state)
         controller.wordWrapEnabled = layoutState.wordWrapEnabled
+        controller.minimapEnabled = layoutState.minimapEnabled
         controller.syntaxLanguageForSnapshot = { [weak self] snapshot in
             self?.languageSupportService.syntaxLanguage(for: snapshot)
         }
@@ -2995,7 +3069,10 @@ final class WorkspaceViewController: NSViewController {
         let problemsController = ProblemsViewController(
             root: identity.root,
             onSelectDiagnostic: { [weak self] selection in
-                self?.navigateToLSPLocation(url: selection.url, range: selection.range)
+                self?.navigateToNormalizedDiagnostic(
+                    url: selection.url,
+                    utf8Range: selection.utf8Range
+                )
             }
         )
         problemsViewController = problemsController
@@ -3720,6 +3797,9 @@ extension WorkspaceViewController: NSMenuItemValidation {
         switch menuItem.action {
         case #selector(toggleWordWrap(_:)):
             menuItem.state = layoutState.wordWrapEnabled ? .on : .off
+            return true
+        case #selector(toggleMinimap(_:)):
+            menuItem.state = layoutState.minimapEnabled ? .on : .off
             return true
         case #selector(navigateBack(_:)):
             return activeGroupController?.canGoBack ?? false

@@ -49,6 +49,7 @@ final class ThemeSchemaTests: XCTestCase {
         ].forEach {
             git.removeValue(forKey: $0)
         }
+
         object["git"] = git
 
         let legacyData = try JSONSerialization.data(withJSONObject: object)
@@ -66,6 +67,24 @@ final class ThemeSchemaTests: XCTestCase {
         XCTAssertEqual(decoded.git.removedBackground.alpha, 0.16, accuracy: 0.001)
         XCTAssertEqual(decoded.git.insertedTextBackground.alpha, 77.0 / 255.0, accuracy: 0.001)
         XCTAssertEqual(decoded.git.removedTextBackground.alpha, 77.0 / 255.0, accuracy: 0.001)
+    }
+
+    func testDecodingLegacyThemeWithoutMinimapDerivesReadableDefaults() throws {
+        let data = try ThemeFileCodec.encode(BundledThemes.highContrastDark)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "minimap")
+
+        let decoded = try ThemeFileCodec.decode(
+            JSONSerialization.data(withJSONObject: object)
+        )
+
+        XCTAssertEqual(decoded.minimap.background, decoded.editor.background)
+        XCTAssertEqual(decoded.minimap.error, decoded.diagnostics.error)
+        XCTAssertEqual(decoded.minimap.gutterAdded, decoded.git.gutterAdded)
+        XCTAssertGreaterThan(
+            decoded.minimap.sliderActive.contrastRatio(against: decoded.minimap.background),
+            1
+        )
     }
 
     func testLegacyGitColorInitializerSuppliesBackwardCompatibleRoles() throws {

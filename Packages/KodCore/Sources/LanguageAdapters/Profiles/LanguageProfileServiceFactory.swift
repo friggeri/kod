@@ -14,7 +14,7 @@ public enum LanguageProfileServiceFactory {
         onStateChange: @escaping @Sendable (LanguageServerState) -> Void = {
             _ in
         },
-        onDiagnostics: @escaping @Sendable (URL, [Diagnostic]) -> Void = {
+        onDiagnostics: @escaping @Sendable (URL, [NormalizedDiagnostic]) -> Void = {
             _, _ in
         }
     ) throws -> LanguageWorkspaceService {

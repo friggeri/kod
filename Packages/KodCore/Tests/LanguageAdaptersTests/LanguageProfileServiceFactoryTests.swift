@@ -51,7 +51,7 @@ final class LanguageProfileServiceFactoryTests: XCTestCase {
             )
         ).validated()
         let discoveries = LockedProfileValues<DiscoveredExecutable>()
-        let diagnostics = LockedProfileValues<[Diagnostic]>()
+        let diagnostics = LockedProfileValues<[NormalizedDiagnostic]>()
         let service = try LanguageProfileServiceFactory.makeService(
             for: profile,
             identity: identity,

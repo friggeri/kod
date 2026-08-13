@@ -170,6 +170,98 @@ public struct DiagnosticColors: Codable, Equatable, Sendable {
     }
 }
 
+/// Colors used by the source minimap. The base text keeps each composed
+/// token's foreground hue and applies `foregroundOpacity`; the remaining
+/// roles paint the inexpensive overlay and viewport slider layers.
+public struct MinimapColors: Codable, Equatable, Sendable {
+    public var background: ThemeColor
+    public var foregroundOpacity: Double
+    public var selection: ThemeColor
+    public var find: ThemeColor
+    public var information: ThemeColor
+    public var warning: ThemeColor
+    public var error: ThemeColor
+    public var slider: ThemeColor
+    public var sliderHover: ThemeColor
+    public var sliderActive: ThemeColor
+    public var gutterAdded: ThemeColor
+    public var gutterModified: ThemeColor
+    public var gutterDeleted: ThemeColor
+    public var secondaryGutterAdded: ThemeColor
+    public var secondaryGutterModified: ThemeColor
+    public var secondaryGutterDeleted: ThemeColor
+
+    public init(
+        background: ThemeColor,
+        foregroundOpacity: Double = 0.7,
+        selection: ThemeColor,
+        find: ThemeColor,
+        information: ThemeColor,
+        warning: ThemeColor,
+        error: ThemeColor,
+        slider: ThemeColor,
+        sliderHover: ThemeColor,
+        sliderActive: ThemeColor,
+        gutterAdded: ThemeColor,
+        gutterModified: ThemeColor,
+        gutterDeleted: ThemeColor,
+        secondaryGutterAdded: ThemeColor? = nil,
+        secondaryGutterModified: ThemeColor? = nil,
+        secondaryGutterDeleted: ThemeColor? = nil
+    ) {
+        self.background = background
+        self.foregroundOpacity = min(1, max(0, foregroundOpacity))
+        self.selection = selection
+        self.find = find
+        self.information = information
+        self.warning = warning
+        self.error = error
+        self.slider = slider
+        self.sliderHover = sliderHover
+        self.sliderActive = sliderActive
+        self.gutterAdded = gutterAdded
+        self.gutterModified = gutterModified
+        self.gutterDeleted = gutterDeleted
+        self.secondaryGutterAdded = secondaryGutterAdded ?? Self.withAlpha(gutterAdded, 0.65)
+        self.secondaryGutterModified = secondaryGutterModified ?? Self.withAlpha(gutterModified, 0.65)
+        self.secondaryGutterDeleted = secondaryGutterDeleted ?? Self.withAlpha(gutterDeleted, 0.65)
+    }
+
+    public static func derived(
+        editor: EditorColors,
+        diagnostics: DiagnosticColors,
+        git: GitDecorationColors
+    ) -> MinimapColors {
+        MinimapColors(
+            background: editor.background,
+            selection: Self.withAlpha(editor.selectionBackground, max(0.55, editor.selectionBackground.alpha)),
+            find: Self.withAlpha(editor.foreground, 0.45),
+            information: diagnostics.information,
+            warning: diagnostics.warning,
+            error: diagnostics.error,
+            slider: Self.withAlpha(editor.foreground, 0.12),
+            sliderHover: Self.withAlpha(editor.foreground, 0.2),
+            sliderActive: Self.withAlpha(editor.foreground, 0.3),
+            gutterAdded: git.gutterAdded,
+            gutterModified: git.gutterModified,
+            gutterDeleted: git.gutterDeleted,
+            secondaryGutterAdded: Self.withAlpha(git.gutterAdded, 0.65),
+            secondaryGutterModified: Self.withAlpha(git.gutterModified, 0.65),
+            secondaryGutterDeleted: Self.withAlpha(git.gutterDeleted, 0.65)
+        )
+    }
+
+    private static func withAlpha(_ color: ThemeColor, _ alpha: Double) -> ThemeColor {
+        let encodedAlpha = (min(1, max(0, alpha)) * 255).rounded() / 255
+        return ThemeColor(
+            red: color.red,
+            green: color.green,
+            blue: color.blue,
+            alpha: encodedAlpha
+        )
+    }
+}
+
 public struct GitDecorationColors: Codable, Equatable, Sendable {
     public var added: ThemeColor
     public var modified: ThemeColor
@@ -397,6 +489,7 @@ public struct KodTheme: Codable, Equatable, Sendable {
     public var semanticTokens: SemanticTokenRules
     public var diagnostics: DiagnosticColors
     public var git: GitDecorationColors
+    public var minimap: MinimapColors
 
     public init(
         schemaVersion: Int = KodTheme.currentSchemaVersion,
@@ -408,7 +501,8 @@ public struct KodTheme: Codable, Equatable, Sendable {
         syntax: [String: TokenStyle],
         semanticTokens: SemanticTokenRules = SemanticTokenRules(),
         diagnostics: DiagnosticColors,
-        git: GitDecorationColors
+        git: GitDecorationColors,
+        minimap: MinimapColors? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.identifier = identifier
@@ -420,6 +514,47 @@ public struct KodTheme: Codable, Equatable, Sendable {
         self.semanticTokens = semanticTokens
         self.diagnostics = diagnostics
         self.git = git
+        self.minimap = minimap ?? MinimapColors.derived(
+            editor: editor,
+            diagnostics: diagnostics,
+            git: git
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case identifier
+        case name
+        case appearance
+        case surface
+        case editor
+        case syntax
+        case semanticTokens
+        case diagnostics
+        case git
+        case minimap
+    }
+
+    /// Native and UserDefaults themes written before minimap support omit
+    /// this field. Deriving it from their existing editor/diagnostic/Git
+    /// palette keeps those themes loadable rather than quarantining them.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        identifier = try container.decode(String.self, forKey: .identifier)
+        name = try container.decode(String.self, forKey: .name)
+        appearance = try container.decode(ThemeAppearance.self, forKey: .appearance)
+        surface = try container.decode(SurfaceColors.self, forKey: .surface)
+        editor = try container.decode(EditorColors.self, forKey: .editor)
+        syntax = try container.decode([String: TokenStyle].self, forKey: .syntax)
+        semanticTokens = try container.decodeIfPresent(
+            SemanticTokenRules.self,
+            forKey: .semanticTokens
+        ) ?? SemanticTokenRules()
+        diagnostics = try container.decode(DiagnosticColors.self, forKey: .diagnostics)
+        git = try container.decode(GitDecorationColors.self, forKey: .git)
+        minimap = try container.decodeIfPresent(MinimapColors.self, forKey: .minimap)
+            ?? MinimapColors.derived(editor: editor, diagnostics: diagnostics, git: git)
     }
 
     /// Resolves the style for a Tree-sitter capture name by walking up its

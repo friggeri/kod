@@ -19,8 +19,10 @@ final class ProblemsViewControllerTests: XCTestCase {
         controller.loadView()
 
         let fileURL = root.appendingPathComponent("Sources/Foo.swift")
-        let diagnostic = Diagnostic(
-            range: LSPRange(start: LSPPosition(line: 2, character: 0), end: LSPPosition(line: 2, character: 5)),
+        let diagnostic = NormalizedDiagnostic(
+            snapshotVersion: 1,
+            utf8Range: 10..<15,
+            startLine: 2,
             severity: .warning,
             code: nil,
             source: "sourcekit-lsp",
@@ -48,8 +50,16 @@ final class ProblemsViewControllerTests: XCTestCase {
         controller.loadView()
 
         let fileURL = root.appendingPathComponent("Sources/Foo.swift")
-        let range = LSPRange(start: LSPPosition(line: 4, character: 1), end: LSPPosition(line: 4, character: 9))
-        let diagnostic = Diagnostic(range: range, severity: .error, code: nil, source: nil, message: "Boom")
+        let range = 21..<29
+        let diagnostic = NormalizedDiagnostic(
+            snapshotVersion: 3,
+            utf8Range: range,
+            startLine: 4,
+            severity: .error,
+            code: nil,
+            source: nil,
+            message: "Boom"
+        )
         controller.update(url: fileURL, diagnostics: [diagnostic])
 
         let outline = try XCTUnwrap(findOutlineView(in: controller.view))
@@ -60,7 +70,7 @@ final class ProblemsViewControllerTests: XCTestCase {
 
         XCTAssertEqual(selections.count, 1)
         XCTAssertEqual(selections.first?.url, fileURL)
-        XCTAssertEqual(selections.first?.range, range)
+        XCTAssertEqual(selections.first?.utf8Range, range)
     }
 
     private func findOutlineView(in view: NSView) -> NSOutlineView? {

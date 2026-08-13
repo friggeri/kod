@@ -29,7 +29,7 @@ final class MultiLanguageServicesCoordinator {
     private var profileObserver: UUID?
 
     var onStateChange: (() -> Void)?
-    var onDiagnostics: ((URL, [Diagnostic]) -> Void)?
+    var onDiagnostics: ((URL, [NormalizedDiagnostic]) -> Void)?
     var onMissingServer: ((LanguageProfile) -> Void)?
     var onUnknownFileType: ((URL) -> Void)?
 

@@ -12,7 +12,8 @@ import LanguageClient
 final class ProblemsViewController: NSViewController {
     struct DiagnosticSelection {
         let url: URL
-        let range: LSPRange
+        let utf8Range: Range<Int>
+        let snapshotVersion: Int
     }
 
     private let root: URL
@@ -21,7 +22,7 @@ final class ProblemsViewController: NSViewController {
     private let statusLabel = NSTextField(labelWithString: Localized.string("No problems.", comment: "Status label shown in the Problems panel when there are no diagnostics"))
     private let outlineView = NSOutlineView()
 
-    private var diagnosticsByFile: [URL: [Diagnostic]] = [:]
+    private var diagnosticsByFile: [URL: [NormalizedDiagnostic]] = [:]
     private var orderedFiles: [URL] = []
 
     init(root: URL, onSelectDiagnostic: @escaping (DiagnosticSelection) -> Void) {
@@ -81,7 +82,7 @@ final class ProblemsViewController: NSViewController {
     /// Replaces the diagnostics known for `url`. An empty array clears any
     /// previously reported problems for that file (e.g. the file was
     /// fixed, closed, or the server republished a clean report).
-    func update(url: URL, diagnostics: [Diagnostic]) {
+    func update(url: URL, diagnostics: [NormalizedDiagnostic]) {
         if diagnostics.isEmpty {
             diagnosticsByFile.removeValue(forKey: url)
             orderedFiles.removeAll { $0 == url }
@@ -121,16 +122,20 @@ final class ProblemsViewController: NSViewController {
         guard row >= 0, let item = outlineView.item(atRow: row) as? DiagnosticRow else {
             return
         }
-        onSelectDiagnostic(DiagnosticSelection(url: item.url, range: item.diagnostic.range))
+        onSelectDiagnostic(DiagnosticSelection(
+            url: item.url,
+            utf8Range: item.diagnostic.utf8Range,
+            snapshotVersion: item.diagnostic.snapshotVersion
+        ))
     }
 }
 
 /// One navigable leaf row: a specific diagnostic within a specific file.
 private final class DiagnosticRow {
     let url: URL
-    let diagnostic: Diagnostic
+    let diagnostic: NormalizedDiagnostic
 
-    init(url: URL, diagnostic: Diagnostic) {
+    init(url: URL, diagnostic: NormalizedDiagnostic) {
         self.url = url
         self.diagnostic = diagnostic
     }
@@ -197,7 +202,7 @@ extension ProblemsViewController: NSOutlineViewDataSource, NSOutlineViewDelegate
                 )
             )
         } else if let row = item as? DiagnosticRow {
-            let line = row.diagnostic.range.start.line + 1
+            let line = row.diagnostic.startLine + 1
             let severity = severitySymbol(row.diagnostic.severity)
             cell.textField?.stringValue = "\(severity) \(line): \(row.diagnostic.message)"
             cell.textField?.font = .systemFont(ofSize: 12)
@@ -228,6 +233,7 @@ extension ProblemsViewController: NSOutlineViewDataSource, NSOutlineViewDelegate
         case nil:
             return "•"
         }
+
     }
 
     private func severityDisplayName(_ severity: DiagnosticSeverity?) -> String {

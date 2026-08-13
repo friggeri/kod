@@ -154,6 +154,37 @@ public struct ValidatedInlayHint: Sendable {
     }
 }
 
+/// A published diagnostic converted through the server-negotiated position
+/// encoding and validated against the exact immutable snapshot version that
+/// was open when the notification arrived.
+public struct NormalizedDiagnostic: Sendable {
+    public let snapshotVersion: Int
+    public let utf8Range: Range<Int>
+    public let startLine: Int
+    public let severity: DiagnosticSeverity?
+    public let code: JSONValue?
+    public let source: String?
+    public let message: String
+
+    public init(
+        snapshotVersion: Int,
+        utf8Range: Range<Int>,
+        startLine: Int,
+        severity: DiagnosticSeverity?,
+        code: JSONValue?,
+        source: String?,
+        message: String
+    ) {
+        self.snapshotVersion = snapshotVersion
+        self.utf8Range = utf8Range
+        self.startLine = startLine
+        self.severity = severity
+        self.code = code
+        self.source = source
+        self.message = message
+    }
+}
+
 /// A `CallHierarchyItem`/`TypeHierarchyItem`, structurally validated like
 /// `NavigationTarget` (its `uri`/`range` need not be inside the currently
 /// open snapshot) with its opaque `data` preserved verbatim so it can be
@@ -288,12 +319,14 @@ public actor LanguageWorkspaceService {
     private let configuration: Configuration
     private let dependencies: Dependencies
     private let onStateChange: @Sendable (LanguageServerState) -> Void
-    private let onDiagnostics: @Sendable (URL, [Diagnostic]) -> Void
+    private let onDiagnostics: @Sendable (URL, [NormalizedDiagnostic]) -> Void
+    private let diagnosticNormalizationYield: @Sendable () async -> Void
 
     private var connection: LanguageServerConnection?
     private var connectionGeneration = 0
     private var isRestarting = false
     private var openDocuments: [URL: SourceSnapshot] = [:]
+    private var diagnosticPublishSequenceByURL: [URL: UInt64] = [:]
     private var didCompleteFirstReady = false
 
     public init(
@@ -302,7 +335,7 @@ public actor LanguageWorkspaceService {
         configuration: Configuration,
         dependencies: Dependencies,
         onStateChange: @escaping @Sendable (LanguageServerState) -> Void = { _ in },
-        onDiagnostics: @escaping @Sendable (URL, [Diagnostic]) -> Void = { _, _ in }
+        onDiagnostics: @escaping @Sendable (URL, [NormalizedDiagnostic]) -> Void = { _, _ in }
     ) {
         self.identity = identity
         self.trustStore = trustStore
@@ -310,6 +343,25 @@ public actor LanguageWorkspaceService {
         self.dependencies = dependencies
         self.onStateChange = onStateChange
         self.onDiagnostics = onDiagnostics
+        self.diagnosticNormalizationYield = {}
+    }
+
+    init(
+        identity: WorkspaceIdentity,
+        trustStore: WorkspaceTrustStore,
+        configuration: Configuration,
+        dependencies: Dependencies,
+        onStateChange: @escaping @Sendable (LanguageServerState) -> Void,
+        onDiagnostics: @escaping @Sendable (URL, [NormalizedDiagnostic]) -> Void,
+        diagnosticNormalizationYield: @escaping @Sendable () async -> Void
+    ) {
+        self.identity = identity
+        self.trustStore = trustStore
+        self.configuration = configuration
+        self.dependencies = dependencies
+        self.onStateChange = onStateChange
+        self.onDiagnostics = onDiagnostics
+        self.diagnosticNormalizationYield = diagnosticNormalizationYield
     }
 
     public var currentState: LanguageServerState? {
@@ -387,6 +439,9 @@ public actor LanguageWorkspaceService {
             return
         }
         onStateChange(newState)
+        if newState == .starting, didCompleteFirstReady {
+            openDocuments.keys.forEach { onDiagnostics($0, []) }
+        }
         guard newState == .ready else {
             return
         }
@@ -417,7 +472,7 @@ public actor LanguageWorkspaceService {
     private func handleServerNotification(
         _ notification: ServerNotification,
         generation: Int
-    ) {
+    ) async {
         guard generation == connectionGeneration else {
             return
         }
@@ -430,10 +485,54 @@ public actor LanguageWorkspaceService {
         if let version = params.version, let openSnapshot = openDocuments[url], version != openSnapshot.version {
             return
         }
-        guard openDocuments[url] != nil else {
+        guard let snapshot = openDocuments[url] else {
             return
         }
-        onDiagnostics(url, params.diagnostics)
+        let publishSequence = diagnosticPublishSequenceByURL[url, default: 0] &+ 1
+        diagnosticPublishSequenceByURL[url] = publishSequence
+        let encoding = await resolvedPositionEncoding()
+        await diagnosticNormalizationYield()
+        guard generation == connectionGeneration,
+              let currentSnapshot = openDocuments[url],
+              currentSnapshot.version == snapshot.version,
+              diagnosticPublishSequenceByURL[url] == publishSequence else {
+            return
+        }
+        var normalized: [NormalizedDiagnostic] = []
+        normalized.reserveCapacity(params.diagnostics.count)
+        for diagnostic in params.diagnostics {
+            guard let start = try? snapshot.utf8Offset(
+                for: SourcePosition(
+                    line: diagnostic.range.start.line,
+                    character: diagnostic.range.start.character
+                ),
+                encoding: encoding
+            ),
+            let end = try? snapshot.utf8Offset(
+                for: SourcePosition(
+                    line: diagnostic.range.end.line,
+                    character: diagnostic.range.end.character
+                ),
+                encoding: encoding
+            ),
+            start <= end else {
+                continue
+            }
+            normalized.append(NormalizedDiagnostic(
+                snapshotVersion: snapshot.version,
+                utf8Range: start..<end,
+                startLine: diagnostic.range.start.line,
+                severity: diagnostic.severity,
+                code: diagnostic.code,
+                source: diagnostic.source,
+                message: diagnostic.message
+            ))
+        }
+        onDiagnostics(url, normalized)
+    }
+
+    func handleServerNotificationForTesting(_ notification: ServerNotification) async {
+        await handleServerNotification(notification, generation: connectionGeneration)
     }
 
     /// Stops the current server (if any) and restarts it from scratch,
@@ -450,6 +549,7 @@ public actor LanguageWorkspaceService {
             await connection.shutdown()
         }
         connection = nil
+        openDocuments.keys.forEach { onDiagnostics($0, []) }
         openDocuments.removeAll()
         didCompleteFirstReady = false
         try await start()
@@ -458,6 +558,7 @@ public actor LanguageWorkspaceService {
     public func stop() async {
         await connection?.shutdown()
         connection = nil
+        openDocuments.keys.forEach { onDiagnostics($0, []) }
         openDocuments.removeAll()
         didCompleteFirstReady = false
     }
@@ -499,6 +600,7 @@ public actor LanguageWorkspaceService {
         )
         try await connection.sendNotification(.didChange, params: params)
         openDocuments[snapshot.url] = snapshot
+        onDiagnostics(snapshot.url, [])
     }
 
     public func didClose(url: URL) async throws {
@@ -508,6 +610,7 @@ public actor LanguageWorkspaceService {
         guard openDocuments.removeValue(forKey: url) != nil else {
             return
         }
+        onDiagnostics(url, [])
         try await connection.sendNotification(
             .didClose,
             params: DidCloseTextDocumentParams(textDocument: TextDocumentIdentifier(uri: DocumentURI(fileURL: url)))

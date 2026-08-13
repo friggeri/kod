@@ -297,6 +297,7 @@ final class LanguageSupportServiceTests: XCTestCase {
             )
         )
         controller.toggleWordWrap(nil)
+        controller.toggleMinimap(nil)
         XCTAssertTrue(window.makeFirstResponder(originalController.viewport))
         let originalFindState = originalController.captureFindState()
         let originalContentSize = try XCTUnwrap(window.contentView).bounds.size
@@ -330,6 +331,7 @@ final class LanguageSupportServiceTests: XCTestCase {
             originalFindState
         )
         XCTAssertTrue(replacementController.wordWrapEnabled)
+        XCTAssertFalse(replacementController.minimapEnabled)
         XCTAssertTrue(window.firstResponder === replacementController.viewport)
     }
 

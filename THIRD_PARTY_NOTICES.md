@@ -82,6 +82,21 @@ is adjusted in the same reproducible script for the target-local header path.
   VS Code; it is original Kod code implementing an open, documented file
   format.
 
+## Visual Studio Code minimap design reference
+
+- **Project:** [microsoft/vscode](https://github.com/microsoft/vscode)
+- **Pinned commit:** `ec07db383765ac7e9784e1eb32bf4a7350e33a26`
+- **Reference files:** `src/vs/editor/browser/viewParts/minimap/minimap.ts`,
+  `minimapCharRendererFactory.ts`, `minimapCharSheet.ts`,
+  `minimapTokensColorTracker.ts`, editor minimap options, and minimap theme
+  color declarations.
+- **Use:** Architectural research for separating proportional layout, bounded
+  base pixels, decorations, token-color invalidation, glyph masks, and slider
+  interaction. Kod's implementation is original Swift/AppKit code and does not
+  copy or ship VS Code TypeScript or assets.
+- **License:** MIT (Copyright Microsoft Corporation), as declared by the pinned
+  upstream repository.
+
 ## Material Icon Theme
 
 - **Project:** [material-extensions/vscode-material-icon-theme](https://github.com/material-extensions/vscode-material-icon-theme)

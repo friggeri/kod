@@ -149,6 +149,36 @@ extension PerformanceSuiteTests {
         try measureFirstLayoutPipeline(approximateByteCount: 10 * 1_024 * 1_024, label: "10mb", budgetMilliseconds: 250)
     }
 
+    func testTenMegabyteMinimapUsesViewportBoundedBuffers() throws {
+        let snapshot = SourceSnapshot(
+            text: syntheticSource(approximateByteCount: 10 * 1_024 * 1_024),
+            url: URL(fileURLWithPath: "/10mb-minimap.swift")
+        )
+        let viewport = CodeViewport(snapshot: snapshot, syntaxLanguage: .swift)
+        let layout = CodeMinimapLayout(
+            bounds: CGRect(x: 0, y: 0, width: 96, height: 800),
+            backingScale: 2,
+            totalRows: viewport.minimapTotalVisualRows,
+            visibleSourceRows: 40,
+            sourceScrollY: 0,
+            maximumSourceScrollY: viewport.frame.height,
+            requestedColumns: 120
+        )
+        let presentation = viewport.minimapPresentation(
+            visualRows: layout.visibleRowWindow,
+            maxColumns: layout.columns
+        )
+        let renderer = CodeMinimapRenderer()
+        renderer.render(
+            presentation: presentation,
+            layout: layout,
+            theme: BundledThemes.dark
+        )
+
+        XCTAssertLessThanOrEqual(presentation.rows.count, Int(ceil(layout.bounds.height / layout.rowHeight)))
+        XCTAssertEqual(renderer.bufferPixelSize, CGSize(width: 192, height: 1_600))
+    }
+
     private func measureFirstLayoutPipeline(approximateByteCount: Int, label: String, budgetMilliseconds: Double) throws {
         let source = syntheticSource(approximateByteCount: approximateByteCount)
         let size = NSSize(width: 1_200, height: 800)
