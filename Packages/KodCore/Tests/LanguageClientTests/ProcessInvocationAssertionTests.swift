@@ -29,7 +29,7 @@ final class ProcessInvocationAssertionTests: XCTestCase {
             }
         })
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let deadline = Date().addingTimeInterval(3)
         while logMessages.count() == 0, Date() < deadline {

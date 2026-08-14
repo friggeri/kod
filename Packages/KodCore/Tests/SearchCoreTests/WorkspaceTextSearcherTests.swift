@@ -273,6 +273,49 @@ final class WorkspaceTextSearcherTests: XCTestCase {
         XCTAssertEqual(fileResults.map(\.relativePath), ["a.swift"])
     }
 
+    // MARK: - Streaming
+
+    func testFileResultIsYieldedBeforeEngineProcessExits() async throws {
+        let executableURL = try fixtureURL("streaming-gated")
+        let searcher = try WorkspaceTextSearcher(executableURL: executableURL)
+        let firstResultYielded = expectation(description: "first file result yielded")
+        let stream = await searcher.search(SearchQuery(pattern: "needle", root: root))
+        let releaseURL = root.appendingPathComponent("streaming-gated.release")
+
+        let consumer = Task {
+            var events: [SearchStreamEvent] = []
+            for try await event in stream {
+                events.append(event)
+                if case .fileResult = event {
+                    firstResultYielded.fulfill()
+                }
+            }
+            return events
+        }
+        defer {
+            try? Data().write(to: releaseURL)
+            consumer.cancel()
+        }
+
+        try await waitForFile(root.appendingPathComponent("streaming-gated.ready").path)
+        let pid = try await waitForPIDFile(
+            root.appendingPathComponent("streaming-gated.pid").path
+        )
+
+        await fulfillment(of: [firstResultYielded], timeout: 2)
+        XCTAssertEqual(kill(pid, 0), 0, "file result must arrive while the engine is still running")
+
+        try Data().write(to: releaseURL)
+        let events = try await consumer.value
+        XCTAssertEqual(events.compactMap { event -> String? in
+            guard case .fileResult(let result) = event else { return nil }
+            return result.relativePath
+        }, ["a.txt"])
+        guard case .completed = events.last else {
+            return XCTFail("expected completion after releasing the engine")
+        }
+    }
+
     // MARK: - Performance
 
     /// SPEC 12.2: "Workspace search first result on a warm local SSD <= 200
@@ -384,6 +427,61 @@ final class WorkspaceTextSearcherTests: XCTestCase {
     }
 
     // MARK: - Cancellation and process cleanup
+
+    func testCancellationBeforeRunIsIdempotentAndNeverLaunchesProcess() async throws {
+        let executableURL = try fixtureURL("launch-marker")
+        let pidFile = root.appendingPathComponent("launch-marker.pid").path
+        let session = RipgrepProcessSession(
+            executableURL: executableURL,
+            query: SearchQuery(pattern: "needle", root: root)
+        )
+
+        await session.cancel()
+        await session.cancel()
+
+        let stream = AsyncThrowingStream<SearchStreamEvent, Error> { continuation in
+            Task {
+                await session.run(continuation: continuation)
+            }
+        }
+        let events = try await collectEvents(stream)
+        XCTAssertEqual(events, [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pidFile))
+    }
+
+    func testImmediateSupersessionStopsAnUnconsumedStream() async throws {
+        let executableURL = try fixtureURL("streaming-gated")
+        let pidFile = root.appendingPathComponent("streaming-gated.pid").path
+        let searcher = try WorkspaceTextSearcher(executableURL: executableURL)
+
+        let superseded = await searcher.search(
+            SearchQuery(pattern: "needle", root: root, version: 1)
+        )
+        let replacementEvents = try await collectEvents(
+            await searcher.search(SearchQuery(pattern: "", root: root, version: 2))
+        )
+
+        XCTAssertEqual(replacementEvents, [
+            .completed(
+                SearchCompletion(
+                    queryVersion: 2,
+                    matchedFileCount: 0,
+                    matchCount: 0,
+                    truncated: false
+                )
+            )
+        ])
+
+        let staleEvents = try await collectEvents(superseded)
+        XCTAssertFalse(staleEvents.contains { event in
+            if case .completed = event { return true }
+            return false
+        })
+        if FileManager.default.fileExists(atPath: pidFile) {
+            let pid = try await readRecordedPID(pidFile)
+            XCTAssertNotEqual(kill(pid, 0), 0, "superseded engine must already be stopped")
+        }
+    }
 
     func testCancellingTheConsumingTaskTerminatesTheProcess() async throws {
         let executableURL = try fixtureURL("flood")
@@ -521,6 +619,17 @@ final class WorkspaceTextSearcherTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         throw XCTSkip("fake engine never reported its pid within \(timeout)s")
+    }
+
+    private func waitForFile(_ path: String, timeout: TimeInterval = 5) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: path) {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        throw XCTSkip("fake engine never created \(path) within \(timeout)s")
     }
 
     /// Reads the pid a fake engine fixture recorded at startup, without

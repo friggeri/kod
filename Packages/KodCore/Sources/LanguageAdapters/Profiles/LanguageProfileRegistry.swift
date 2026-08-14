@@ -1,4 +1,5 @@
 import Foundation
+import SettingsCore
 import SourceModel
 
 public enum LanguageProfileMatchKey: Sendable, Hashable {
@@ -266,12 +267,28 @@ private extension LanguageContentMatcher {
     ]
 }
 
+/// The runtime view of `LanguageProfileStore`: resolves an open file to
+/// exactly one profile/association.
+///
+/// **Reload ownership:** the store observer installed here is the sole
+/// reload trigger. `LanguageProfileStore` notifies every observer inside
+/// its own mutation commit, so the registry's snapshot is already
+/// current before this registry notifies its own observers. Consumers that
+/// resolve through the registry observe the registry, not the underlying
+/// store, so callback ordering in the store can never expose a stale snapshot.
+/// Callers must therefore never call `reload()` themselves — an extra call is
+/// redundant work, and relying on one hides the invariant that store mutation
+/// is what refreshes this registry. `reload()` stays available only for tests
+/// and for a store mutated before this registry existed.
 @MainActor
 public final class LanguageProfileRegistry {
     public let store: LanguageProfileStore
     public private(set) var snapshot: LanguageProfileRegistrySnapshot
 
-    private var storeObserver: UUID?
+    private var storeObserver: SettingsObservation?
+    private var changeObservers: [
+        UUID: @MainActor @Sendable () -> Void
+    ] = [:]
 
     public init(store: LanguageProfileStore) {
         self.store = store
@@ -283,8 +300,26 @@ public final class LanguageProfileRegistry {
         }
     }
 
-    public func reload() {
+    /// Rebuilds the snapshot from the store. The store observer above is
+    /// deliberately the only caller.
+    private func reload() {
         snapshot = LanguageProfileRegistrySnapshot(profiles: store.profiles)
+        for observer in changeObservers.values {
+            observer()
+        }
+    }
+
+    @discardableResult
+    public func observeChanges(
+        _ observer: @escaping @MainActor @Sendable () -> Void
+    ) -> SettingsObservation {
+        let id = UUID()
+        changeObservers[id] = observer
+        return SettingsObservation { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.changeObservers.removeValue(forKey: id)
+            }
+        }
     }
 
     public func resolve(url: URL) -> ResolvedLanguageProfile? {

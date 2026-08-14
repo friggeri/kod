@@ -31,10 +31,9 @@ public actor WorkspaceTextSearcher {
     /// `.fileResult` per file as its matches become available, followed by
     /// exactly one terminal `.completed` — or throws a `SearchError`.
     public func search(_ query: SearchQuery) async -> AsyncThrowingStream<SearchStreamEvent, Error> {
-        await activeSession?.cancel()
+        await supersedeActiveSession()
 
         guard !query.pattern.isEmpty else {
-            activeSession = nil
             return AsyncThrowingStream { continuation in
                 continuation.yield(
                     .completed(
@@ -70,7 +69,21 @@ public actor WorkspaceTextSearcher {
     /// Cancels and terminates the in-flight search, if any, without
     /// starting a replacement. No-op if nothing is running.
     public func cancelActiveSearch() async {
-        await activeSession?.cancel()
+        await supersedeActiveSession()
+    }
+
+    /// The actor can accept another `search` call while suspended waiting for
+    /// an old process to exit. Re-checking identity after every await ensures
+    /// that overlapping callers also cancel any session installed by a caller
+    /// that resumed first, rather than accidentally launching beside it.
+    private func supersedeActiveSession() async {
+        while let session = activeSession {
+            await session.cancelAndWait()
+            if activeSession === session {
+                activeSession = nil
+                return
+            }
+        }
     }
 }
 
@@ -81,13 +94,23 @@ public actor WorkspaceTextSearcher {
 /// actor so the `FileHandle` readability callbacks (which fire on an
 /// arbitrary background queue, not this `Task`'s executor) can safely hop
 /// back into serialized, isolated state instead of racing.
-private actor RipgrepProcessSession {
+/// Internal only to support deterministic `@testable` lifecycle tests.
+actor RipgrepProcessSession {
+    private enum Lifecycle {
+        case ready
+        case launching
+        case running
+        case cancelling
+        case finished
+    }
+
     private let executableURL: URL
     private let query: SearchQuery
     private let process = Process()
     private var parser = RipgrepStreamParser()
     private var stdoutHandle: FileHandle?
     private var stderrHandle: FileHandle?
+    private var continuation: AsyncThrowingStream<SearchStreamEvent, Error>.Continuation?
 
     private var stderrBuffer = Data()
     private let maxStderrByteCount = 64 * 1_024
@@ -97,14 +120,15 @@ private actor RipgrepProcessSession {
     private var matchedFileCount = 0
     private var matchCount = 0
     private var truncated = false
-    private var isFinished = false
+    private var lifecycle = Lifecycle.ready
+    private var cancellationRequested = false
+    private var hasFailed = false
 
     private var stdoutClosed = false
     private var stderrClosed = false
     private var exitCode: Int32?
-    private var awaitingCompletionContinuation: CheckedContinuation<Void, Never>?
+    private var completionWaiters: [CheckedContinuation<Void, Never>] = []
     private var pendingResult: Result<Void, Error> = .success(())
-    private var pendingEvents: [SearchStreamEvent] = []
 
     init(executableURL: URL, query: SearchQuery) {
         self.executableURL = executableURL
@@ -112,6 +136,15 @@ private actor RipgrepProcessSession {
     }
 
     func run(continuation: AsyncThrowingStream<SearchStreamEvent, Error>.Continuation) async {
+        self.continuation = continuation
+
+        guard lifecycle == .ready, !Task.isCancelled else {
+            requestCancellation()
+            finishStream()
+            return
+        }
+        lifecycle = .launching
+
         process.executableURL = executableURL
         process.arguments = RipgrepArguments.build(for: query)
         process.currentDirectoryURL = query.root
@@ -142,42 +175,71 @@ private actor RipgrepProcessSession {
         } catch {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
-            continuation.finish(throwing: SearchError.processLaunchFailed(error.localizedDescription))
+            pendingResult = .failure(SearchError.processLaunchFailed(error.localizedDescription))
+            markFinished()
+            finishStream()
             return
+        }
+        lifecycle = .running
+
+        if Task.isCancelled || cancellationRequested {
+            requestCancellation()
         }
 
         await withTaskCancellationHandler(
             operation: {
-                await withCheckedContinuation { (checkedContinuation: CheckedContinuation<Void, Never>) in
-                    if isFinished {
-                        checkedContinuation.resume()
-                        return
-                    }
-                    awaitingCompletionContinuation = checkedContinuation
-                }
+                await waitUntilFinished()
             },
             onCancel: {
                 Task { await session.cancel() }
             }
         )
 
-        finish(continuation: continuation)
+        finishStream()
     }
 
     /// Cancels the in-flight process (query replacement, explicit user
     /// cancellation, or the consuming `Task` being cancelled). Idempotent
     /// and safe to call even if the process already exited.
     func cancel() {
-        guard !isFinished else {
-            return
-        }
-        if process.isRunning {
-            process.terminate()
+        requestCancellation()
+    }
+
+    /// Cancels this invocation and does not return until any launched process
+    /// has exited and its pipes have closed. A replacement search awaits this
+    /// barrier before it is allowed to launch its own process.
+    func cancelAndWait() async {
+        requestCancellation()
+        await waitUntilFinished()
+    }
+
+    private func requestCancellation() {
+        cancellationRequested = true
+
+        switch lifecycle {
+        case .ready:
+            markFinished()
+        case .launching:
+            lifecycle = .cancelling
+            if process.isRunning {
+                process.terminate()
+            } else {
+                markFinished()
+            }
+        case .running:
+            lifecycle = .cancelling
+            if process.isRunning {
+                process.terminate()
+            } else {
+                checkProcessOutputComplete()
+            }
+        case .cancelling, .finished:
+            break
         }
     }
 
     fileprivate func handleStdout(_ data: Data) {
-        guard !isFinished else {
+        guard lifecycle != .finished else {
             return
         }
         guard !data.isEmpty else {
@@ -188,6 +250,10 @@ private actor RipgrepProcessSession {
             stdoutHandle?.readabilityHandler = nil
             stdoutClosed = true
             checkProcessOutputComplete()
+            return
+        }
+
+        guard !cancellationRequested, !truncated, !hasFailed else {
             return
         }
 
@@ -210,7 +276,7 @@ private actor RipgrepProcessSession {
     }
 
     fileprivate func handleStderr(_ data: Data) {
-        guard !isFinished else {
+        guard lifecycle != .finished else {
             return
         }
         guard !data.isEmpty else {
@@ -235,7 +301,12 @@ private actor RipgrepProcessSession {
     /// termination can otherwise race ahead of the last buffered chunk of
     /// stdout/stderr still being delivered to the readability handlers.
     private func checkProcessOutputComplete() {
-        guard stdoutClosed, stderrClosed, let exitCode, !isFinished else {
+        guard stdoutClosed, stderrClosed, let exitCode, lifecycle != .finished else {
+            return
+        }
+
+        if cancellationRequested || hasFailed {
+            markFinished()
             return
         }
 
@@ -252,10 +323,19 @@ private actor RipgrepProcessSession {
     }
 
     private func settle(exitCode: Int32) {
+        guard !cancellationRequested else {
+            markFinished()
+            return
+        }
+
         flushCurrentFile()
+        guard !cancellationRequested else {
+            markFinished()
+            return
+        }
 
         if exitCode == 0 || exitCode == 1 || truncated {
-            pendingEvents.append(
+            yield(
                 .completed(
                     SearchCompletion(
                         queryVersion: query.version,
@@ -275,6 +355,11 @@ private actor RipgrepProcessSession {
     }
 
     private func failWithMalformedOutput(_ error: Error) {
+        guard !hasFailed else {
+            return
+        }
+        hasFailed = true
+
         let message: String
         switch error {
         case let parseError as RipgrepStreamParser.ParseError:
@@ -292,15 +377,16 @@ private actor RipgrepProcessSession {
         pendingResult = .failure(SearchError.malformedOutput(message))
         if process.isRunning {
             process.terminate()
+        } else {
+            checkProcessOutputComplete()
         }
-        markFinished()
     }
 
     private func markFinished() {
-        guard !isFinished else {
+        guard lifecycle != .finished else {
             return
         }
-        isFinished = true
+        lifecycle = .finished
         // Unconditional safety net: whichever path reached completion
         // (normal EOF on both pipes, malformed output, or cancellation),
         // any readability handler still registered on either pipe must be
@@ -309,13 +395,25 @@ private actor RipgrepProcessSession {
         // callback loop instead of going quiet.
         stdoutHandle?.readabilityHandler = nil
         stderrHandle?.readabilityHandler = nil
-        awaitingCompletionContinuation?.resume()
-        awaitingCompletionContinuation = nil
+        let waiters = completionWaiters
+        completionWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
-    private func finish(continuation: AsyncThrowingStream<SearchStreamEvent, Error>.Continuation) {
-        for event in pendingEvents {
-            continuation.yield(event)
+    private func waitUntilFinished() async {
+        guard lifecycle != .finished else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            completionWaiters.append(continuation)
+        }
+    }
+
+    private func finishStream() {
+        guard let continuation else {
+            return
         }
         switch pendingResult {
         case .success:
@@ -323,6 +421,7 @@ private actor RipgrepProcessSession {
         case .failure(let error):
             continuation.finish(throwing: error)
         }
+        self.continuation = nil
     }
 
     private func apply(_ line: RipgrepLine) {
@@ -364,12 +463,22 @@ private actor RipgrepProcessSession {
             return
         }
         let relativePath = Self.relativePath(of: path, root: query.root)
-        pendingEvents.append(
+        yield(
             .fileResult(SearchFileResult(relativePath: relativePath, matches: currentMatches))
         )
         matchedFileCount += 1
         currentPath = nil
         currentMatches.removeAll()
+    }
+
+    private func yield(_ event: SearchStreamEvent) {
+        guard let continuation else {
+            requestCancellation()
+            return
+        }
+        if case .terminated = continuation.yield(event) {
+            requestCancellation()
+        }
     }
 
     private static func relativePath(of enginePath: String, root: URL) -> String {

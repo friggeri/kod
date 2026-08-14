@@ -14,8 +14,10 @@ final class PeekViewControllerTests: XCTestCase {
         controller.loadView()
 
         let first = PeekResult(
-            url: URL(fileURLWithPath: "/workspace/Sources/Foo.swift"),
-            range: LSPRange(start: LSPPosition(line: 4, character: 0), end: LSPPosition(line: 4, character: 3)),
+            location: LanguageProviderFixtures.location(
+                url: URL(fileURLWithPath: "/workspace/Sources/Foo.swift"),
+                range: LSPRange(start: LSPPosition(line: 4, character: 0), end: LSPPosition(line: 4, character: 3))
+            ),
             previewLine: "func foo() {}"
         )
         controller.show(title: "Definition", results: [first])
@@ -37,8 +39,10 @@ final class PeekViewControllerTests: XCTestCase {
         controller.loadView()
 
         let target = PeekResult(
-            url: URL(fileURLWithPath: "/workspace/Sources/Foo.swift"),
-            range: LSPRange(start: LSPPosition(line: 1, character: 0), end: LSPPosition(line: 1, character: 3))
+            location: LanguageProviderFixtures.location(
+                url: URL(fileURLWithPath: "/workspace/Sources/Foo.swift"),
+                range: LSPRange(start: LSPPosition(line: 1, character: 0), end: LSPPosition(line: 1, character: 3))
+            )
         )
         controller.show(title: "Definition", results: [target])
 

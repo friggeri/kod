@@ -116,7 +116,7 @@ printf '%s\n' "==> Ensuring the pinned rustup 'rust-analyzer' component is insta
 if command -v rustup >/dev/null 2>&1; then
     rustup component add rust-analyzer >/dev/null 2>&1 || true
 else
-    printf '%s\n' "rustup not found; skipping rust-analyzer setup (RustLanguageAdapter's integration test will report it as the missing executable)." >&2
+    printf '%s\n' "rustup not found; skipping rust-analyzer setup (the Rust integration test will report it as the missing executable)." >&2
 fi
 
 printf '%s\n' "==> Done. Installed executables:"

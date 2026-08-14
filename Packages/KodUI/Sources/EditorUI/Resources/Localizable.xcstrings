@@ -1,0 +1,162 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "%@ is no longer available.\nIt may have been deleted or moved outside Kod.": {
+      "comment": "Editor placeholder explaining that an open file was deleted or moved",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is no longer available.\nIt may have been deleted or moved outside Kod."
+          }
+        }
+      }
+    },
+    "Active editor group": {
+      "comment": "Accessibility value indicating this is the currently active editor group",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active editor group"
+          }
+        }
+      }
+    },
+    "Close %@": {
+      "comment": "Accessibility label for a tab chip's close button, naming the specific file it closes",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close %@"
+          }
+        }
+      }
+    },
+    "Close Tab": {
+      "comment": "Generic accessibility description for the close-tab image, overridden per-tab below",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Tab"
+          }
+        }
+      }
+    },
+    "Editor group": {
+      "comment": "Accessibility label for an editor group's root view",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editor group"
+          }
+        }
+      }
+    },
+    "Inactive editor group": {
+      "comment": "Accessibility value indicating this editor group is not currently active",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactive editor group"
+          }
+        }
+      }
+    },
+    "Pin %@": {
+      "comment": "Accessibility label for a tab chip's pin button, naming the specific file it pins",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin %@"
+          }
+        }
+      }
+    },
+    "Pin Tab": {
+      "comment": "Generic accessibility description for the pin-tab image, overridden per-tab below",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin Tab"
+          }
+        }
+      }
+    },
+    "Pinned tab": {
+      "comment": "Accessibility value component indicating a tab chip is pinned",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned tab"
+          }
+        }
+      }
+    },
+    "Preview tab": {
+      "comment": "Accessibility value component indicating a tab chip is an unpinned preview tab",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview tab"
+          }
+        }
+      }
+    },
+    "Select a file in the Explorer or press Command-P.": {
+      "comment": "Placeholder text shown in an editor group before any tab is open",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a file in the Explorer or press Command-P."
+          }
+        }
+      }
+    },
+    "Selected": {
+      "comment": "Accessibility value component indicating a tab chip is the currently selected tab",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected"
+          }
+        }
+      }
+    },
+    "Unavailable": {
+      "comment": "Accessibility value component indicating a tab chip's file is no longer available",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.1"
+}

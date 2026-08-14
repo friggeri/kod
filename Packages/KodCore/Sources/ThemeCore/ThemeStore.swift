@@ -1,9 +1,9 @@
-import DiagnosticsCore
 import Foundation
+import SettingsCore
 
 /// Persists the active theme choice and any imported themes outside the
-/// workspace, following the same `UserDefaults`-backed external-metadata
-/// pattern as `WorkspaceLayoutStore` and `FontSettingsStore`.
+/// workspace through an injected SettingsCore repository shared with
+/// `WorkspaceLayoutStore` and `FontSettingsStore`.
 ///
 /// Corrupt imported-theme data is quarantined and rebuilt (SPEC 15), never
 /// silently treated as "no themes were ever imported" with no trace: see
@@ -11,62 +11,130 @@ import Foundation
 /// identically here.
 @MainActor
 public final class ThemeStore {
-    private let defaults: UserDefaults
-    private let activeThemeKey = "kod.active-theme-identifier"
-    private let importedThemesKey = "kod.imported-themes"
-    public let quarantine: CorruptStateQuarantine
-
-    public init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        self.quarantine = CorruptStateQuarantine(defaults: defaults)
-    }
-
-    public func activeThemeIdentifier() -> String? {
-        defaults.string(forKey: activeThemeKey)
-    }
-
-    public func setActiveThemeIdentifier(_ identifier: String) {
-        defaults.set(identifier, forKey: activeThemeKey)
-    }
-
-    public func importedThemes() -> [KodTheme] {
-        switch quarantine.decode([KodTheme].self, forKey: importedThemesKey) {
-        case .restored(let themes):
-            return themes
-        case .absent, .quarantined:
-            return []
+    private static let activeThemeSetting = CodableSetting<String>(
+        key: "kod.active-theme-identifier",
+        currentVersion: 1,
+        migrations: [
+            .unversionedStoredValue { value in
+                guard case .string(let identifier) = value else {
+                    return .failure(
+                        SettingsMigrationFailure(
+                            reason: "Expected a legacy theme identifier string."
+                        )
+                    )
+                }
+                return .success(identifier)
+            }
+        ],
+        validate: {
+            $0.isEmpty
+                ? SettingsValidationFailure(
+                    reason: "The active theme identifier is empty."
+                )
+                : nil
         }
+    )
+    private static let importedThemesSetting = CodableSetting<[KodTheme]>(
+        key: "kod.imported-themes",
+        currentVersion: 1,
+        migrations: [
+            .unversionedCodable([KodTheme].self) { $0 }
+        ]
+    )
+    private let repository: CodableSettingsRepository
+
+    public init(repository: CodableSettingsRepository) {
+        self.repository = repository
     }
 
-    public func addImportedTheme(_ theme: KodTheme) {
-        var themes = importedThemes().filter { $0.identifier != theme.identifier }
+    public var quarantine: SettingsQuarantine {
+        repository.quarantine
+    }
+
+    public func activeThemeIdentifier(
+    ) throws(SettingsRepositoryError) -> SettingsLoadOutcome<String> {
+        try repository.read(Self.activeThemeSetting)
+    }
+
+    public func setActiveThemeIdentifier(
+        _ identifier: String
+    ) throws(SettingsRepositoryError) {
+        try repository.write(identifier, to: Self.activeThemeSetting)
+    }
+
+    public func importedThemes(
+    ) throws(SettingsRepositoryError) -> SettingsLoadOutcome<[KodTheme]> {
+        try repository.read(Self.importedThemesSetting)
+    }
+
+    public func addImportedTheme(
+        _ theme: KodTheme
+    ) throws(SettingsRepositoryError) {
+        var themes = try resolvedImportedThemes()
+            .filter { $0.identifier != theme.identifier }
         themes.append(theme)
-        persist(themes)
+        try repository.write(themes, to: Self.importedThemesSetting)
     }
 
-    public func removeImportedTheme(identifier: String) {
-        persist(importedThemes().filter { $0.identifier != identifier })
+    public func removeImportedTheme(
+        identifier: String
+    ) throws(SettingsRepositoryError) {
+        let themes = try resolvedImportedThemes().filter {
+            $0.identifier != identifier
+        }
+        try repository.write(
+            themes,
+            to: Self.importedThemesSetting
+        )
     }
 
-    public func theme(forIdentifier identifier: String) -> KodTheme? {
-        BundledThemes.theme(forIdentifier: identifier)
-            ?? importedThemes().first { $0.identifier == identifier }
+    public func theme(
+        forIdentifier identifier: String
+    ) throws(SettingsRepositoryError) -> KodTheme? {
+        if let bundled = BundledThemes.theme(forIdentifier: identifier) {
+            return bundled
+        }
+        return try resolvedImportedThemes().first {
+            $0.identifier == identifier
+        }
     }
 
     /// The theme that should be active right now: the user's explicit
     /// choice if it still resolves, otherwise the bundled theme matching
     /// the current system appearance.
-    public func resolvedActiveTheme(systemIsDark: Bool, systemIsHighContrast: Bool) -> KodTheme {
-        if let identifier = activeThemeIdentifier(), let theme = theme(forIdentifier: identifier) {
+    public func resolvedActiveTheme(
+        systemIsDark: Bool,
+        systemIsHighContrast: Bool
+    ) throws(SettingsRepositoryError) -> KodTheme {
+        let identifier: String?
+        switch try activeThemeIdentifier() {
+        case .value(let storedIdentifier, _):
+            identifier = storedIdentifier
+        case .absent, .quarantined:
+            identifier = nil
+        }
+        if let identifier, let theme = try theme(forIdentifier: identifier) {
             return theme
         }
         return BundledThemes.defaultTheme(isDark: systemIsDark, isHighContrast: systemIsHighContrast)
     }
 
-    private func persist(_ themes: [KodTheme]) {
-        guard let data = try? JSONEncoder().encode(themes) else {
-            return
+    public func observeChanges(
+        _ observer: @escaping @Sendable (SettingsChange) -> Void
+    ) -> SettingsObservation {
+        SettingsObservation.combine([
+            repository.observe(Self.activeThemeSetting, observer),
+            repository.observe(Self.importedThemesSetting, observer)
+        ])
+    }
+
+    private func resolvedImportedThemes(
+    ) throws(SettingsRepositoryError) -> [KodTheme] {
+        switch try importedThemes() {
+        case .value(let themes, _):
+            return themes
+        case .absent, .quarantined:
+            return []
         }
-        defaults.set(data, forKey: importedThemesKey)
     }
 }

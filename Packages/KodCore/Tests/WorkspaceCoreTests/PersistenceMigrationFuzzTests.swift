@@ -1,61 +1,63 @@
-import DiagnosticsCore
 import FuzzSupport
+import SettingsCore
 import XCTest
 @testable import WorkspaceCore
 
 /// Bounded, seeded fuzzing of `WorkspaceLayoutStore`'s persistence-
-/// migration path: what happens when the `UserDefaults`-backed JSON blob
+/// migration path: what happens when the repository-backed JSON blob
 /// behind a previously-valid saved layout becomes corrupt — from a
-/// half-written save, a future Kod version's schema change, or hostile
+/// half-written save or hostile
 /// tampering (SPEC 15: "Corrupt Kod metadata is quarantined and rebuilt";
 /// SPEC 16.1 fuzz coverage extended here to persistence migrations, one
 /// of Phase 12's explicitly requested new fuzz targets). Every corrupt
-/// blob is random bytes — the only acceptable outcome is `load(for:)`
-/// returning `nil` (quarantined-and-rebuilt) with the ledger recording
-/// exactly one bounded entry, never a crash and never a resurfacing of
-/// the corrupt bytes on a later call.
+/// blob is random bytes: malformed/current data is quarantined, while a
+/// syntactically valid future version or missing explicit migration remains
+/// untouched with a typed error. Neither path may crash or loop.
 @MainActor
 final class PersistenceMigrationFuzzTests: XCTestCase {
     func testCorruptSavedLayoutIsAlwaysQuarantinedNeverCrashes() throws {
         try FuzzRun.run("PersistenceMigrationFuzzTests.corruptLayout", iterations: 200) { source in
-            let suiteName = "com.kod.fuzz.persistence-migration.\(UUID().uuidString)"
-            guard let defaults = UserDefaults(suiteName: suiteName) else {
-                return
-            }
-            defer { defaults.removePersistentDomain(forName: suiteName) }
-
-            let store = WorkspaceLayoutStore(defaults: defaults)
+            let keyValueStore = InMemorySettingsKeyValueStore()
+            let repository = CodableSettingsRepository(store: keyValueStore)
+            let store = WorkspaceLayoutStore(repository: repository)
             let identity = try WorkspaceIdentity(root: FileManager.default.temporaryDirectory)
+            let dataKey = "workspace-layout.\(identity.persistenceKey)"
 
             // Save one genuinely valid state first, so the corrupted
             // blob below replaces real, previously-written data — the
             // scenario SPEC 15 actually describes (a subsystem finding
             // its *own* prior save corrupt), not just "reading garbage
             // that was never valid to begin with."
-            store.save(.singleGroup(), for: identity)
-
-            guard let dataKey = (defaults.dictionaryRepresentation().first { _, value in value is Data })?.key else {
-                return XCTFail("expected exactly one Data-valued key after saving a layout")
-            }
+            try store.save(.singleGroup(), for: identity)
 
             let corruptBytes = Data(FuzzGenerators.randomBytes(lengthIn: 0...512, &source))
-            defaults.set(corruptBytes, forKey: dataKey)
+            try keyValueStore.setValue(.data(corruptBytes), forKey: dataKey)
 
             // First load after corruption: must never crash, and — for
             // the (extremely unlikely but not impossible) case where
             // random bytes happen to decode as valid JSON matching the
-            // schema — either a legitimate value or `nil` is acceptable;
-            // only a crash is a failure.
-            _ = store.load(for: identity)
+            // schema — either a legitimate value or quarantine is acceptable;
+            // only an untyped failure or crash is a failure.
+            do {
+                _ = try store.load(for: identity)
+            } catch SettingsRepositoryError.unsupportedVersion(_, _, _) {
+                // A syntactically valid future envelope is deliberately
+                // preserved rather than quarantined by an older build.
+            } catch SettingsRepositoryError.migrationRequired(_, _, _) {
+                // Likewise, a recognized older envelope with no registered
+                // migration remains untouched and actionable.
+            }
 
-            // A second load must be stable: once quarantined, the key is
-            // cleared, so a repeat load must return `nil` (or, if
-            // somehow re-populated by prior test state, must still never
-            // crash) rather than re-processing the same corrupt bytes
-            // forever.
-            _ = store.load(for: identity)
+            // A second load must be stable: quarantined bytes stay cleared;
+            // recognized-but-unsupported envelopes repeat the same typed
+            // error without being destroyed.
+            do {
+                _ = try store.load(for: identity)
+            } catch SettingsRepositoryError.unsupportedVersion(_, _, _) {
+            } catch SettingsRepositoryError.migrationRequired(_, _, _) {
+            }
 
-            let ledgerEntries = store.quarantine.ledger()
+            let ledgerEntries = try repository.quarantine.records()
             XCTAssertLessThanOrEqual(ledgerEntries.count, 200, "the quarantine ledger must stay bounded even under repeated corruption")
         }
     }

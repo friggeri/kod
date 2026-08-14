@@ -1,0 +1,5 @@
+/* Accessibility role description announced for the read-only text
+   surfaces built by `makeReadOnlyScrollingTextView(wrapsLines:)` —
+   deliberately narrower than `CodeViewport`'s "read-only source code",
+   which describes a source-code viewport rather than plain text. */
+"kodui.readOnlyText.accessibilityRoleDescription" = "read-only text";

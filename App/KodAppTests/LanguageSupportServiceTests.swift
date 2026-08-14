@@ -1,9 +1,13 @@
 import AppKit
 import CodeViewport
+import FontCore
 import Foundation
+import KodUIComponents
 import LanguageAdapters
+import SettingsCore
 import SourceModel
 import SyntaxCore
+import ThemeCore
 import XCTest
 @testable import Kod
 
@@ -39,7 +43,7 @@ final class LanguageSupportServiceTests: XCTestCase {
     ) throws -> (
         service: LanguageSupportService,
         store: LanguageProfileStore,
-        defaults: UserDefaults,
+        repository: CodableSettingsRepository,
         root: URL
     ) {
         let root = FileManager.default.temporaryDirectory
@@ -50,12 +54,15 @@ final class LanguageSupportServiceTests: XCTestCase {
             at: root,
             withIntermediateDirectories: true
         )
-        let suiteName = "LanguageSupportServiceTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let repository = CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
         let store = try LanguageProfileStore(
             defaultProfiles: defaultProfiles,
-            defaults: defaults,
+            repository: repository,
             overrideStore: overrideStore
         )
         let service = LanguageSupportService(
@@ -63,13 +70,10 @@ final class LanguageSupportServiceTests: XCTestCase {
             overrideStore: overrideStore,
             discovery: discovery
         )
-        addTeardownBlock { [root, suiteName] in
+        addTeardownBlock { [root] in
             try? FileManager.default.removeItem(at: root)
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(
-                forName: suiteName
-            )
         }
-        return (service, store, defaults, root)
+        return (service, store, repository, root)
     }
 
     func testRefreshListsBundledSyntaxSeparatelyFromLocalServers() async throws {
@@ -255,7 +259,13 @@ final class LanguageSupportServiceTests: XCTestCase {
         )
         let controller = StandaloneDocumentViewController(
             snapshot: snapshot,
-            languageSupportService: fixture.service
+            languageSupportService: fixture.service,
+            appearanceCenter: try AppearanceCenter(
+                themeStore: ThemeStore(repository: fixture.repository),
+                fontSettingsStore: FontSettingsStore(
+                    repository: fixture.repository
+                )
+            )
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),

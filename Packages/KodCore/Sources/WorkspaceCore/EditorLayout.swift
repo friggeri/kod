@@ -321,6 +321,64 @@ public struct WorkspaceGeometryState: Equatable, Codable, Sendable {
     }
 }
 
+/// Every way a successfully *decoded* `WorkspaceLayoutState` can still be
+/// semantically invalid — i.e. it satisfied `Codable` (every field parsed
+/// as the right Swift type) but violates an invariant the rest of
+/// `WorkspaceCore`/`WorkspaceViewController` assume always holds. This is
+/// deliberately a throwing validation, not a normalizing one: SPEC 15
+/// treats corrupt metadata as something to quarantine-and-rebuild from
+/// scratch, not to silently patch. A tree with a duplicated leaf, a group
+/// referenced by nothing, or a dangling selection could each be "fixed" in
+/// several different plausible ways, and guessing wrong would silently
+/// discard the user's actual intent (e.g. picking the wrong surviving
+/// duplicate group) — so `WorkspaceLayoutState.validate()` only ever
+/// distinguishes "structurally sound" from "reject the whole blob," never
+/// repairs in place.
+public enum WorkspaceLayoutValidationError: Error, Equatable, Sendable {
+    /// The same `EditorGroupID` appears at more than one leaf of `root`.
+    case duplicateSplitLeaf(EditorGroupID)
+    /// The set of leaf group IDs in `root` does not exactly match the set
+    /// of keys in `groups` (either a leaf has no backing group state, or
+    /// `groups` contains an orphaned entry no leaf references).
+    case splitLeavesGroupsMismatch(leaves: Set<EditorGroupID>, groups: Set<EditorGroupID>)
+    /// `activeGroupID` has no entry in `groups`.
+    case activeGroupNotFound(EditorGroupID)
+    /// A `groups` dictionary entry's key does not equal its own
+    /// `EditorGroupState.id`. Every normal mutation (`split`, `closeGroup`,
+    /// `activeGroup`'s setter) keeps a group's dictionary key and its `id`
+    /// in lockstep, so a mismatch here means the entry was tampered with or
+    /// corrupted independently of its key.
+    case groupKeyMismatch(key: EditorGroupID, actualID: EditorGroupID)
+    /// A split node's `ratio` is NaN/infinite, or outside the open interval
+    /// (0, 1).
+    case invalidSplitRatio(Double)
+    /// Two tabs in the same `EditorGroupState` share an `EditorTabID`.
+    case duplicateTabID(group: EditorGroupID, tab: EditorTabID)
+    /// Two tabs in the same `EditorGroupState` share a `relativePath`.
+    /// `EditorGroupState.openTab`/`insertTransferredTab` explicitly prevent
+    /// a group from ever holding the same path twice, so a duplicate here
+    /// could only come from state built (or corrupted) outside those APIs.
+    case duplicateTabRelativePath(group: EditorGroupID, relativePath: String)
+    /// A group's `selectedTabID` does not match any of its own tabs.
+    case selectedTabNotInGroup(group: EditorGroupID, tab: EditorTabID)
+    /// A group has one or more tabs but a `nil` `selectedTabID`. An empty
+    /// group (no tabs) legitimately has no selection; every mutation that
+    /// adds a tab (`openTab`, `insertTransferredTab`) also selects it, so a
+    /// non-empty group with no selection is otherwise unreachable.
+    case missingSelectedTabForNonEmptyGroup(EditorGroupID)
+    /// A navigation entry (in `backStack`, `forwardStack`, or `current`) has
+    /// a selection whose bounds are negative or inverted
+    /// (`lowerBound > upperBound`).
+    case invalidNavigationSelection(group: EditorGroupID)
+    /// A navigation entry has a negative `viewportAnchorLine`.
+    case invalidViewportAnchorLine(group: EditorGroupID)
+    /// `geometry.windowFrame` has a non-finite coordinate/dimension, or a
+    /// non-positive width/height.
+    case invalidWindowFrame
+    /// `geometry.sidebarWidth` is non-finite or negative.
+    case invalidSidebarWidth
+}
+
 /// A binary tree of split editor groups. Leaves are group identifiers;
 /// internal nodes describe an orientation, the divider ratio, and the two
 /// child subtrees, allowing arbitrarily nested horizontal/vertical splits.
@@ -384,6 +442,40 @@ public indirect enum SplitLayoutNode: Equatable, Codable, Sendable {
                 first: newFirst ?? first,
                 second: newSecond ?? second
             )
+        }
+    }
+
+    /// Walks every leaf, inserting its group ID into `seen`. Throws the
+    /// first duplicate encountered — a group ID appearing at more than one
+    /// leaf is structural corruption (the same pane occupying two places in
+    /// the split tree simultaneously), not something a validator can guess
+    /// how to repair.
+    fileprivate func validateUniqueLeaves(seen: inout Set<EditorGroupID>) throws(WorkspaceLayoutValidationError) {
+        switch self {
+        case .leaf(let id):
+            guard seen.insert(id).inserted else {
+                throw .duplicateSplitLeaf(id)
+            }
+        case .split(_, _, let first, let second):
+            try first.validateUniqueLeaves(seen: &seen)
+            try second.validateUniqueLeaves(seen: &seen)
+        }
+    }
+
+    /// Validates every divider ratio in the tree: it must be finite (never
+    /// NaN/infinite from a bad arithmetic step) and strictly between 0 and
+    /// 1, since a ratio at or beyond either edge would collapse one side of
+    /// the split to nothing.
+    fileprivate func validateRatios() throws(WorkspaceLayoutValidationError) {
+        switch self {
+        case .leaf:
+            return
+        case .split(_, let ratio, let first, let second):
+            guard ratio.isFinite, ratio > 0, ratio < 1 else {
+                throw .invalidSplitRatio(ratio)
+            }
+            try first.validateRatios()
+            try second.validateRatios()
         }
     }
 }
@@ -523,6 +615,95 @@ public struct WorkspaceLayoutState: Equatable, Codable, Sendable {
     public mutating func clearTombstone(relativePath: String) {
         for id in groups.keys {
             groups[id]?.clearTombstone(relativePath: relativePath)
+        }
+    }
+
+    /// Checks every semantic invariant a decoded `WorkspaceLayoutState`
+    /// must hold beyond what `Codable` alone enforces, throwing the first
+    /// `WorkspaceLayoutValidationError` found. This never mutates or
+    /// normalizes `self` — see the doc comment on
+    /// `WorkspaceLayoutValidationError` for why ambiguous structural
+    /// corruption is rejected wholesale rather than repaired.
+    ///
+    /// Checked, in order:
+    /// - every leaf of `root` names a distinct `EditorGroupID`;
+    /// - the set of those leaf IDs is *exactly* `groups.keys` (no leaf
+    ///   without a group, no orphaned group no leaf references);
+    /// - `activeGroupID` resolves to an entry in `groups`;
+    /// - every split's `ratio` is finite and strictly between 0 and 1;
+    /// - within each group: its dictionary key equals its own `id`; tab
+    ///   IDs are unique; tab `relativePath`s are unique (`openTab`/
+    ///   `insertTransferredTab` never allow a group to hold the same path
+    ///   twice); `selectedTabID`, if set, names one of that group's own
+    ///   tabs, and a group with any tabs always has a `selectedTabID` (only
+    ///   an empty group may have `nil`);
+    /// - every navigation entry's selection bounds are non-negative and
+    ///   non-inverted, and its `viewportAnchorLine` is non-negative;
+    /// - `geometry`, if present, has a finite window frame with positive
+    ///   width/height and a finite, non-negative `sidebarWidth`.
+    public func validate() throws(WorkspaceLayoutValidationError) {
+        var leafIDs = Set<EditorGroupID>()
+        try root.validateUniqueLeaves(seen: &leafIDs)
+
+        let groupKeys = Set(groups.keys)
+        guard leafIDs == groupKeys else {
+            throw .splitLeavesGroupsMismatch(leaves: leafIDs, groups: groupKeys)
+        }
+
+        guard groups[activeGroupID] != nil else {
+            throw .activeGroupNotFound(activeGroupID)
+        }
+
+        try root.validateRatios()
+
+        for (groupID, group) in groups {
+            guard group.id == groupID else {
+                throw .groupKeyMismatch(key: groupID, actualID: group.id)
+            }
+
+            var tabIDs = Set<EditorTabID>()
+            var relativePaths = Set<String>()
+            for tab in group.tabs {
+                guard tabIDs.insert(tab.id).inserted else {
+                    throw .duplicateTabID(group: groupID, tab: tab.id)
+                }
+                guard relativePaths.insert(tab.relativePath).inserted else {
+                    throw .duplicateTabRelativePath(group: groupID, relativePath: tab.relativePath)
+                }
+            }
+
+            switch group.selectedTabID {
+            case .some(let selectedTabID):
+                guard tabIDs.contains(selectedTabID) else {
+                    throw .selectedTabNotInGroup(group: groupID, tab: selectedTabID)
+                }
+            case .none:
+                guard group.tabs.isEmpty else {
+                    throw .missingSelectedTabForNonEmptyGroup(groupID)
+                }
+            }
+
+            let navigationEntries = group.backStack + group.forwardStack + [group.current].compactMap { $0 }
+            for entry in navigationEntries {
+                if let selection = entry.selection,
+                   selection.lowerBound < 0 || selection.lowerBound > selection.upperBound {
+                    throw .invalidNavigationSelection(group: groupID)
+                }
+                if entry.viewportAnchorLine < 0 {
+                    throw .invalidViewportAnchorLine(group: groupID)
+                }
+            }
+        }
+
+        if let geometry {
+            let frame = geometry.windowFrame
+            guard frame.x.isFinite, frame.y.isFinite, frame.width.isFinite, frame.height.isFinite,
+                  frame.width > 0, frame.height > 0 else {
+                throw .invalidWindowFrame
+            }
+            guard geometry.sidebarWidth.isFinite, geometry.sidebarWidth >= 0 else {
+                throw .invalidSidebarWidth
+            }
         }
     }
 }

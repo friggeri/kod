@@ -1,6 +1,6 @@
 import Foundation
+import SourceIO
 import SourceModel
-import WorkspaceCore
 import XCTest
 @testable import LanguageClient
 
@@ -66,23 +66,17 @@ private actor FirstDiagnosticNormalizationGate {
 /// adapter too, since they all share this exact implementation rather
 /// than a per-language reimplementation.
 final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
-    @MainActor
-    private func makeTrustedIdentity() throws -> (WorkspaceIdentity, WorkspaceTrustStore, URL) {
+    /// A fresh, isolated workspace root. Launch authorization is an
+    /// injected capability now, so no trust store (and no `UserDefaults`
+    /// suite) is involved in exercising the service.
+    private func makeWorkspaceRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         addTeardownBlock {
             try? FileManager.default.removeItem(at: root)
         }
-        let identity = try WorkspaceIdentity(root: root)
-        let suiteName = "LanguageWorkspaceServiceFixtureTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-        let store = WorkspaceTrustStore(defaults: defaults)
-        store.trust(identity)
-        return (identity, store, root)
+        return root
     }
 
     private func makeDependencies(scenario: String, environment: [String: String]? = nil) throws -> LanguageWorkspaceService.Dependencies {
@@ -99,14 +93,13 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
     }
 
     private func makeService(
-        identity: WorkspaceIdentity,
-        trustStore: WorkspaceTrustStore,
+        workspaceRoot: URL,
         scenario: String,
         environment: [String: String]? = nil
     ) throws -> LanguageWorkspaceService {
         LanguageWorkspaceService(
-            identity: identity,
-            trustStore: trustStore,
+            workspaceRoot: workspaceRoot,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(
                 languageId: "typescript",
                 semanticTokenTypes: ["namespace", "type", "class", "enum", "function", "variable"],
@@ -118,10 +111,10 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testExtendedCapabilitiesRoundTripForANonSwiftLanguageId() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
-        let service = try makeService(identity: identity, trustStore: store, scenario: "normal")
+        let root = try makeWorkspaceRoot()
+        let service = try makeService(workspaceRoot: root, scenario: "normal")
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let fileURL = root.appendingPathComponent("Fake.ts")
         let snapshot = SourceSnapshot(text: "class Greeter {}\n", url: fileURL, version: 1)
@@ -141,12 +134,12 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testPublishedDiagnosticsNormalizeNegotiatedUTF8RangesAndClearOnClose() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let received = LockedArray<[NormalizedDiagnostic]>()
         let raw = LockedArray<[Diagnostic]>()
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
             dependencies: try makeDependencies(scenario: "normal"),
             onDiagnostics: { _, diagnostics in
@@ -157,7 +150,7 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
             }
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let snapshot = SourceSnapshot(
             text: "éabc\n",
@@ -195,11 +188,11 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testSynchronizeDistinguishesOpenUnchangedAndReloadedSnapshots() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let received = LockedArray<[NormalizedDiagnostic]>()
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
             dependencies: try makeDependencies(scenario: "no-diagnostics"),
             onNormalizedDiagnostics: { _, diagnostics in
@@ -207,7 +200,7 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
             }
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let url = root.appendingPathComponent("Reloaded.ts")
         let initial = SourceSnapshot(text: "old\n", url: url, version: 1)
@@ -252,19 +245,19 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testMalformedPublishedDiagnosticDoesNotKeepPreviousFileStateStale() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let received = LockedArray<[NormalizedDiagnostic]>()
         let raw = LockedArray<[Diagnostic]>()
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
             dependencies: try makeDependencies(scenario: "invalid-publish"),
             onDiagnostics: { _, diagnostics in raw.append(diagnostics) },
             onNormalizedDiagnostics: { _, diagnostics in received.append(diagnostics) }
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let snapshot = SourceSnapshot(
             text: "valid\n",
@@ -291,12 +284,12 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testDidCloseWhileDiagnosticNormalizationIsSuspendedCannotResurrectDiagnostics() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let gate = DiagnosticNormalizationGate()
         let received = LockedArray<[NormalizedDiagnostic]>()
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
             dependencies: try makeDependencies(scenario: "normal"),
             onStateChange: { _ in },
@@ -304,7 +297,7 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
             diagnosticNormalizationYield: { await gate.suspend() }
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let snapshot = SourceSnapshot(
             text: "value\n",
@@ -323,12 +316,12 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testNewerSameVersionDiagnosticPublishWinsWhenOlderNormalizationResumesLast() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let gate = FirstDiagnosticNormalizationGate()
         let received = LockedArray<[NormalizedDiagnostic]>()
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
             dependencies: try makeDependencies(scenario: "no-diagnostics"),
             onStateChange: { _ in },
@@ -336,7 +329,7 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
             diagnosticNormalizationYield: { await gate.suspendFirst() }
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
         let snapshot = SourceSnapshot(
             text: "value\n",
             url: root.appendingPathComponent("DiagnosticOrder.ts"),
@@ -376,10 +369,10 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testExtendedCapabilitiesAreGatedOffWhenUnadvertisedForANonSwiftLanguageId() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
-        let service = try makeService(identity: identity, trustStore: store, scenario: "capability-absent")
+        let root = try makeWorkspaceRoot()
+        let service = try makeService(workspaceRoot: root, scenario: "capability-absent")
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let fileURL = root.appendingPathComponent("Fake.ts")
         let snapshot = SourceSnapshot(text: "class Greeter {}\n", url: fileURL, version: 1)
@@ -401,10 +394,10 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testInvalidDocumentHighlightAndFoldingRangesAreDiscardedForANonSwiftLanguageId() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
-        let service = try makeService(identity: identity, trustStore: store, scenario: "invalid-range")
+        let root = try makeWorkspaceRoot()
+        let service = try makeService(workspaceRoot: root, scenario: "invalid-range")
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let fileURL = root.appendingPathComponent("Fake.ts")
         let snapshot = SourceSnapshot(text: "class Greeter {}\n", url: fileURL, version: 1)
@@ -419,12 +412,12 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testCrashLoopDisablesTheServiceAfterTheRestartBudgetForANonSwiftLanguageId() async throws {
-        let (identity, store, _) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let states = LockedArray<LanguageServerState>()
         let dependencies = try makeDependencies(scenario: "crash-immediately")
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
             dependencies: dependencies,
             onStateChange: { newState in
@@ -432,7 +425,7 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
             }
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let deadline = Date().addingTimeInterval(5)
         func hasDisabled() -> Bool {
@@ -446,11 +439,11 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testInitializationFailureReportsStartingThenCrashed() async throws {
-        let (identity, store, _) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let states = LockedArray<LanguageServerState>()
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
             dependencies: try makeDependencies(scenario: "initialize-error"),
             onStateChange: { states.append($0) }
@@ -474,17 +467,17 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testManualRestartFinishesInReadyRatherThanAStaleStoppedState() async throws {
-        let (identity, store, _) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let states = LockedArray<LanguageServerState>()
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "typescript"),
             dependencies: try makeDependencies(scenario: "normal"),
             onStateChange: { states.append($0) }
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         try await service.restart()
         try await Task.sleep(for: .milliseconds(100))
@@ -499,14 +492,6 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let identity = try WorkspaceIdentity(root: root)
-        let suiteName = "LanguageWorkspaceServiceFixtureTests.RepoImmutability.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let store = WorkspaceTrustStore(defaults: defaults)
-        store.trust(identity)
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
         addTeardownBlock {
             try? FileManager.default.removeItem(at: root)
         }
@@ -516,9 +501,9 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
         try originalContents.write(to: fileURL, atomically: true, encoding: .utf8)
         let originalChecksum = try Data(contentsOf: fileURL)
 
-        let service = try makeService(identity: identity, trustStore: store, scenario: "normal")
+        let service = try makeService(workspaceRoot: root, scenario: "normal")
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let snapshot = try SourceSnapshotLoader().load(url: fileURL, version: 1)
         try await service.didOpen(snapshot)
@@ -535,17 +520,16 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testInteractiveHoverPreemptsAndAllowsReschedulingSemanticTokens() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let stateFile = root.appendingPathComponent("priority-state")
         FileManager.default.createFile(atPath: stateFile.path, contents: Data())
         let service = try makeService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
             scenario: "priority",
             environment: ["FAKE_LSP_STATE_FILE": stateFile.path]
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
         let snapshot = SourceSnapshot(
             text: "class Greeter {}\n",
             url: root.appendingPathComponent("Fake.ts"),
@@ -585,12 +569,12 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testAcceptsUnopenedWorkspacePushAndRejectsOutsideAndNonFilePushes() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let messages = LockedArray<String>()
         let normalizedURLs = LockedArray<URL>()
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "swift"),
             dependencies: try makeDependencies(scenario: "workspace-push"),
             onDiagnostics: { _, diagnostics in
@@ -601,7 +585,7 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
             onNormalizedDiagnostics: { url, _ in normalizedURLs.append(url) }
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let deadline = ContinuousClock.now + .seconds(3)
         while messages.snapshot().isEmpty, ContinuousClock.now < deadline {
@@ -622,7 +606,7 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
     /// ranges under the two encodings.
     @MainActor
     func testNegotiatedRangeConversionUsesTheServerPositionEncoding() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let snapshot = SourceSnapshot(
             text: "lét value\n",
             url: root.appendingPathComponent("Encoding.ts"),
@@ -633,16 +617,16 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
             end: LSPPosition(line: 0, character: 4)
         )
 
-        let utf8Service = try makeService(identity: identity, trustStore: store, scenario: "normal")
+        let utf8Service = try makeService(workspaceRoot: root, scenario: "normal")
         try await utf8Service.start()
-        defer { Task { await utf8Service.stop() } }
+        addTeardownBlock { await utf8Service.stop() }
         let utf8Range = await utf8Service.utf8Range(for: range, in: snapshot)
         XCTAssertEqual(utf8Range, 0..<4)
         XCTAssertEqual(try snapshot.text(inUTF8Range: try XCTUnwrap(utf8Range)), "lét")
 
-        let utf16Service = try makeService(identity: identity, trustStore: store, scenario: "normal-utf16")
+        let utf16Service = try makeService(workspaceRoot: root, scenario: "normal-utf16")
         try await utf16Service.start()
-        defer { Task { await utf16Service.stop() } }
+        addTeardownBlock { await utf16Service.stop() }
         let utf16Range = await utf16Service.utf8Range(for: range, in: snapshot)
         XCTAssertEqual(utf16Range, 0..<5)
 
@@ -663,17 +647,16 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testWorkspaceDiagnosticsAreCapabilityGated() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let stateFile = root.appendingPathComponent("workspace-diagnostics-state")
         FileManager.default.createFile(atPath: stateFile.path, contents: Data())
         let service = try makeService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
             scenario: "normal",
             environment: ["FAKE_LSP_STATE_FILE": stateFile.path]
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
         try await Task.sleep(for: .milliseconds(200))
 
         let state = try String(contentsOf: stateFile, encoding: .utf8)
@@ -682,13 +665,13 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testWorkspaceDiagnosticsFullUnchangedResultIDsAndRefreshCoalescing() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let stateFile = root.appendingPathComponent("workspace-diagnostics-state")
         FileManager.default.createFile(atPath: stateFile.path, contents: Data())
         let messages = LockedArray<String>()
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "swift"),
             dependencies: try makeDependencies(
                 scenario: "workspace-diagnostics-refresh",
@@ -701,7 +684,7 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
             }
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let deadline = ContinuousClock.now + .seconds(3)
         var state = ""
@@ -729,12 +712,12 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testWorkspacePullDiagnosticsForAnOpenDocumentAlsoProduceNormalizedMarkers() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let messages = LockedArray<String>()
         let normalized = LockedArray<[NormalizedDiagnostic]>()
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "swift"),
             dependencies: try makeDependencies(scenario: "workspace-diagnostics-slow"),
             onDiagnostics: { _, diagnostics in
@@ -745,7 +728,7 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
             onNormalizedDiagnostics: { _, diagnostics in normalized.append(diagnostics) }
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         // "lét" is 4 UTF-8 bytes but 3 UTF-16 code units, so a report of
         // characters 0..<4 on line 1 can only normalize to 14..<18 when
@@ -779,14 +762,14 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testStoppingInvalidatesAnInFlightWorkspaceDiagnosticGeneration() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let stateFile = root.appendingPathComponent("workspace-diagnostics-state")
         FileManager.default.createFile(atPath: stateFile.path, contents: Data())
         let messages = LockedArray<String>()
         let failures = LockedArray<String>()
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "swift"),
             dependencies: try makeDependencies(
                 scenario: "workspace-diagnostics-slow",
@@ -817,17 +800,17 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testWorkspaceDiagnosticFailureUsesExplicitCallback() async throws {
-        let (identity, store, _) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let failures = LockedArray<String>()
         let service = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             configuration: LanguageWorkspaceService.Configuration(languageId: "swift"),
             dependencies: try makeDependencies(scenario: "workspace-diagnostics-failure"),
             onWorkspaceDiagnosticsFailure: { failures.append($0) }
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let deadline = ContinuousClock.now + .seconds(3)
         while failures.snapshot().isEmpty, ContinuousClock.now < deadline {

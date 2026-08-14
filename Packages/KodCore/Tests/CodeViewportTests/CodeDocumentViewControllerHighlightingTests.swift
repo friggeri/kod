@@ -1,5 +1,6 @@
 import AppKit
 @testable import CodeViewport
+import SourceIO
 import SourceModel
 import SyntaxCore
 import XCTest
@@ -8,8 +9,9 @@ import XCTest
 final class CodeDocumentViewControllerHighlightingTests: XCTestCase {
     private var windows: [NSWindow] = []
 
-    private func makeController(text: String, path: String = "/tmp/sample.swift") -> CodeDocumentViewController {
-        let snapshot = SourceSnapshot(text: text, url: URL(fileURLWithPath: path))
+    private func makeController(
+        snapshot: SourceSnapshot
+    ) -> CodeDocumentViewController {
         let controller = CodeDocumentViewController(snapshot: snapshot)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
@@ -22,6 +24,18 @@ final class CodeDocumentViewControllerHighlightingTests: XCTestCase {
         window.layoutIfNeeded()
         windows.append(window)
         return controller
+    }
+
+    private func makeController(
+        text: String,
+        path: String = "/tmp/sample.swift"
+    ) -> CodeDocumentViewController {
+        makeController(
+            snapshot: SourceSnapshot(
+                text: text,
+                url: URL(fileURLWithPath: path)
+            )
+        )
     }
 
     func testInitialHighlightingAppliesLexicalCapturesWithoutBlockingFirstPaint() async throws {
@@ -63,9 +77,15 @@ final class CodeDocumentViewControllerHighlightingTests: XCTestCase {
         await controller.highlightingTask?.value
     }
 
-    func testSkipsHighlightingForSafetyModeFiles() {
+    func testSkipsHighlightingForSafetyModeFiles() throws {
         let oversizedLine = String(repeating: "a", count: 200_001)
-        let controller = makeController(text: oversizedLine)
+        let snapshot = try SourceSnapshotLoader(
+            renderingSafetyPolicy: .codeViewportDefault
+        ).load(
+            data: Data(oversizedLine.utf8),
+            url: URL(fileURLWithPath: "/tmp/sample.swift")
+        )
+        let controller = makeController(snapshot: snapshot)
         XCTAssertNotNil(controller.snapshot.safetyModeReason)
         XCTAssertNil(controller.highlightingTask)
     }

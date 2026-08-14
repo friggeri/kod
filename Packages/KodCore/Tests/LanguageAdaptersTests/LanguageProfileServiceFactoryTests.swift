@@ -18,15 +18,8 @@ final class LanguageProfileServiceFactoryTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
         let identity = try WorkspaceIdentity(root: root)
-        let suiteName =
-            "LanguageProfileServiceFactoryTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(
-                forName: suiteName
-            )
-        }
-        let trustStore = WorkspaceTrustStore(defaults: defaults)
+        let repository = makeLanguageAdaptersTestRepository()
+        let trustStore = WorkspaceTrustStore(repository: repository)
         let executable = try ProfileFakeLanguageServerLocator.executableURL()
         let profile = try LanguageProfile(
             identifier: "widget",
@@ -57,7 +50,9 @@ final class LanguageProfileServiceFactoryTests: XCTestCase {
             for: profile,
             identity: identity,
             trustStore: trustStore,
-            overrideStore: LanguageServerOverrideStore(defaults: defaults),
+            overrideStore: LanguageServerOverrideStore(
+                repository: repository
+            ),
             onDiscovery: { discoveries.append($0) },
             onDiagnostics: { _, values in rawDiagnostics.append(values) },
             onNormalizedDiagnostics: { _, values in diagnostics.append(values) }
@@ -71,9 +66,9 @@ final class LanguageProfileServiceFactoryTests: XCTestCase {
         }
         XCTAssertTrue(discoveries.snapshot().isEmpty)
 
-        trustStore.trust(identity)
+        try trustStore.trust(identity)
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let fileURL = root.appendingPathComponent("sample.widget")
         let snapshot = SourceSnapshot(

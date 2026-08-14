@@ -1,4 +1,5 @@
 import Foundation
+import SettingsCore
 import SourceModel
 import WorkspaceCore
 import XCTest
@@ -138,9 +139,15 @@ final class LanguageProfileRegistryTests: XCTestCase {
         let defaults = makeDefaults()
         let store = try LanguageProfileStore(
             defaultProfiles: [],
-            defaults: defaults
+            repository: defaults
         )
         let registry = LanguageProfileRegistry(store: store)
+        var observedIdentifier: String?
+        let observation = registry.observeChanges {
+            observedIdentifier = registry.resolve(
+                url: URL(fileURLWithPath: "/tmp/example.live")
+            )?.profile.identifier
+        }
         XCTAssertNil(
             registry.resolve(
                 url: URL(fileURLWithPath: "/tmp/example.live")
@@ -165,6 +172,8 @@ final class LanguageProfileRegistryTests: XCTestCase {
             )?.profile.identifier,
             "live"
         )
+        XCTAssertEqual(observedIdentifier, "live")
+        withExtendedLifetime(observation) {}
     }
 
     func testRegisteredExecutablePrecedesAutoDetection() throws {
@@ -193,7 +202,7 @@ final class LanguageProfileRegistryTests: XCTestCase {
         let root = try makeTemporaryDirectory()
         let identity = try WorkspaceIdentity(root: root)
         let overrideStore = makeOverrideStore()
-        overrideStore.setWorkspaceOverride(
+        try overrideStore.setWorkspaceOverride(
             url: URL(fileURLWithPath: "/usr/bin/env"),
             arguments: ["workspace"],
             languageKey: "markdown",
@@ -288,18 +297,14 @@ final class LanguageProfileRegistryTests: XCTestCase {
         )
     }
 
-    private func makeDefaults() -> UserDefaults {
-        let suiteName = "LanguageProfileRegistryTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?
-                .removePersistentDomain(forName: suiteName)
-        }
-        return defaults
+    private func makeDefaults() -> CodableSettingsRepository {
+        CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
     }
 
     private func makeOverrideStore() -> LanguageServerOverrideStore {
-        LanguageServerOverrideStore(defaults: makeDefaults())
+        LanguageServerOverrideStore(repository: makeDefaults())
     }
 
     private func makeTemporaryDirectory() throws -> URL {

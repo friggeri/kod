@@ -1,9 +1,8 @@
 import Foundation
-import WorkspaceCore
 
 /// The main integration surface for Git-derived data: repository
 /// location, status, diff, and blame, each backed by identity-keyed
-/// caching invalidated from the workspace's existing FSEvents pipeline.
+/// caching invalidated by repository change signals from the client.
 /// This is the one type App code needs to hold onto per open workspace.
 public actor GitContext {
     public let location: GitRepositoryLocation
@@ -60,6 +59,10 @@ public actor GitContext {
 
     private func currentIdentity() -> GitRepositoryStateIdentity {
         GitRepositoryStateIdentityComputer.compute(location: location, worktreeGeneration: worktreeGeneration)
+    }
+
+    func repositoryStateIdentity() -> GitRepositoryStateIdentity {
+        currentIdentity()
     }
 
     public func status(useCache: Bool = true) async throws -> GitStatusSnapshot {
@@ -150,16 +153,13 @@ public actor GitContext {
         return result
     }
 
-    /// Wires this context's caches to the workspace's existing FSEvents
-    /// pipeline (`WorkspaceFileWatcher(onBatch:)`). Any non-empty batch —
-    /// a tracked file edited, `.git/HEAD` changed by an external `git
-    /// checkout`, a ref updated, etc. — bumps the worktree generation and
-    /// drops every cached entry, so the next `status()`/`diff()`/
-    /// `blame()` call recomputes rather than serving stale data. This
-    /// only clears Kod's own in-memory cache; it never writes to `.git`
-    /// or the working tree.
-    public func invalidate(for batch: WorkspaceChangeBatch) async {
-        guard !batch.paths.isEmpty else {
+    /// Any non-empty repository change signal bumps the worktree generation
+    /// and drops every cached entry, so the next status, diff, blame, or
+    /// revision-content request recomputes rather than serving stale data.
+    /// This only clears GitCore's in-memory caches; it never writes to the
+    /// repository or working tree.
+    public func invalidate(_ invalidation: GitRepositoryInvalidation) async {
+        guard !invalidation.isEmpty else {
             return
         }
         worktreeGeneration += 1

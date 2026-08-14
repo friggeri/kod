@@ -3,11 +3,51 @@ import LanguageClient
 import WorkspaceCore
 
 public enum LanguageProfileServiceFactory {
+    /// Builds the runtime language-service configuration for `profile`,
+    /// entirely from that profile's persisted/default data. The only
+    /// value not literally present in the profile is the ShellCheck path
+    /// patched in for the shipped `.shellCheckOptional` note, which is
+    /// resolved at launch time and written into the section the profile
+    /// itself declares.
+    static func makeConfiguration(
+        languageServer: LanguageServerConfiguration,
+        profile: LanguageProfile,
+        shellCheckURL: @Sendable () -> URL? = { ShellCheckSupport.discoverShellCheck() }
+    ) -> LanguageWorkspaceService.Configuration {
+        var workspaceConfiguration = languageServer.workspaceConfiguration
+        if languageServer.supportNotes.contains(.shellCheckOptional) {
+            workspaceConfiguration = ShellCheckSupport
+                .resolvedWorkspaceConfiguration(
+                    workspaceConfiguration,
+                    shellCheckURL: shellCheckURL()
+                )
+        }
+        return LanguageWorkspaceService.Configuration(
+            languageId: languageServer.defaultLanguageID,
+            languageIdForURL: { url in
+                languageID(
+                    for: url,
+                    profile: profile,
+                    configuration: languageServer
+                )
+            },
+            semanticTokenTypes: languageServer.semanticTokenTypes,
+            semanticTokenModifiers: languageServer.semanticTokenModifiers,
+            initializationOptions: languageServer.initializationOptions,
+            workspaceConfiguration: workspaceConfiguration
+        )
+    }
+
     public static func makeService(
         for profile: LanguageProfile,
         identity: WorkspaceIdentity,
         trustStore: WorkspaceTrustStore,
         overrideStore: LanguageServerOverrideStore,
+        /// Identity bound into every cross-file result this service
+        /// produces. Defaults to a fresh instance of the profile's logical
+        /// identity, so replacing a service always invalidates the handles
+        /// its predecessor handed out.
+        providerID: LanguageProviderID? = nil,
         onDiscovery: @escaping @Sendable (DiscoveredExecutable) -> Void = {
             _ in
         },
@@ -23,7 +63,13 @@ public enum LanguageProfileServiceFactory {
         ) -> Void = { _, _ in },
         onWorkspaceDiagnosticsFailure: @escaping @Sendable (String) -> Void = {
             _ in
-        }
+        },
+        /// Reports documents a relaunched server could not be
+        /// resynchronized with; the service never claims `.ready` for a
+        /// generation whose replay failed.
+        onDocumentReplayFailure: @escaping @Sendable (
+            [LanguageDocumentReplayFailure]
+        ) -> Void = { _ in }
     ) throws -> LanguageWorkspaceService {
         let profile = try profile.validated()
         guard let languageServer = profile.languageServer else {
@@ -32,30 +78,15 @@ public enum LanguageProfileServiceFactory {
             )
         }
 
-        var workspaceConfiguration = languageServer.workspaceConfiguration
-        if languageServer.supportNotes.contains(.shellCheckOptional) {
-            workspaceConfiguration = ShellLanguageAdapter.configuration(
-                shellCheckURL: ShellLanguageAdapter.discoverShellCheck()
-            )
-        }
-
         let discoveredLaunch = ProfileDiscoveredLaunchBox()
+        let resolvedProviderID = providerID
+            ?? LanguageProviderID(profileIdentifier: profile.identifier)
         return LanguageWorkspaceService(
-            identity: identity,
-            trustStore: trustStore,
-            configuration: LanguageWorkspaceService.Configuration(
-                languageId: languageServer.defaultLanguageID,
-                languageIdForURL: { url in
-                    languageID(
-                        for: url,
-                        profile: profile,
-                        configuration: languageServer
-                    )
-                },
-                semanticTokenTypes: languageServer.semanticTokenTypes,
-                semanticTokenModifiers: languageServer.semanticTokenModifiers,
-                initializationOptions: languageServer.initializationOptions,
-                workspaceConfiguration: workspaceConfiguration
+            workspaceRoot: identity.root,
+            authorization: .workspaceTrust(trustStore, identity: identity),
+            configuration: makeConfiguration(
+                languageServer: languageServer,
+                profile: profile
             ),
             dependencies: LanguageWorkspaceService.Dependencies(
                 discoverExecutable: {
@@ -86,10 +117,12 @@ public enum LanguageProfileServiceFactory {
                     )
                 }
             ),
+            providerID: resolvedProviderID,
             onStateChange: onStateChange,
             onDiagnostics: onDiagnostics,
             onNormalizedDiagnostics: onNormalizedDiagnostics,
-            onWorkspaceDiagnosticsFailure: onWorkspaceDiagnosticsFailure
+            onWorkspaceDiagnosticsFailure: onWorkspaceDiagnosticsFailure,
+            onDocumentReplayFailure: onDocumentReplayFailure
         )
     }
 

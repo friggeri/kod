@@ -67,6 +67,72 @@ public struct WorkspaceChangeBatch: Sendable {
     }
 }
 
+public enum WorkspaceFileWatcherError: Error, Equatable, Sendable {
+    case streamCreationFailed
+    case streamStartFailed
+}
+
+/// Injectable FSEvents operations for testing.
+struct FSEventsOperations: @unchecked Sendable {
+    var create: (
+        CFAllocator?,
+        @convention(c) (
+            ConstFSEventStreamRef,
+            UnsafeMutableRawPointer?,
+            Int,
+            UnsafeMutableRawPointer,
+            UnsafePointer<FSEventStreamEventFlags>,
+            UnsafePointer<FSEventStreamEventId>
+        ) -> Void,
+        UnsafeMutablePointer<FSEventStreamContext>?,
+        CFArray,
+        FSEventStreamEventId,
+        CFTimeInterval,
+        FSEventStreamCreateFlags
+    ) -> FSEventStreamRef?
+
+    var start: (FSEventStreamRef) -> Bool
+    var setDispatchQueue: (FSEventStreamRef, DispatchQueue?) -> Void
+    var stop: (FSEventStreamRef) -> Void
+    var invalidate: (FSEventStreamRef) -> Void
+    var release: (FSEventStreamRef) -> Void
+}
+
+extension FSEventsOperations {
+    static let live = FSEventsOperations(
+        create: { alloc, cb, ctx, paths, since, latency, flags in
+            FSEventStreamCreate(alloc, cb, ctx, paths, since, latency, flags)
+        },
+        start: { FSEventStreamStart($0) },
+        setDispatchQueue: { FSEventStreamSetDispatchQueue($0, $1) },
+        stop: { FSEventStreamStop($0) },
+        invalidate: { FSEventStreamInvalidate($0) },
+        release: { FSEventStreamRelease($0) }
+    )
+}
+
+struct TimerToken: Sendable {
+    let cancel: @Sendable () -> Void
+}
+
+struct TimerOperations: @unchecked Sendable {
+    var schedule: @Sendable (
+        _ interval: TimeInterval,
+        _ queue: DispatchQueue,
+        _ handler: @escaping @Sendable () -> Void
+    ) -> TimerToken
+}
+
+extension TimerOperations {
+    static let live = TimerOperations { interval, queue, handler in
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + interval)
+        timer.setEventHandler(handler: handler)
+        timer.resume()
+        return TimerToken { timer.cancel() }
+    }
+}
+
 /// Watches one workspace root for filesystem changes via FSEvents,
 /// coalescing bursts of individual events (e.g. many files touched by a
 /// single `git checkout` or build) into a single batch delivered after a
@@ -83,10 +149,12 @@ public final class WorkspaceFileWatcher: @unchecked Sendable {
     private let coalescingWindow: TimeInterval
     private let onBatch: @Sendable (WorkspaceChangeBatch) -> Void
     private let queue = DispatchQueue(label: "com.kod.WorkspaceFileWatcher")
+    private let queueKey = DispatchSpecificKey<Void>()
 
-    private var stream: FSEventStreamRef?
-    private var pendingPaths: [String: WorkspaceChangeFlags] = [:]
-    private var coalescingTimer: DispatchSourceTimer?
+    var fsEvents: FSEventsOperations = .live
+    var timerOps: TimerOperations = .live
+
+    private var lifecycle: StreamLifecycle?
 
     public init(
         root: URL,
@@ -96,29 +164,46 @@ public final class WorkspaceFileWatcher: @unchecked Sendable {
         self.root = root
         self.coalescingWindow = coalescingWindow
         self.onBatch = onBatch
+        self.queue.setSpecific(key: queueKey, value: ())
     }
 
     deinit {
-        if let stream {
-            FSEventStreamStop(stream)
-            FSEventStreamInvalidate(stream)
-            FSEventStreamRelease(stream)
+        stop()
+    }
+
+    private func runOnQueue<T>(_ block: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return try block()
+        } else {
+            return try queue.sync(execute: block)
         }
     }
 
     /// Starts watching. No-op if already started. Must be balanced with
     /// `stop()` (or deinit) to release the underlying FSEvents stream.
-    public func start() {
-        queue.sync {
-            guard stream == nil else {
+    public func start() throws {
+        try runOnQueue {
+            guard lifecycle == nil else {
                 return
             }
 
+            let newLifecycle = StreamLifecycle(
+                queue: queue,
+                coalescingWindow: coalescingWindow,
+                onBatch: onBatch,
+                fsEvents: fsEvents,
+                timerOps: timerOps
+            )
+
+            let info = Unmanaged.passRetained(newLifecycle)
             var context = FSEventStreamContext(
                 version: 0,
-                info: Unmanaged.passUnretained(self).toOpaque(),
+                info: info.toOpaque(),
                 retain: nil,
-                release: nil,
+                release: { ptr in
+                    guard let ptr else { return }
+                    Unmanaged<StreamLifecycle>.fromOpaque(ptr).release()
+                },
                 copyDescription: nil
             )
 
@@ -128,14 +213,12 @@ public final class WorkspaceFileWatcher: @unchecked Sendable {
                     | kFSEventStreamCreateFlagUseCFTypes
             )
 
-            guard let newStream = FSEventStreamCreate(
+            guard let newStream = fsEvents.create(
                 kCFAllocatorDefault,
-                { _, info, count, paths, eventFlags, _ in
-                    guard let info else {
-                        return
-                    }
-                    let watcher = Unmanaged<WorkspaceFileWatcher>.fromOpaque(info).takeUnretainedValue()
-                    watcher.handleRawEvent(count: count, paths: paths, eventFlags: eventFlags)
+                { _, infoPtr, count, paths, eventFlags, _ in
+                    guard let infoPtr else { return }
+                    let lc = Unmanaged<StreamLifecycle>.fromOpaque(infoPtr).takeUnretainedValue()
+                    lc.handleRawEvent(count: count, paths: paths, eventFlags: eventFlags)
                 },
                 &context,
                 [root.path] as CFArray,
@@ -143,73 +226,133 @@ public final class WorkspaceFileWatcher: @unchecked Sendable {
                 0,
                 flags
             ) else {
-                return
+                info.release()
+                throw WorkspaceFileWatcherError.streamCreationFailed
             }
 
-            FSEventStreamSetDispatchQueue(newStream, queue)
-            FSEventStreamStart(newStream)
-            stream = newStream
+            newLifecycle.stream = newStream
+            fsEvents.setDispatchQueue(newStream, queue)
+
+            if !fsEvents.start(newStream) {
+                // By calling fsEvents.release here, the context's release block is invoked,
+                // which balances the `Unmanaged.passRetained(newLifecycle)`.
+                fsEvents.invalidate(newStream)
+                fsEvents.release(newStream)
+                throw WorkspaceFileWatcherError.streamStartFailed
+            }
+
+            self.lifecycle = newLifecycle
         }
     }
 
     /// Stops watching and releases the FSEvents stream. Safe to call more
     /// than once, and safe to never call if the watcher is simply deinited.
     public func stop() {
-        queue.sync {
+        runOnQueue {
+            lifecycle?.stop()
+            lifecycle = nil
+        }
+    }
+
+    func deliverRawEventForTesting(
+        paths: [String],
+        flags: [FSEventStreamEventFlags]
+    ) {
+        runOnQueue {
+            guard let lifecycle,
+                  !paths.isEmpty,
+                  paths.count == flags.count else {
+                return
+            }
+            let pathsArray = paths as CFArray
+            flags.withUnsafeBufferPointer { flagBuffer in
+                guard let eventFlags = flagBuffer.baseAddress else {
+                    return
+                }
+                lifecycle.handleRawEvent(
+                    count: paths.count,
+                    paths: Unmanaged.passUnretained(pathsArray).toOpaque(),
+                    eventFlags: eventFlags
+                )
+            }
+        }
+    }
+
+    private final class StreamLifecycle: @unchecked Sendable {
+        let queue: DispatchQueue
+        let coalescingWindow: TimeInterval
+        let onBatch: @Sendable (WorkspaceChangeBatch) -> Void
+        let fsEvents: FSEventsOperations
+        let timerOps: TimerOperations
+
+        var stream: FSEventStreamRef?
+        var pendingPaths: [String: WorkspaceChangeFlags] = [:]
+        var coalescingTimer: TimerToken?
+        var isStopped = false
+
+        init(
+            queue: DispatchQueue,
+            coalescingWindow: TimeInterval,
+            onBatch: @escaping @Sendable (WorkspaceChangeBatch) -> Void,
+            fsEvents: FSEventsOperations,
+            timerOps: TimerOperations
+        ) {
+            self.queue = queue
+            self.coalescingWindow = coalescingWindow
+            self.onBatch = onBatch
+            self.fsEvents = fsEvents
+            self.timerOps = timerOps
+        }
+
+        func handleRawEvent(
+            count: Int,
+            paths: UnsafeMutableRawPointer,
+            eventFlags: UnsafePointer<FSEventStreamEventFlags>
+        ) {
+            guard !isStopped else { return }
+            guard let cfArray = Unmanaged<CFArray>.fromOpaque(paths).takeUnretainedValue() as? [String] else {
+                return
+            }
+
+            for index in 0..<count {
+                let path = cfArray[index]
+                let flags = WorkspaceChangeFlags(fsEventFlags: eventFlags[index])
+                pendingPaths[path, default: []].formUnion(flags)
+            }
+
+            scheduleFlush()
+        }
+
+        private func scheduleFlush() {
+            coalescingTimer?.cancel()
+            coalescingTimer = timerOps.schedule(coalescingWindow, queue) { [weak self] in
+                self?.flush()
+            }
+        }
+
+        private func flush() {
+            coalescingTimer = nil
+            guard !isStopped, !pendingPaths.isEmpty else { return }
+            let batch = WorkspaceChangeBatch(
+                paths: pendingPaths.map { WorkspaceChangePath(path: $0.key, flags: $0.value) }
+                    .sorted { $0.path < $1.path }
+            )
+            pendingPaths.removeAll()
+            onBatch(batch)
+        }
+
+        func stop() {
+            guard !isStopped else { return }
+            isStopped = true
             coalescingTimer?.cancel()
             coalescingTimer = nil
             pendingPaths.removeAll()
             if let stream {
-                FSEventStreamStop(stream)
-                FSEventStreamInvalidate(stream)
-                FSEventStreamRelease(stream)
+                fsEvents.stop(stream)
+                fsEvents.invalidate(stream)
+                fsEvents.release(stream)
+                self.stream = nil
             }
-            stream = nil
         }
-    }
-
-    /// Always invoked on `queue` (the same queue FSEvents delivers the C
-    /// callback on, via `FSEventStreamSetDispatchQueue`), so mutating
-    /// `pendingPaths`/`coalescingTimer` here needs no additional locking.
-    private func handleRawEvent(
-        count: Int,
-        paths: UnsafeMutableRawPointer,
-        eventFlags: UnsafePointer<FSEventStreamEventFlags>
-    ) {
-        guard let cfArray = Unmanaged<CFArray>.fromOpaque(paths).takeUnretainedValue() as? [String] else {
-            return
-        }
-
-        for index in 0..<count {
-            let path = cfArray[index]
-            let flags = WorkspaceChangeFlags(fsEventFlags: eventFlags[index])
-            pendingPaths[path, default: []].formUnion(flags)
-        }
-
-        scheduleFlush()
-    }
-
-    private func scheduleFlush() {
-        coalescingTimer?.cancel()
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + coalescingWindow)
-        timer.setEventHandler { [weak self] in
-            self?.flush()
-        }
-        coalescingTimer = timer
-        timer.resume()
-    }
-
-    private func flush() {
-        coalescingTimer = nil
-        guard !pendingPaths.isEmpty else {
-            return
-        }
-        let batch = WorkspaceChangeBatch(
-            paths: pendingPaths.map { WorkspaceChangePath(path: $0.key, flags: $0.value) }
-                .sorted { $0.path < $1.path }
-        )
-        pendingPaths.removeAll()
-        onBatch(batch)
     }
 }

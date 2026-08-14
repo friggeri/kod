@@ -1,4 +1,5 @@
 import AppKit
+import SourceIO
 import SourceModel
 import XCTest
 @testable import CodeViewport
@@ -94,9 +95,14 @@ final class CodeViewportTests: XCTestCase {
     }
 
     @MainActor
-    func testWordWrapIsIgnoredForSafetyModeFiles() {
+    func testWordWrapIsIgnoredForSafetyModeFiles() throws {
         let oversizedLine = String(repeating: "a", count: 200_001)
-        let snapshot = SourceSnapshot(text: oversizedLine)
+        let snapshot = try SourceSnapshotLoader(
+            renderingSafetyPolicy: .codeViewportDefault
+        ).load(
+            data: Data(oversizedLine.utf8),
+            url: URL(fileURLWithPath: "/oversized.swift")
+        )
         XCTAssertNotNil(snapshot.safetyModeReason)
 
         let viewport = CodeViewport(snapshot: snapshot)
@@ -253,7 +259,7 @@ final class CodeViewportTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            CodeViewport.gitMarkerRect(
+            GutterModel.markerRect(
                 in: lanes.gitStatus,
                 layer: .primary,
                 y: 0,
@@ -262,7 +268,7 @@ final class CodeViewportTests: XCTestCase {
             4
         )
         XCTAssertEqual(
-            CodeViewport.gitMarkerRect(
+            GutterModel.markerRect(
                 in: lanes.gitStatus,
                 layer: .secondary,
                 y: 0,

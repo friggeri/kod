@@ -1,4 +1,5 @@
 import Foundation
+import SettingsCore
 
 /// Every network call Kod ever makes must be attributable to one of these
 /// purposes in the UI/model (SPEC 13.3: "Network activity is attributable
@@ -26,8 +27,8 @@ public enum NetworkAttribution: String, Sendable, Equatable, Codable, CaseIterab
 /// Opt-in crash reporting settings (SPEC 13.3: "Crash reporting is
 /// opt-in."). `isEnabled` defaults to `false` and nothing in this package
 /// ever flips it on programmatically — only an explicit, user-driven
-/// settings action may do so. Persisted via `UserDefaults` like Kod's other
-/// external metadata (SPEC 11.7).
+/// settings action may do so. Persisted through the injected SettingsCore
+/// repository like Kod's other external metadata (SPEC 11.7).
 public struct CrashReportingSettings: Sendable, Equatable, Codable {
     public var isEnabled: Bool
 
@@ -38,35 +39,34 @@ public struct CrashReportingSettings: Sendable, Equatable, Codable {
 
 @MainActor
 public final class CrashReportingSettingsStore {
-    private let defaults: UserDefaults
-    private let key = "kod.diagnostics.crash-reporting-settings"
+    private static let setting = CodableSetting<CrashReportingSettings>(
+        key: "kod.diagnostics.crash-reporting-settings",
+        currentVersion: 1,
+        migrations: [
+            .unversionedCodable(CrashReportingSettings.self) { $0 }
+        ]
+    )
+    private let repository: CodableSettingsRepository
 
-    public init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+    public init(repository: CodableSettingsRepository) {
+        self.repository = repository
     }
 
-    /// Loads current settings. A corrupt/undecodable stored value is
-    /// treated as "not enabled" (the safe default for an opt-in privacy
-    /// setting) and is quarantined via `CorruptStateQuarantine` rather than
-    /// silently discarded, so it remains visible for diagnosis. `quarantine`
-    /// defaults to one backed by this store's own `defaults` (not global
-    /// `.standard`), so a store constructed against a test/custom
-    /// `UserDefaults` suite quarantines against that same suite.
-    public func load(quarantine: CorruptStateQuarantine? = nil) -> CrashReportingSettings {
-        let quarantine = quarantine ?? CorruptStateQuarantine(defaults: defaults)
-        switch quarantine.decode(CrashReportingSettings.self, forKey: key) {
-        case .restored(let settings):
-            return settings
-        case .absent, .quarantined:
-            return CrashReportingSettings()
-        }
+    public func load(
+    ) throws(SettingsRepositoryError) -> SettingsLoadOutcome<CrashReportingSettings> {
+        try repository.read(Self.setting)
     }
 
-    public func save(_ settings: CrashReportingSettings) {
-        guard let data = try? JSONEncoder().encode(settings) else {
-            preconditionFailure("CrashReportingSettings must always be encodable")
-        }
-        defaults.set(data, forKey: key)
+    public func save(
+        _ settings: CrashReportingSettings
+    ) throws(SettingsRepositoryError) {
+        try repository.write(settings, to: Self.setting)
+    }
+
+    public func observeChanges(
+        _ observer: @escaping @Sendable (SettingsChange) -> Void
+    ) -> SettingsObservation {
+        repository.observe(Self.setting, observer)
     }
 }
 
@@ -127,7 +127,7 @@ public final class CrashReportUploadCoordinator {
     private let transport: any CrashReportTransport
 
     public init(
-        settingsStore: CrashReportingSettingsStore = CrashReportingSettingsStore(),
+        settingsStore: CrashReportingSettingsStore,
         transport: any CrashReportTransport = NoopCrashReportTransport()
     ) {
         self.settingsStore = settingsStore
@@ -137,7 +137,14 @@ public final class CrashReportUploadCoordinator {
     /// Sends `report` only if the user has opted in; otherwise throws
     /// `.reportingDisabled` without ever touching `transport`.
     public func upload(_ report: CrashReport) async throws {
-        guard settingsStore.load().isEnabled else {
+        let isEnabled: Bool
+        switch try settingsStore.load() {
+        case .value(let settings, _):
+            isEnabled = settings.isEnabled
+        case .absent, .quarantined:
+            isEnabled = false
+        }
+        guard isEnabled else {
             throw CrashReportUploadError.reportingDisabled
         }
         try await transport.send(report, attribution: .crashReport)

@@ -77,28 +77,28 @@ ship or install that server.
 - **None of `vscode-html-language-server`, `vscode-css-language-server`,
   or `pyright-langserver` respond to `--version`** (or any invocation
   without a transport flag) — they error out immediately with "Connection
-  input stream is not set." `HTMLLanguageAdapter`/`CSSLanguageAdapter`/
-  `PythonLanguageAdapter` therefore pass `versionArguments: nil` and rely
-  on this compatibility matrix (plus the `initialize` handshake itself)
-  rather than a standalone version probe for those three adapters.
-- **No adapter in this pin set advertises `typeHierarchyProvider`.** Kod's
+  input stream is not set." The shipped `html`/`css`/`python` language
+  profiles therefore declare `versionArguments: nil` on their executable
+  candidates and rely on this compatibility matrix (plus the `initialize`
+  handshake itself) rather than a standalone version probe.
+- **No server in this pin set advertises `typeHierarchyProvider`.** Kod's
   type hierarchy surface (`HierarchyViewController` with "Supertypes"/
   "Subtypes" modes) is implemented and protocol/capability-tested against
   `FakeLanguageServer`, but has no currently-pinned real server to
   exercise it against end-to-end; it is capability-gated off for every
-  adapter here exactly as the no-silent-fallback design requires.
+  server here exactly as the no-silent-fallback design requires.
 - **`rust-analyzer` in this environment is only reachable via a rustup
   component** (`rustup component add rust-analyzer`), not the
   `~/.cargo/bin/rust-analyzer` shim some environments use to reach a
-  standalone binary directly — `RustLanguageAdapter`'s language-specific
-  discovery probe (`rustup which rust-analyzer`) reflects this.
+  standalone binary directly — the `rust` profile's language-specific
+  discovery strategy (`rustup which rust-analyzer`) reflects this.
 - **Tombi returns JSON `null` for valid empty `textDocument/references` and
   `textDocument/documentLink` responses.** Both methods permit `null` in LSP
   3.17. Kod now decodes those responses as empty result sets rather than
   treating them as a broken connection.
 
 Re-run this check (temporarily add an ad hoc test that logs
-`await service.capabilities()` for the adapter in question — see how
+`await service.capabilities()` for the server in question — see how
 each `*LanguageAdapterIntegrationTests` file already asserts on specific
 capability fields) after bumping any pin in
 `Scripts/vendor-test-language-servers/manifest.json`, and update this

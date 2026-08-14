@@ -16,6 +16,7 @@ final class SymbolsViewControllerTests: XCTestCase {
     func testRunningASearchPopulatesResultsFromTheProvidedSearchClosure() throws {
         let expectation = expectation(description: "search ran")
         let symbol = WorkspaceSymbolLocation(
+            provider: LanguageProviderFixtures.binding(),
             url: URL(fileURLWithPath: "/workspace/Sources/Foo.swift"),
             range: LSPRange(start: LSPPosition(line: 0, character: 0), end: LSPPosition(line: 0, character: 3)),
             name: "Foo",
@@ -49,6 +50,7 @@ final class SymbolsViewControllerTests: XCTestCase {
     func testSelectingASymbolInvokesTheSelectionCallback() throws {
         var selected: WorkspaceSymbolLocation?
         let symbol = WorkspaceSymbolLocation(
+            provider: LanguageProviderFixtures.binding(),
             url: URL(fileURLWithPath: "/workspace/Sources/Foo.swift"),
             range: LSPRange(start: LSPPosition(line: 1, character: 0), end: LSPPosition(line: 1, character: 3)),
             name: "Foo",
@@ -79,6 +81,7 @@ final class SymbolsViewControllerTests: XCTestCase {
     func testRefreshLoadsSymbolsWithAnEmptyWorkspaceQuery() throws {
         let expectation = expectation(description: "empty search ran")
         let symbol = WorkspaceSymbolLocation(
+            provider: LanguageProviderFixtures.binding(),
             url: URL(fileURLWithPath: "/workspace/Sources/Foo.swift"),
             range: LSPRange(
                 start: LSPPosition(line: 0, character: 0),

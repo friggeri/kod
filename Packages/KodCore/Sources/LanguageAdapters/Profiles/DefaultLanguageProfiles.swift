@@ -1,6 +1,14 @@
 import LanguageClient
 import SyntaxCore
 
+/// The single, shipped source of Kod's default language configuration:
+/// file associations, syntax mapping, LSP language IDs, executable
+/// candidates and their discovery strategies, semantic token legends,
+/// workspace configuration, network access, and support notes all live
+/// here once. `LanguageProfileStore` persists these values, and every
+/// runtime consumer (registry, discovery engine, service factory,
+/// installation guides) reads them back rather than holding a second
+/// static copy.
 public enum DefaultLanguageProfiles {
     public static let all: [LanguageProfile] = [
         swift,
@@ -251,9 +259,14 @@ public enum DefaultLanguageProfiles {
                     arguments: ["start"]
                 )
             ],
-            workspaceConfiguration: ShellLanguageAdapter.configuration(
-                shellCheckURL: nil
-            ),
+            workspaceConfiguration: [
+                "bashIde": .object([
+                    // Filled in from the resolved absolute path at launch
+                    // time by `ShellCheckSupport`; shfmt stays disabled.
+                    "shellcheckPath": .string(""),
+                    "shfmt": .object(["path": .string("")])
+                ])
+            ],
             supportNotes: [.shellCheckOptional]
         )
     )
@@ -307,7 +320,11 @@ public enum DefaultLanguageProfiles {
                     versionArguments: nil
                 )
             ],
-            workspaceConfiguration: JSONLanguageAdapter.workspaceConfiguration,
+            workspaceConfiguration: [
+                "json": .object([
+                    "validate": .object(["enable": .bool(true)])
+                ])
+            ],
             networkAccess: .remoteSchemasAfterWorkspaceTrust
         )
     )
@@ -334,7 +351,13 @@ public enum DefaultLanguageProfiles {
                     versionArguments: nil
                 )
             ],
-            workspaceConfiguration: YAMLLanguageAdapter.workspaceConfiguration,
+            workspaceConfiguration: [
+                "yaml": .object([
+                    "validate": .bool(true),
+                    "hover": .bool(true),
+                    "schemaStore": .object(["enable": .bool(true)])
+                ])
+            ],
             networkAccess: .remoteSchemasAfterWorkspaceTrust
         )
     )

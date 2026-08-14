@@ -50,18 +50,10 @@ public enum SourceLineEnding: String, Equatable, Sendable {
 public enum SourceSafetyModeReason: Equatable, Sendable {
     case fileSize(Int)
     case lineLength(Int)
-
-    public var message: String {
-        switch self {
-        case .fileSize(let size):
-            "Safety mode: this file is \(size) bytes, above the 10 MB full-fidelity limit."
-        case .lineLength(let length):
-            "Safety mode: this file contains a line longer than \(length) UTF-8 bytes."
-        }
-    }
 }
 
-public enum LSPPositionEncoding: Equatable, Sendable {
+/// The code-unit representation used by a line/character coordinate.
+public enum SourcePositionEncoding: Equatable, Sendable {
     case utf8
     case utf16
 }
@@ -77,13 +69,30 @@ public struct SourcePosition: Equatable, Sendable {
 }
 
 public enum SourceSnapshotError: Error, Equatable {
-    case notRegularFile(URL)
-    case unsupportedEncoding(URL)
     case invalidLine(Int)
     case invalidCharacter(line: Int, character: Int)
     case invalidUTF8Offset(Int)
     case invalidCharacterBoundary(Int)
     case fallbackEncodingFailed(UInt)
+}
+
+public struct SourceDecodingResult: Equatable, Sendable {
+    public let encoding: SourceEncoding
+    public let text: String
+    public let normalizedUTF8: Data
+    public let hadByteOrderMark: Bool
+
+    public init(
+        encoding: SourceEncoding,
+        text: String,
+        normalizedUTF8: Data,
+        hadByteOrderMark: Bool
+    ) {
+        self.encoding = encoding
+        self.text = text
+        self.normalizedUTF8 = normalizedUTF8
+        self.hadByteOrderMark = hadByteOrderMark
+    }
 }
 
 public struct SourceSnapshot: Sendable {
@@ -94,6 +103,7 @@ public struct SourceSnapshot: Sendable {
     public let encoding: SourceEncoding
     public let lineEnding: SourceLineEnding
     public let text: String
+    /// An immutable rendering decision supplied by the snapshot producer.
     public let safetyModeReason: SourceSafetyModeReason?
 
     private let normalizedUTF8: Data
@@ -129,10 +139,7 @@ public struct SourceSnapshot: Sendable {
         self.encoding = .utf8
         self.lineEnding = index.lineEnding
         self.text = text
-        self.safetyModeReason = Self.safetyMode(
-            fileSize: utf8.count,
-            longestLine: index.longestLineLength
-        )
+        self.safetyModeReason = nil
         self.normalizedUTF8 = utf8
         self.lineStarts = index.starts
         self.lineEnds = index.ends
@@ -140,34 +147,29 @@ public struct SourceSnapshot: Sendable {
         self.hadByteOrderMark = false
     }
 
-    fileprivate init(
+    public init(
         url: URL,
         version: Int,
         originalData: Data,
         modificationDate: Date?,
-        encoding: SourceEncoding,
-        text: String,
-        normalizedUTF8: Data,
-        hadByteOrderMark: Bool
+        decoding: SourceDecodingResult,
+        safetyModeReason: SourceSafetyModeReason? = nil
     ) {
-        let index = SourceLineIndex(utf8: normalizedUTF8)
+        let index = SourceLineIndex(utf8: decoding.normalizedUTF8)
 
         self.url = url
         self.version = version
         self.originalData = originalData
         self.modificationDate = modificationDate
-        self.encoding = encoding
+        self.encoding = decoding.encoding
         self.lineEnding = index.lineEnding
-        self.text = text
-        self.safetyModeReason = Self.safetyMode(
-            fileSize: originalData.count,
-            longestLine: index.longestLineLength
-        )
-        self.normalizedUTF8 = normalizedUTF8
+        self.text = decoding.text
+        self.safetyModeReason = safetyModeReason
+        self.normalizedUTF8 = decoding.normalizedUTF8
         self.lineStarts = index.starts
         self.lineEnds = index.ends
         self.longestLineLength = index.longestLineLength
-        self.hadByteOrderMark = hadByteOrderMark
+        self.hadByteOrderMark = decoding.hadByteOrderMark
     }
 
     /// The full normalized UTF-8 byte buffer backing this snapshot. Exposed
@@ -205,7 +207,7 @@ public struct SourceSnapshot: Sendable {
 
     public func utf8Offset(
         for position: SourcePosition,
-        encoding positionEncoding: LSPPositionEncoding
+        encoding positionEncoding: SourcePositionEncoding
     ) throws -> Int {
         guard let range = utf8RangeForLine(position.line) else {
             throw SourceSnapshotError.invalidLine(position.line)
@@ -258,7 +260,7 @@ public struct SourceSnapshot: Sendable {
 
     public func position(
         forUTF8Offset offset: Int,
-        encoding positionEncoding: LSPPositionEncoding
+        encoding positionEncoding: SourcePositionEncoding
     ) throws -> SourcePosition {
         guard offset >= 0, offset <= normalizedUTF8.count else {
             throw SourceSnapshotError.invalidUTF8Offset(offset)
@@ -399,167 +401,6 @@ public struct SourceSnapshot: Sendable {
         return normalizedUTF8[offset] & 0b1100_0000 != 0b1000_0000
     }
 
-    private static func safetyMode(
-        fileSize: Int,
-        longestLine: Int
-    ) -> SourceSafetyModeReason? {
-        let fullFidelityLimit = 10 * 1_024 * 1_024
-        if fileSize > fullFidelityLimit {
-            return .fileSize(fileSize)
-        }
-        if longestLine > 100_000 {
-            return .lineLength(longestLine)
-        }
-        return nil
-    }
-}
-
-public struct SourceSnapshotLoader: Sendable {
-    private let fileSystem: any ReadOnlyFileSystem
-
-    public init(fileSystem: any ReadOnlyFileSystem = LocalReadOnlyFileSystem()) {
-        self.fileSystem = fileSystem
-    }
-
-    public func load(
-        url: URL,
-        version: Int = 1,
-        fallbackEncodingRawValue: UInt? = nil
-    ) throws -> SourceSnapshot {
-        let payload = try fileSystem.readFile(at: url)
-        return try load(
-            data: payload.data,
-            url: url,
-            version: version,
-            modificationDate: payload.modificationDate,
-            fallbackEncodingRawValue: fallbackEncodingRawValue
-        )
-    }
-
-    /// Decodes virtual or revision content with precisely the same BOM,
-    /// encoding, line-ending, and safety handling as filesystem content.
-    public func load(
-        data: Data,
-        url: URL,
-        version: Int = 1,
-        modificationDate: Date? = nil,
-        fallbackEncodingRawValue: UInt? = nil
-    ) throws -> SourceSnapshot {
-        let decoded = try SourceDecoder.decode(
-            data,
-            url: url,
-            fallbackEncodingRawValue: fallbackEncodingRawValue
-        )
-
-        return SourceSnapshot(
-            url: url,
-            version: version,
-            originalData: data,
-            modificationDate: modificationDate,
-            encoding: decoded.encoding,
-            text: decoded.text,
-            normalizedUTF8: decoded.normalizedUTF8,
-            hadByteOrderMark: decoded.hadByteOrderMark
-        )
-    }
-}
-
-private struct DecodedSource {
-    let encoding: SourceEncoding
-    let text: String
-    let normalizedUTF8: Data
-    let hadByteOrderMark: Bool
-}
-
-private enum SourceDecoder {
-    static func decode(
-        _ data: Data,
-        url: URL,
-        fallbackEncodingRawValue: UInt?
-    ) throws -> DecodedSource {
-        let bytes = Array(data.prefix(4))
-
-        if bytes.starts(with: [0x00, 0x00, 0xFE, 0xFF]) {
-            return try decodeMarked(
-                data,
-                markLength: 4,
-                stringEncoding: .utf32BigEndian,
-                sourceEncoding: .utf32BigEndian
-            )
-        }
-        if bytes.starts(with: [0xFF, 0xFE, 0x00, 0x00]) {
-            return try decodeMarked(
-                data,
-                markLength: 4,
-                stringEncoding: .utf32LittleEndian,
-                sourceEncoding: .utf32LittleEndian
-            )
-        }
-        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) {
-            return try decodeMarked(
-                data,
-                markLength: 3,
-                stringEncoding: .utf8,
-                sourceEncoding: .utf8
-            )
-        }
-        if bytes.starts(with: [0xFE, 0xFF]) {
-            return try decodeMarked(
-                data,
-                markLength: 2,
-                stringEncoding: .utf16BigEndian,
-                sourceEncoding: .utf16BigEndian
-            )
-        }
-        if bytes.starts(with: [0xFF, 0xFE]) {
-            return try decodeMarked(
-                data,
-                markLength: 2,
-                stringEncoding: .utf16LittleEndian,
-                sourceEncoding: .utf16LittleEndian
-            )
-        }
-        if let text = String(data: data, encoding: .utf8) {
-            return DecodedSource(
-                encoding: .utf8,
-                text: text,
-                normalizedUTF8: data,
-                hadByteOrderMark: false
-            )
-        }
-        if let fallbackEncodingRawValue {
-            let stringEncoding = String.Encoding(rawValue: fallbackEncodingRawValue)
-            if let text = String(data: data, encoding: stringEncoding) {
-                return DecodedSource(
-                    encoding: .fallback(rawValue: fallbackEncodingRawValue),
-                    text: text,
-                    normalizedUTF8: Data(text.utf8),
-                    hadByteOrderMark: false
-                )
-            }
-            throw SourceSnapshotError.fallbackEncodingFailed(fallbackEncodingRawValue)
-        }
-
-        throw SourceSnapshotError.unsupportedEncoding(url)
-    }
-
-    private static func decodeMarked(
-        _ data: Data,
-        markLength: Int,
-        stringEncoding: String.Encoding,
-        sourceEncoding: SourceEncoding
-    ) throws -> DecodedSource {
-        let content = Data(data.dropFirst(markLength))
-        guard let text = String(data: content, encoding: stringEncoding) else {
-            throw SourceSnapshotError.fallbackEncodingFailed(stringEncoding.rawValue)
-        }
-        return DecodedSource(
-            encoding: sourceEncoding,
-            text: text,
-            normalizedUTF8: sourceEncoding == .utf8 ? content : Data(text.utf8),
-            hadByteOrderMark: true
-        )
-    }
 }
 
 private struct SourceLineIndex {

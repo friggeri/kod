@@ -44,6 +44,7 @@ from typing import Callable, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 KODCORE_PACKAGE = REPO_ROOT / "Packages" / "KodCore"
+KODUI_PACKAGE = REPO_ROOT / "Packages" / "KodUI"
 ARTIFACTS_DIR = REPO_ROOT / "Artifacts" / "acceptance-evidence"
 LOGS_DIR = ARTIFACTS_DIR / "logs"
 PERFORMANCE_RESULTS = REPO_ROOT / "Artifacts" / "performance" / "performance-results.json"
@@ -78,6 +79,7 @@ class RunContext:
         self.skip_xcodebuild = skip_xcodebuild
         self.reuse_logs = reuse_logs
         self._swift_test_log: Optional[str] = None
+        self._kodui_test_log: Optional[str] = None
         self._xcodebuild_log: Optional[str] = None
         LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -102,6 +104,27 @@ class RunContext:
         log = result.stdout + "\n" + result.stderr
         log_path.write_text(log)
         self._swift_test_log = log
+        return log
+
+    def kodui_test_log(self) -> str:
+        if self._kodui_test_log is not None:
+            return self._kodui_test_log
+        architecture = subprocess.run(
+            ["uname", "-m"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        log_path = LOGS_DIR / f"swift-test-kodui-{architecture}.log"
+        if self.reuse_logs and log_path.exists():
+            self._kodui_test_log = log_path.read_text()
+            return self._kodui_test_log
+        result = subprocess.run(
+            ["swift", "test", "-Xswiftc", "-warnings-as-errors"],
+            cwd=str(KODUI_PACKAGE),
+            capture_output=True,
+            text=True,
+        )
+        log = result.stdout + "\n" + result.stderr
+        log_path.write_text(log)
+        self._kodui_test_log = log
         return log
 
     def xcodebuild_log(self) -> str:
@@ -343,36 +366,75 @@ def criterion_7(ctx: RunContext) -> Evidence:
 
 
 def criterion_8(ctx: RunContext) -> Evidence:
-    log = ctx.swift_test_log()
-    evidence = suites_outcome(log, ["GitStatusParserTests", "GitDiffParserTests", "GitBlameParserTests", "GitProcessInvocationSpyTests"])
-    evidence.commands.append("swift test --filter GitCoreTests")
+    log = ctx.swift_test_log() + "\n" + ctx.kodui_test_log()
+    evidence = suites_outcome(log, [
+        "GitStatusParserTests", "GitDiffParserTests", "GitBlameParserTests",
+        "GitProcessInvocationSpyTests", "GitDiffViewControllerTests",
+        "GitBlameViewControllerTests", "GitBlamePanelControllerTests",
+        "SourceControlSidebarViewControllerTests", "GitStatusPresentationTests",
+    ])
+    evidence.commands.extend([
+        "swift test --package-path Packages/KodCore --filter GitCoreTests",
+        "swift test --package-path Packages/KodUI --filter GitUITests",
+    ])
     return evidence
 
 
 def criterion_9(ctx: RunContext) -> Evidence:
-    log = ctx.swift_test_log()
-    evidence = suites_outcome(log, ["VSCodeThemeImportTests", "ThemeStoreTests", "VSCodeThemeImportFuzzTests"])
-    evidence.commands.append('swift test --filter "ThemeCoreTests|FontCoreTests"')
+    log = ctx.swift_test_log() + "\n" + ctx.kodui_test_log()
+    evidence = suites_outcome(log, [
+        "VSCodeThemeImportTests", "ThemeStoreTests",
+        "VSCodeThemeImportFuzzTests", "AppearanceCenterTests",
+    ])
+    evidence.commands.extend([
+        'swift test --package-path Packages/KodCore --filter "ThemeCoreTests|FontCoreTests"',
+        "swift test --package-path Packages/KodUI --filter AppearanceCenterTests",
+    ])
     return evidence
 
 
 def criterion_10(ctx: RunContext) -> Evidence:
+    suite_names = [
+        "EditorGroupViewControllerReloadTests",
+        "EditorTabRuntimeTests",
+        "EditorGroupTabRuntimeTests",
+        "SplitContainerViewControllerTests",
+    ]
+    log = ctx.kodui_test_log()
+    if not ctx.skip_xcodebuild:
+        log += "\n" + ctx.xcodebuild_log()
+        suite_names.append("WorkspaceLayoutPersistenceTests")
+    evidence = suites_outcome(log, suite_names)
+    evidence.commands.append(
+        'swift test --package-path Packages/KodUI --filter "EditorUITests"'
+    )
     if ctx.skip_xcodebuild:
-        return Evidence(
-            status="skipped",
-            summary="xcodebuild KodAppTests not run this invocation (pass --run-xcodebuild to include).",
-            commands=["xcodebuild -only-testing:KodAppTests test"],
+        evidence.notes = (
+            "Package-level split/tab/runtime restoration passed; "
+            "App-shell layout persistence was not run (pass --run-xcodebuild to include it)."
         )
-    log = ctx.xcodebuild_log()
-    evidence = suites_outcome(log, ["EditorGroupViewControllerReloadTests"])
-    evidence.commands.append("xcodebuild -project Kod.xcodeproj -scheme Kod -only-testing:KodAppTests test")
+    else:
+        evidence.commands.append(
+            "xcodebuild -project Kod.xcodeproj -scheme Kod "
+            "-only-testing:KodAppTests/WorkspaceLayoutPersistenceTests test"
+        )
     return evidence
 
 
 def criterion_11(ctx: RunContext) -> Evidence:
-    log = ctx.swift_test_log()
-    evidence = suites_outcome(log, ["MarkdownHostileInputTests", "PreviewNoNetworkTests", "PreviewParserFuzzTests"])
-    evidence.commands.append("swift test --filter PreviewCoreTests")
+    log = ctx.swift_test_log() + "\n" + ctx.kodui_test_log()
+    evidence = suites_outcome(log, [
+        "MarkdownHostileInputTests", "PreviewNoNetworkTests",
+        "PreviewParserFuzzTests", "PreviewViewControllerTests",
+        "MarkdownPreviewViewControllerTests",
+        "StructuredDataPreviewViewControllerTests",
+        "ImagePreviewViewControllerTests",
+        "EditorGroupPreviewIntegrationTests",
+    ])
+    evidence.commands.extend([
+        "swift test --package-path Packages/KodCore --filter PreviewCoreTests",
+        'swift test --package-path Packages/KodUI --filter "PreviewUITests|EditorGroupPreviewIntegrationTests"',
+    ])
     return evidence
 
 
@@ -387,8 +449,11 @@ def criterion_12(ctx: RunContext) -> Evidence:
 
 
 def criterion_13(ctx: RunContext) -> Evidence:
-    log = ctx.swift_test_log()
-    keyboard_evidence = suites_outcome(log, ["CodeViewportAccessibilityTests"])
+    log = ctx.swift_test_log() + "\n" + ctx.kodui_test_log()
+    keyboard_evidence = suites_outcome(
+        log,
+        ["CodeViewportAccessibilityTests", "EditorGroupTabAccessibilityTests"],
+    )
     manual_note = (
         "VoiceOver verification is manual-only and has never been run by any automated tool in this "
         f"repository; see {VOICEOVER_CHECKLIST.relative_to(REPO_ROOT)} for the checklist a human must complete."
@@ -406,7 +471,10 @@ def criterion_13(ctx: RunContext) -> Evidence:
             "VoiceOver portion: manual_required (never run by this tool)."
         ),
         artifacts=[str(VOICEOVER_CHECKLIST.relative_to(REPO_ROOT))],
-        commands=["swift test --filter CodeViewportAccessibilityTests"],
+        commands=[
+            "swift test --package-path Packages/KodCore --filter CodeViewportAccessibilityTests",
+            "swift test --package-path Packages/KodUI --filter EditorGroupTabAccessibilityTests",
+        ],
         notes=manual_note,
     )
 

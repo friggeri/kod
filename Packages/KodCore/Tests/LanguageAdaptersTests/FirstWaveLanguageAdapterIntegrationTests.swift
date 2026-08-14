@@ -1,4 +1,5 @@
 import Foundation
+import SourceIO
 import SourceModel
 import WorkspaceCore
 import XCTest
@@ -20,31 +21,28 @@ final class FirstWaveLanguageAdapterIntegrationTests: XCTestCase {
     }
 
     @MainActor
-    private func makeService<Adapter: LanguageAdapter>(
-        for adapter: Adapter.Type,
+    private func makeService(
+        for profile: LanguageProfile,
         root: URL,
         executableURL: URL,
         arguments: [String]
     ) throws -> LanguageWorkspaceService {
         let identity = try WorkspaceIdentity(root: root)
-        let suiteName = "FirstWaveLanguageAdapterIntegrationTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-        let trustStore = WorkspaceTrustStore(defaults: defaults)
-        trustStore.trust(identity)
-        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
-        overrideStore.setWorkspaceOverride(
+        let repository = makeLanguageAdaptersTestRepository()
+        let trustStore = WorkspaceTrustStore(repository: repository)
+        try trustStore.trust(identity)
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
+        try overrideStore.setWorkspaceOverride(
             url: executableURL,
             arguments: arguments,
-            languageKey: adapter.languageKey,
+            languageKey: profile.identifier,
             identity: identity
         )
-        let profile = try XCTUnwrap(
-            DefaultLanguageProfiles.all.first {
-                $0.identifier == adapter.languageKey
-            }
+        XCTAssertTrue(
+            DefaultLanguageProfiles.all.contains(profile),
+            "Integration coverage must exercise a shipped default profile"
         )
         return try LanguageProfileServiceFactory.makeService(
             for: profile,
@@ -182,7 +180,7 @@ final class FirstWaveLanguageAdapterIntegrationTests: XCTestCase {
             throw XCTSkip("\(error)")
         }
         let service = try makeService(
-            for: ShellLanguageAdapter.self,
+            for: DefaultLanguageProfiles.shell,
             root: root,
             executableURL: executableURL,
             arguments: ["start"]
@@ -209,7 +207,7 @@ final class FirstWaveLanguageAdapterIntegrationTests: XCTestCase {
             throw XCTSkip("\(error)")
         }
         let service = try makeService(
-            for: MarkdownLanguageAdapter.self,
+            for: DefaultLanguageProfiles.markdown,
             root: root,
             executableURL: executableURL,
             arguments: ["server"]
@@ -231,7 +229,7 @@ final class FirstWaveLanguageAdapterIntegrationTests: XCTestCase {
             throw XCTSkip("\(error)")
         }
         let service = try makeService(
-            for: JSONLanguageAdapter.self,
+            for: DefaultLanguageProfiles.json,
             root: root,
             executableURL: executableURL,
             arguments: ["--stdio"]
@@ -253,7 +251,7 @@ final class FirstWaveLanguageAdapterIntegrationTests: XCTestCase {
             throw XCTSkip("\(error)")
         }
         let service = try makeService(
-            for: YAMLLanguageAdapter.self,
+            for: DefaultLanguageProfiles.yaml,
             root: root,
             executableURL: executableURL,
             arguments: ["--stdio"]
@@ -275,7 +273,7 @@ final class FirstWaveLanguageAdapterIntegrationTests: XCTestCase {
             throw XCTSkip("\(error)")
         }
         let service = try makeService(
-            for: TOMLLanguageAdapter.self,
+            for: DefaultLanguageProfiles.toml,
             root: root,
             executableURL: executableURL,
             arguments: ["lsp"]

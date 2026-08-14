@@ -64,7 +64,7 @@ public enum SupportBundleError: Error, Equatable {
 /// metadata-only.
 public enum SupportBundleGenerator {
     /// Assembles bundle contents from an already-populated `BoundedEventLog`
-    /// and `CorruptStateQuarantine`. `redactedEvents` are re-verified here
+    /// and SettingsCore's bounded quarantine. `redactedEvents` are re-verified here
     /// (`assertFullyRedacted`) as a defense-in-depth check, not just
     /// trusted from the caller, since this is the last point before the
     /// data could be written to disk/handed to a user.

@@ -1,6 +1,174 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ language support is unavailable" : {
+      "comment" : "Workspace health summary for one failed language profile",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ language support is unavailable"
+          }
+        }
+      }
+    },
+    "%@ language documents could not be restored" : {
+      "comment" : "Workspace health summary when a language server cannot reopen documents after restarting",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ language documents could not be restored"
+          }
+        }
+      }
+    },
+    "%lld of %lld workspace issues" : {
+      "comment" : "Position of the currently displayed workspace health issue",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld of %2$lld workspace issues"
+          }
+        }
+      }
+    },
+    "Degraded — %@" : {
+      "comment" : "Workspace health banner summary for reduced functionality",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Degraded — %@"
+          }
+        }
+      }
+    },
+    "Dismiss Workspace Issue" : {
+      "comment" : "Accessibility label for dismissing the current workspace issue",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dismiss Workspace Issue"
+          }
+        }
+      }
+    },
+    "Git status is temporarily unavailable" : {
+      "comment" : "Workspace health message shown when refreshing Git status fails",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Git status is temporarily unavailable"
+          }
+        }
+      }
+    },
+    "Git status refresh did not produce a snapshot" : {
+      "comment" : "Workspace health diagnostic reason when a Git repository refresh fails",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Git status refresh did not produce a snapshot"
+          }
+        }
+      }
+    },
+    "Next Workspace Issue" : {
+      "comment" : "Accessibility label for navigating to the next workspace issue",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next Workspace Issue"
+          }
+        }
+      }
+    },
+    "Previous Workspace Issue" : {
+      "comment" : "Accessibility label for navigating to the previous workspace issue",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous Workspace Issue"
+          }
+        }
+      }
+    },
+    "Recovering — %@" : {
+      "comment" : "Workspace health banner summary while recovery is in progress",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recovering — %@"
+          }
+        }
+      }
+    },
+    "Refresh Files" : {
+      "comment" : "Button manually refreshing workspace files when live updates are unavailable",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refresh Files"
+          }
+        }
+      }
+    },
+    "Retry" : {
+      "comment" : "Button retrying a failed workspace subsystem",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry"
+          }
+        }
+      }
+    },
+    "Unavailable — %@" : {
+      "comment" : "Workspace health banner summary for unavailable functionality",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unavailable — %@"
+          }
+        }
+      }
+    },
+    "Workspace issue: %@. %@" : {
+      "comment" : "Accessibility label for the persistent workspace health banner",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace issue: %1$@. %2$@"
+          }
+        }
+      }
+    },
     "\"%@\" is not monospaced; column alignment may vary." : {
 
     },
@@ -42,6 +210,30 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ language server entered %2$@ state"
+          }
+        }
+      }
+    },
+    "%@ language server could not be resynchronized after restarting" : {
+      "comment" : "Diagnostics log message recorded when documents cannot be reopened on a restarted language server",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ language server could not be resynchronized after restarting"
+          }
+        }
+      }
+    },
+    "%@ language server failed to close a document" : {
+      "comment" : "Diagnostics log message recorded when a textDocument/didClose request fails",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ language server failed to close a document"
           }
         }
       }
@@ -900,6 +1092,30 @@
     "Extensions (comma-separated)" : {
 
     },
+    "FSEvents stream could not be created" : {
+      "comment" : "Diagnostics log reason recorded when the workspace file watcher's FSEvents stream cannot be created",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FSEvents stream could not be created"
+          }
+        }
+      }
+    },
+    "FSEvents stream could not be started" : {
+      "comment" : "Diagnostics log reason recorded when the workspace file watcher's FSEvents stream cannot be started",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FSEvents stream could not be started"
+          }
+        }
+      }
+    },
     "Fallback Families" : {
 
     },
@@ -1450,6 +1666,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Line number:"
+          }
+        }
+      }
+    },
+    "Live external-change updates are unavailable: the workspace file watcher could not start" : {
+      "comment" : "Diagnostics log message recorded when the workspace file watcher fails to start",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live external-change updates are unavailable: the workspace file watcher could not start"
           }
         }
       }
@@ -3006,6 +3234,18 @@
     },
     "Working Tree" : {
 
+    },
+    "Workspace layout could not be saved" : {
+      "comment" : "Diagnostics log message recorded when persisting the workspace's split/tab layout fails",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace layout could not be saved"
+          }
+        }
+      }
     },
     "Workspace search engine failed to initialize" : {
       "comment" : "Diagnostics log message recorded when the workspace text search engine fails to start",

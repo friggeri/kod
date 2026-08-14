@@ -1,0 +1,570 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    " Image: %@": {
+      "comment": "Markdown preview caption following a successfully loaded image",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " Image: %@"
+          }
+        }
+      }
+    },
+    "%lld bytes": {
+      "comment": "Metadata line component showing an image's file size in bytes",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld bytes"
+          }
+        }
+      }
+    },
+    "%lld frames": {
+      "comment": "Metadata line component showing an animated image's frame count",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld frames"
+          }
+        }
+      }
+    },
+    "%lld unsafe construct(s) removed while rendering this document.": {
+      "comment": "Status text reporting how many unsafe Markdown constructs were sanitized out of the rendered document",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld unsafe construct(s) removed while rendering this document."
+          }
+        }
+      }
+    },
+    "Actual Size": {
+      "comment": "Button title to show the image preview at its actual pixel size\nAccessibility label for the actual-size image preview button",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actual Size"
+          }
+        }
+      }
+    },
+    "Cancel": {
+      "comment": "Button title canceling the external link open",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        }
+      }
+    },
+    "Checkerboard": {
+      "comment": "Checkbox toggling the transparency checkerboard background in image preview",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checkerboard"
+          }
+        }
+      }
+    },
+    "Copy Key Path": {
+      "comment": "Structured-data preview context menu item that copies the selected node's key path",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Key Path"
+          }
+        }
+      }
+    },
+    "Copy Value": {
+      "comment": "Structured-data preview context menu item that copies the selected node's value",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Value"
+          }
+        }
+      }
+    },
+    "Fit": {
+      "comment": "Button title to fit the image preview to the window",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fit"
+          }
+        }
+      }
+    },
+    "Fit to Window": {
+      "comment": "Accessibility label for the fit-to-window image preview button",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fit to Window"
+          }
+        }
+      }
+    },
+    "Key": {
+      "comment": "Column title for the structured-data preview's key column",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key"
+          }
+        }
+      }
+    },
+    "Key: %@": {
+      "comment": "Accessibility label for a structured-data preview row's key cell",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key: %@"
+          }
+        }
+      }
+    },
+    "Load Remote Images (%@)": {
+      "comment": "Button title inviting the user to opt into loading remote images for this Markdown document",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load Remote Images (%@)"
+          }
+        }
+      }
+    },
+    "Load remote images for this document. %@": {
+      "comment": "Accessibility label for the load-remote-images button, explaining the opt-in network access",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load remote images for this document. %@"
+          }
+        }
+      }
+    },
+    "Loading Remote Images…": {
+      "comment": "Button status while explicitly requested remote Markdown images are fetched",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading Remote Images…"
+          }
+        }
+      }
+    },
+    "No metadata available": {
+      "comment": "Metadata line shown when no image metadata could be determined",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No metadata available"
+          }
+        }
+      }
+    },
+    "Off": {
+      "comment": "Accessibility value indicating the transparency checkerboard background is disabled",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        }
+      }
+    },
+    "On": {
+      "comment": "Accessibility value indicating the transparency checkerboard background is enabled",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On"
+          }
+        }
+      }
+    },
+    "Open": {
+      "comment": "Button title confirming opening the external link",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        }
+      }
+    },
+    "Open Link?": {
+      "comment": "Alert title asking whether to open an external link from an untrusted workspace",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Link?"
+          }
+        }
+      }
+    },
+    "Parse error": {
+      "comment": "Accessibility label for the structured-data preview's parse-error diagnostic text",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parse error"
+          }
+        }
+      }
+    },
+    "Pause": {
+      "comment": "Initial title of the animated-image play/pause button\nPlay/pause button title when the animated image is currently playing",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause"
+          }
+        }
+      }
+    },
+    "Pause Animation": {
+      "comment": "Accessibility label for the play/pause button when the animation is playing",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause Animation"
+          }
+        }
+      }
+    },
+    "Paused": {
+      "comment": "Accessibility value indicating the animated image is currently paused",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused"
+          }
+        }
+      }
+    },
+    "Play": {
+      "comment": "Play/pause button title when the animated image is currently paused",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play"
+          }
+        }
+      }
+    },
+    "Play Animation": {
+      "comment": "Accessibility label for the play/pause button when the animation is paused",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play Animation"
+          }
+        }
+      }
+    },
+    "Playing": {
+      "comment": "Accessibility value indicating the animated image is currently playing",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playing"
+          }
+        }
+      }
+    },
+    "SVG • %@×%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SVG • %1$@×%2$@"
+          }
+        }
+      },
+      "comment": "Metadata line for an SVG image preview showing its intrinsic width and height",
+      "extractionState": "manual"
+    },
+    "Sanitizer diagnostics": {
+      "comment": "Accessibility label for the Markdown sanitizer diagnostics text",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sanitizer diagnostics"
+          }
+        }
+      }
+    },
+    "Search keys and values": {
+      "comment": "Placeholder text for the structured-data preview's search field\nAccessibility label for the structured-data preview's search field",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search keys and values"
+          }
+        }
+      }
+    },
+    "This workspace is not trusted. Open %@ in your default browser?": {
+      "comment": "Alert body explaining the untrusted-workspace external-link confirmation, naming the destination URL",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace is not trusted. Open %@ in your default browser?"
+          }
+        }
+      }
+    },
+    "Transparency Checkerboard Background": {
+      "comment": "Accessibility label for the transparency checkerboard background toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transparency Checkerboard Background"
+          }
+        }
+      }
+    },
+    "Value": {
+      "comment": "Column title for the structured-data preview's value column",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Value"
+          }
+        }
+      }
+    },
+    "Value: %@": {
+      "comment": "Accessibility label for a structured-data preview row's value cell",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Value: %@"
+          }
+        }
+      }
+    },
+    "Zoom In": {
+      "comment": "Accessibility label for the zoom-in image preview button",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom In"
+          }
+        }
+      }
+    },
+    "Zoom Out": {
+      "comment": "Accessibility label for the zoom-out image preview button",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom Out"
+          }
+        }
+      }
+    },
+    "Zoom level": {
+      "comment": "Accessibility label for the zoom-level readout in image preview",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom level"
+          }
+        }
+      }
+    },
+    "Zoom: %lld%%": {
+      "comment": "Zoom-level readout showing the current zoom percentage",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom: %lld%%"
+          }
+        }
+      }
+    },
+    "Zoom: Actual Size": {
+      "comment": "Zoom-level readout when the image preview is shown at actual size",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom: Actual Size"
+          }
+        }
+      }
+    },
+    "Zoom: Fit to Window": {
+      "comment": "Zoom-level readout when the image preview is fit to the window",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom: Fit to Window"
+          }
+        }
+      }
+    },
+    "[Image unavailable: %@]": {
+      "comment": "Markdown preview placeholder for an unavailable local image",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[Image unavailable: %@]"
+          }
+        }
+      }
+    },
+    "[Remote image blocked: %@]": {
+      "comment": "Markdown preview placeholder for a remote image blocked until explicit opt-in",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[Remote image blocked: %@]"
+          }
+        }
+      }
+    },
+    "[Remote image failed safety checks: %@]": {
+      "comment": "Markdown preview placeholder for a remote image rejected by safety limits",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[Remote image failed safety checks: %@]"
+          }
+        }
+      }
+    },
+    "[Remote image loading: %@]": {
+      "comment": "Markdown preview placeholder while a remote image is loading",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[Remote image loading: %@]"
+          }
+        }
+      }
+    },
+    "alpha": {
+      "comment": "Metadata line component indicating the image has an alpha channel",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "alpha"
+          }
+        }
+      }
+    },
+    "root": {
+      "comment": "Display key shown for the root node of a JSON/plist structured-data preview tree",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "root"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.1"
+}

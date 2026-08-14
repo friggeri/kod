@@ -1,3 +1,4 @@
+import CodeViewport
 import FontCore
 import SwiftUI
 import ThemeCore

@@ -1,4 +1,5 @@
 import Foundation
+import SourceIO
 import SourceModel
 import WorkspaceCore
 import XCTest
@@ -8,10 +9,10 @@ import XCTest
 /// Real, headless `rust-analyzer` integration test against
 /// `Fixtures/RustFixture` — a tiny standalone crate so `rust-analyzer`
 /// can build its analysis without needing network access for
-/// dependencies. Unlike the other adapters, this one is discovered
-/// through `RustAdapter`'s real `rustup which rust-analyzer` probe
-/// (SPEC 6.5's "language-specific system discovery" tier), not a
-/// workspace override, since `Scripts/vendor-test-language-servers/setup.sh`
+/// dependencies. Unlike the other languages, this one is discovered
+/// through the `rust` profile's own `rustup which rust-analyzer`
+/// discovery strategy (SPEC 6.5's "language-specific system discovery"
+/// tier), not a workspace override, since `Scripts/vendor-test-language-servers/setup.sh`
 /// installs it as a genuine rustup component rather than a copied
 /// binary. See `TypeScriptLanguageAdapterIntegrationTests` for the
 /// shared pattern this otherwise follows.
@@ -24,14 +25,12 @@ final class RustLanguageAdapterIntegrationTests: XCTestCase {
         _ = try PinnedTestLanguageServerLocator.rustAnalyzerViaRustup()
 
         let identity = try WorkspaceIdentity(root: root)
-        let suiteName = "RustLanguageAdapterIntegrationTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-        let trustStore = WorkspaceTrustStore(defaults: defaults)
-        trustStore.trust(identity)
-        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let repository = makeLanguageAdaptersTestRepository()
+        let trustStore = WorkspaceTrustStore(repository: repository)
+        try trustStore.trust(identity)
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
         return try LanguageProfileServiceFactory.makeService(
             for: DefaultLanguageProfiles.rust,
             identity: identity,

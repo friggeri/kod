@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Kod release-blocker audit (Phase 12).
 
-Scans Sources (never Tests, where deterministic fixture keys/hostile-
-input literals are expected and already reviewed) for the specific
+Scans KodCore, all five KodUI production targets, and the App shell
+(never Tests, where deterministic fixture keys/hostile-input literals
+are expected and already reviewed) for the specific
 release-blocking patterns Phase 12 was asked to eliminate or account
 for:
 
@@ -35,7 +36,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SOURCE_DIRS = [REPO_ROOT / "Packages" / "KodCore" / "Sources", REPO_ROOT / "App" / "KodApp"]
+SOURCE_DIRS = [
+    REPO_ROOT / "Packages" / "KodCore" / "Sources",
+    REPO_ROOT / "Packages" / "KodUI" / "Sources",
+    REPO_ROOT / "App" / "KodApp",
+]
 ARTIFACTS_DIR = REPO_ROOT / "Artifacts" / "release-blockers"
 
 FORCE_UNWRAP_PATTERN = re.compile(r"(?<![=!<>])!(?!=)(?=[\s.\),;]|$)")
@@ -266,18 +271,31 @@ def check_third_party_notices() -> CheckResult:
 
 
 def check_swift_warnings() -> CheckResult:
-    """Confirms both the SwiftPM package and the Xcode project build
+    """Confirms both SwiftPM packages and the Xcode project build
     with warnings treated as errors (rather than re-running a full
     build here, which Scripts/verify-phase already does) — a compiler
     warning is itself a release-blocker class this audit must not miss."""
-    package_swift = REPO_ROOT / "Packages" / "KodCore" / "Package.swift"
+    package_manifests = [
+        REPO_ROOT / "Packages" / "KodCore" / "Package.swift",
+        REPO_ROOT / "Packages" / "KodUI" / "Package.swift",
+    ]
     pbxproj = REPO_ROOT / "Kod.xcodeproj" / "project.pbxproj"
     findings: list[Finding] = []
+    for manifest in package_manifests:
+        if not manifest.exists():
+            findings.append(Finding(
+                "missing_package_manifest",
+                "blocker",
+                relative(manifest),
+                0,
+                "SwiftPM package manifest required by Scripts/verify-phase is missing",
+            ))
     if "SWIFT_TREAT_WARNINGS_AS_ERRORS = YES" not in pbxproj.read_text():
         findings.append(Finding("xcode_warnings_not_errors", "blocker", relative(pbxproj), 0, "SWIFT_TREAT_WARNINGS_AS_ERRORS is not YES for every configuration"))
     status = "clean" if not findings else "blocker"
     notes = (
-        "Scripts/verify-phase invokes `swift test -Xswiftc -warnings-as-errors` for the SwiftPM package and "
+        "Scripts/verify-phase invokes `swift test -Xswiftc -warnings-as-errors` for each SwiftPM package "
+        "(KodCore and KodUI) and "
         "an xcodebuild test/build for the Xcode project, whose every target sets SWIFT_TREAT_WARNINGS_AS_ERRORS "
         "= YES — so a passing verify-phase run is itself zero-warnings evidence; this check only confirms the "
         "enforcement is still wired up, not that it currently emits zero warnings (see the verify-phase log)."

@@ -1,4 +1,5 @@
 import XCTest
+import SettingsCore
 @testable import FontCore
 
 final class FontSettingsTests: XCTestCase {
@@ -61,51 +62,113 @@ final class FontSettingsTests: XCTestCase {
 }
 
 final class FontSettingsStoreTests: XCTestCase {
-    private func makeIsolatedDefaults() -> UserDefaults {
-        let suiteName = "kod.font-settings-tests.\(UUID().uuidString)"
-        return UserDefaults(suiteName: suiteName)!
+    @MainActor
+    private func makeStore() -> (
+        FontSettingsStore,
+        CodableSettingsRepository,
+        InMemorySettingsKeyValueStore
+    ) {
+        let keyValueStore = InMemorySettingsKeyValueStore()
+        let repository = CodableSettingsRepository(store: keyValueStore)
+        return (
+            FontSettingsStore(repository: repository),
+            repository,
+            keyValueStore
+        )
     }
 
     @MainActor
-    func testLoadReturnsDefaultWhenNothingSaved() {
-        let store = FontSettingsStore(defaults: makeIsolatedDefaults())
-        XCTAssertEqual(store.load(), FontSettings.default)
+    func testLoadReportsAbsentWhenNothingSaved() throws {
+        let (store, _, _) = makeStore()
+        XCTAssertEqual(try store.load(), .absent)
     }
 
     @MainActor
-    func testSaveThenLoadRoundTrips() {
-        let defaults = makeIsolatedDefaults()
-        let store = FontSettingsStore(defaults: defaults)
+    func testSaveThenLoadRoundTrips() throws {
+        let (store, _, _) = makeStore()
         let settings = FontSettings(familyName: "Menlo", pointSize: 16)
-        store.save(settings)
+        try store.save(settings)
 
-        let reloaded = FontSettingsStore(defaults: defaults)
-        XCTAssertEqual(reloaded.load(), settings)
+        guard case .value(let reloaded, _) = try store.load() else {
+            return XCTFail("Expected persisted settings")
+        }
+        XCTAssertEqual(reloaded, settings)
     }
 
     @MainActor
-    func testResetRestoresDefault() {
-        let defaults = makeIsolatedDefaults()
-        let store = FontSettingsStore(defaults: defaults)
-        store.save(FontSettings(familyName: "Menlo", pointSize: 20))
-        store.reset()
-        XCTAssertEqual(store.load(), FontSettings.default)
+    func testLegacyUnenvelopedSettingsMigrate() throws {
+        let (store, _, keyValueStore) = makeStore()
+        let settings = FontSettings(
+            familyName: "Menlo",
+            pointSize: 15
+        )
+        try keyValueStore.setValue(
+            .data(try JSONEncoder().encode(settings)),
+            forKey: "kod.font-settings"
+        )
+
+        XCTAssertEqual(
+            try store.load(),
+            .value(
+                settings,
+                provenance: .migrated(
+                    from: .unversioned,
+                    toVersion: 1
+                )
+            )
+        )
     }
 
     @MainActor
-    func testCorruptStoredSettingsAreQuarantinedAndRebuiltAsDefault() {
-        let defaults = makeIsolatedDefaults()
-        defaults.set(Data("not valid json {{{".utf8), forKey: "kod.font-settings")
-        let store = FontSettingsStore(defaults: defaults)
+    func testResetRestoresAbsence() throws {
+        let (store, _, _) = makeStore()
+        try store.save(FontSettings(familyName: "Menlo", pointSize: 20))
+        try store.reset()
+        XCTAssertEqual(try store.load(), .absent)
+    }
 
-        let loaded = store.load()
+    @MainActor
+    func testCorruptStoredSettingsAreQuarantinedAndCanRebuild() throws {
+        let (store, repository, keyValueStore) = makeStore()
+        try keyValueStore.setValue(
+            .data(Data("not valid json {{{".utf8)),
+            forKey: "kod.font-settings"
+        )
 
-        XCTAssertEqual(loaded, FontSettings.default, "corrupt settings must fail safe to defaults")
-        XCTAssertEqual(store.quarantine.ledger().count, 1)
-        XCTAssertEqual(store.quarantine.ledger()[0].key, "kod.font-settings")
+        guard case .quarantined(let record) = try store.load() else {
+            return XCTFail("Expected quarantine")
+        }
+        XCTAssertEqual(record.key, "kod.font-settings")
+        XCTAssertEqual(try repository.quarantine.records(), [record])
 
-        // The corrupt bytes must be gone so a fresh save/load cycle works.
-        store.save(FontSettings(familyName: "Menlo", pointSize: 18))
-        XCTAssertEqual(store.load().familyName, "Menlo")
+        try store.save(FontSettings(familyName: "Menlo", pointSize: 18))
+        guard case .value(let rebuilt, _) = try store.load() else {
+            return XCTFail("Expected rebuilt settings")
+        }
+        XCTAssertEqual(rebuilt.familyName, "Menlo")
+    }
+
+    @MainActor
+    func testSemanticallyInvalidLegacySettingsAreQuarantined() throws {
+        struct InvalidLegacyFontSettings: Encodable {
+            let familyName = ""
+            let pointSize = 16.0
+            let weight = FontWeight.regular
+            let ligaturesEnabled = false
+            let lineHeightMultiplier = 1.2
+            let letterSpacing = 0.0
+            let fallbackFamilies: [String] = []
+        }
+
+        let (store, _, keyValueStore) = makeStore()
+        try keyValueStore.setValue(
+            .data(try JSONEncoder().encode(InvalidLegacyFontSettings())),
+            forKey: "kod.font-settings"
+        )
+
+        guard case .quarantined(let record) = try store.load() else {
+            return XCTFail("Expected semantic quarantine")
+        }
+        XCTAssertTrue(record.reason.contains("primary font family"))
     }
 }

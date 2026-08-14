@@ -1,47 +1,89 @@
-import DiagnosticsCore
 import Foundation
+import SettingsCore
 
 /// Persists and restores a workspace window's split layout, tabs, selection,
 /// navigation history, and word-wrap preference outside the opened
-/// repository, keyed by the workspace's canonicalized identity — following
-/// the same `UserDefaults`-backed, external-metadata pattern already used by
-/// `WorkspaceTrustStore` and `RecentWorkspaceStore`.
+/// repository, keyed by the workspace's canonicalized identity through an
+/// injected SettingsCore repository shared with other external metadata.
 ///
 /// Corrupt layout metadata is quarantined and rebuilt (SPEC 15) rather than
 /// silently falling back to "no saved layout" with no trace: see
 /// `FontCore.FontSettingsStore`'s doc comment for the identical rationale.
+/// "Corrupt" here covers both a blob that fails to decode at all *and* one
+/// that decodes but fails `WorkspaceLayoutState.validate()` — e.g. a split
+/// tree missing a group, or a selected tab ID with no matching tab — since
+/// either case leaves the rest of `WorkspaceCore` unable to safely assume
+/// its invariants hold.
 @MainActor
 public final class WorkspaceLayoutStore {
-    private let defaults: UserDefaults
     private let keyPrefix = "workspace-layout."
-    public let quarantine: CorruptStateQuarantine
+    private let repository: CodableSettingsRepository
 
-    public init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        self.quarantine = CorruptStateQuarantine(defaults: defaults)
+    public init(repository: CodableSettingsRepository) {
+        self.repository = repository
     }
 
-    public func load(for identity: WorkspaceIdentity) -> WorkspaceLayoutState? {
-        switch quarantine.decode(WorkspaceLayoutState.self, forKey: key(for: identity)) {
-        case .restored(let state):
-            return state
-        case .absent, .quarantined:
-            return nil
-        }
+    public var quarantine: SettingsQuarantine {
+        repository.quarantine
     }
 
-    public func save(_ state: WorkspaceLayoutState, for identity: WorkspaceIdentity) {
-        guard let data = try? JSONEncoder().encode(state) else {
-            return
-        }
-        defaults.set(data, forKey: key(for: identity))
+    /// Absence and quarantined corruption remain distinct so restoration
+    /// callers can report a reset instead of presenting it as first launch.
+    public func load(
+        for identity: WorkspaceIdentity
+    ) throws(SettingsRepositoryError) -> SettingsLoadOutcome<WorkspaceLayoutState> {
+        try repository.read(setting(for: identity))
     }
 
-    public func clear(for identity: WorkspaceIdentity) {
-        defaults.removeObject(forKey: key(for: identity))
+    /// Validates, encodes, and persists `state` for `identity`. Throws
+    /// `WorkspaceLayoutValidationError` (from `WorkspaceLayoutState.validate()`)
+    /// if `state` itself is semantically invalid, or a typed
+    /// `SettingsRepositoryError` if encoding/storage fails — either way
+    /// nothing is written, so callers cannot mistake a failed save for
+    /// persistence. Validating before encoding means
+    /// `WorkspaceLayoutStore` never persists a blob that `load(for:)` would
+    /// later have to quarantine. Callers can handle validation and storage
+    /// failures independently; neither is converted into apparent success.
+    public func save(
+        _ state: WorkspaceLayoutState,
+        for identity: WorkspaceIdentity
+    ) throws {
+        try state.validate()
+        try repository.write(state, to: setting(for: identity))
     }
 
-    private func key(for identity: WorkspaceIdentity) -> String {
-        keyPrefix + identity.persistenceKey
+    public func clear(
+        for identity: WorkspaceIdentity
+    ) throws(SettingsRepositoryError) {
+        try repository.remove(setting(for: identity))
+    }
+
+    public func observeChanges(
+        for identity: WorkspaceIdentity,
+        _ observer: @escaping @Sendable (SettingsChange) -> Void
+    ) -> SettingsObservation {
+        repository.observe(setting(for: identity), observer)
+    }
+
+    private func setting(
+        for identity: WorkspaceIdentity
+    ) -> CodableSetting<WorkspaceLayoutState> {
+        CodableSetting(
+            key: keyPrefix + identity.persistenceKey,
+            currentVersion: 1,
+            migrations: [
+                .unversionedCodable(WorkspaceLayoutState.self) { $0 }
+            ],
+            validate: { state in
+                do {
+                    try state.validate()
+                    return nil
+                } catch let error {
+                    return SettingsValidationFailure(
+                        reason: String(describing: error)
+                    )
+                }
+            }
+        )
     }
 }

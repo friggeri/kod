@@ -12,7 +12,7 @@ import SourceModel
 //
 // Why annotations are a separate pipeline from decoration
 // ---------------------------------------------------------
-// `DecorationCompositor` (SyntaxCore/Decoration/DecorationLayer.swift)
+// `DecorationCompositor` (TextDecorationModel/DecorationLayer.swift)
 // answers "what color/weight should this byte range paint?" — it is a
 // pixel pipeline, versioned per `DecorationLayerKind`, and only cares
 // about what is visually true right now. `CodeAccessibilityAnnotation`

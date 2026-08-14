@@ -1,15 +1,17 @@
 import DiagnosticsCore
 import Foundation
 import GitCore
+import GitUI
 import WorkspaceCore
 import XCTest
 @testable import Kod
 
 /// Headless coverage for `GitWorkspaceCoordinator` (SPEC 9): repository
 /// detection is optional per workspace, status refresh flows through the
-/// same FSEvents batch signal Explorer already uses, and the shared
-/// presentation index matches VS Code's status precedence, colors, and
-/// parent propagation. Uses a real, disposable fixture repository
+/// same FSEvents batch signal Explorer already uses, and publishes the
+/// GitUI presentation index consumed by Explorer and Source Control.
+/// The index's pure precedence/propagation coverage lives in
+/// `GitStatusPresentationTests`. Uses a real, disposable fixture repository
 /// (never `KodAppUITests`/`XCUIApplication`) so this exercises real Git
 /// process invocation end to end, exactly like `GitCoreTests`.
 @MainActor
@@ -60,7 +62,10 @@ final class GitWorkspaceCoordinatorTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         var observedSnapshots: [GitStatusSnapshot?] = []
-        let coordinator = GitWorkspaceCoordinator(root: root) { snapshot in
+        let coordinator = GitWorkspaceCoordinator(
+            root: root,
+            diagnosticsLog: BoundedEventLog()
+        ) { snapshot in
             observedSnapshots.append(snapshot)
         }
         await coordinator.start()
@@ -102,7 +107,10 @@ final class GitWorkspaceCoordinatorTests: XCTestCase {
         try Data("untracked\n".utf8).write(to: root.appendingPathComponent("b.txt"))
 
         var observedSnapshots: [GitStatusSnapshot?] = []
-        let coordinator = GitWorkspaceCoordinator(root: root) { snapshot in
+        let coordinator = GitWorkspaceCoordinator(
+            root: root,
+            diagnosticsLog: BoundedEventLog()
+        ) { snapshot in
             observedSnapshots.append(snapshot)
         }
         await coordinator.start()
@@ -135,7 +143,10 @@ final class GitWorkspaceCoordinatorTests: XCTestCase {
         let root = try makeFixtureRepository()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let coordinator = GitWorkspaceCoordinator(root: root)
+        let coordinator = GitWorkspaceCoordinator(
+            root: root,
+            diagnosticsLog: BoundedEventLog()
+        )
         await coordinator.start()
         XCTAssertNil(coordinator.explorerDecoration(forRelativePath: "a.txt", isDirectory: false))
 
@@ -160,349 +171,18 @@ final class GitWorkspaceCoordinatorTests: XCTestCase {
         )
     }
 
-    func testExplorerClassificationCoversEveryLetterAndColorRole() {
-        let coordinator = GitWorkspaceCoordinator(root: FileManager.default.temporaryDirectory)
+    func testWorkspaceBatchTranslatesToGitRepositoryInvalidation() {
+        let firstPath = "/workspace/a.swift"
+        let secondPath = "/workspace/b.swift"
+        let batch = WorkspaceChangeBatch(paths: [
+            WorkspaceChangePath(path: firstPath, flags: .modified),
+            WorkspaceChangePath(path: secondPath, flags: .created),
+            WorkspaceChangePath(path: firstPath, flags: .removed)
+        ])
 
-        let cases: [(GitStatusEntry, GitPresentedStatus, GitDecorationColorRole, String?)] = [
-            (
-                GitStatusEntry(
-                    path: "modified.txt",
-                    shape: .ordinary(indexStatus: .unmodified, worktreeStatus: .modified)
-                ),
-                .modified,
-                .modified,
-                "M"
-            ),
-            (
-                GitStatusEntry(
-                    path: "added.txt",
-                    shape: .ordinary(indexStatus: .added, worktreeStatus: .unmodified)
-                ),
-                .added,
-                .added,
-                "A"
-            ),
-            (
-                GitStatusEntry(
-                    path: "deleted.txt",
-                    shape: .ordinary(indexStatus: .unmodified, worktreeStatus: .deleted)
-                ),
-                .deleted,
-                .deleted,
-                "D"
-            ),
-            (
-                GitStatusEntry(
-                    path: "renamed.txt",
-                    shape: .renameOrCopy(
-                        indexStatus: .renamed,
-                        worktreeStatus: .unmodified,
-                        similarityPercentage: 100,
-                        originalPath: "old.txt"
-                    )
-                ),
-                .renamed,
-                .renamed,
-                "R"
-            ),
-            (
-                GitStatusEntry(
-                    path: "copied.txt",
-                    shape: .renameOrCopy(
-                        indexStatus: .copied,
-                        worktreeStatus: .unmodified,
-                        similarityPercentage: 100,
-                        originalPath: "source.txt"
-                    )
-                ),
-                .copied,
-                .renamed,
-                "C"
-            ),
-            (
-                GitStatusEntry(
-                    path: "type.txt",
-                    shape: .ordinary(indexStatus: .unmodified, worktreeStatus: .typeChanged)
-                ),
-                .typeChanged,
-                .modified,
-                "T"
-            ),
-            (
-                GitStatusEntry(path: "untracked.txt", shape: .untracked),
-                .untracked,
-                .untracked,
-                "U"
-            ),
-            (
-                GitStatusEntry(path: "ignored.log", shape: .ignored),
-                .ignored,
-                .ignored,
-                nil
-            ),
-            (
-                GitStatusEntry(
-                    path: "conflicted.txt",
-                    shape: .unmerged(
-                        code: "UU",
-                        base: nil,
-                        ours: GitUnmergedStage(
-                            mode: "100644",
-                            objectID: String(repeating: "a", count: 40)
-                        ),
-                        theirs: GitUnmergedStage(
-                            mode: "100644",
-                            objectID: String(repeating: "b", count: 40)
-                        )
-                    )
-                ),
-                .conflicted,
-                .conflict,
-                "!"
-            )
-        ]
+        let invalidation = GitWorkspaceCoordinator.gitInvalidation(for: batch)
 
-        coordinator.applyTestSnapshot(GitStatusSnapshot(entries: cases.map { $0.0 }))
-
-        for (entry, status, colorRole, letter) in cases {
-            let decoration = coordinator.explorerDecoration(
-                forRelativePath: entry.path,
-                isDirectory: false
-            )
-            XCTAssertEqual(decoration?.presentation.status, status, entry.path)
-            XCTAssertEqual(decoration?.presentation.colorRole, colorRole, entry.path)
-            XCTAssertEqual(decoration?.badgeText, letter, entry.path)
-            XCTAssertEqual(
-                decoration?.indicator,
-                status == .ignored ? nil : .statusLetter,
-                entry.path
-            )
-            XCTAssertFalse(
-                decoration?.accessibilityDescription.isEmpty ?? true,
-                "\(entry.path) must expose a full-word accessibility status"
-            )
-        }
+        XCTAssertEqual(invalidation.changedPaths, Set([firstPath, secondPath]))
     }
 
-    func testExplorerStatusUsesVSCodePriorityAndWorktreeWinsTies() {
-        let coordinator = GitWorkspaceCoordinator(root: FileManager.default.temporaryDirectory)
-        let renamedThenModified = GitStatusEntry(
-            path: "renamed.txt",
-            shape: .renameOrCopy(
-                indexStatus: .renamed,
-                worktreeStatus: .modified,
-                similarityPercentage: 90,
-                originalPath: "old.txt"
-            )
-        )
-        let addedThenTypeChanged = GitStatusEntry(
-            path: "typed.txt",
-            shape: .ordinary(indexStatus: .added, worktreeStatus: .typeChanged)
-        )
-        let deletedThenAdded = GitStatusEntry(
-            path: "tie.txt",
-            shape: .ordinary(indexStatus: .deleted, worktreeStatus: .added)
-        )
-        coordinator.applyTestSnapshot(
-            GitStatusSnapshot(entries: [renamedThenModified, addedThenTypeChanged, deletedThenAdded])
-        )
-
-        XCTAssertEqual(
-            coordinator.explorerDecoration(
-                forRelativePath: "renamed.txt",
-                isDirectory: false
-            )?.presentation.status,
-            .modified
-        )
-        XCTAssertEqual(
-            coordinator.explorerDecoration(
-                forRelativePath: "typed.txt",
-                isDirectory: false
-            )?.presentation.status,
-            .typeChanged
-        )
-        XCTAssertEqual(
-            coordinator.explorerDecoration(
-                forRelativePath: "tie.txt",
-                isDirectory: false
-            )?.presentation.status,
-            .added
-        )
-    }
-
-    func testNonDeletedChangesPropagateToParentFoldersInConstantTimeIndex() {
-        let coordinator = GitWorkspaceCoordinator(root: FileManager.default.temporaryDirectory)
-        coordinator.applyTestSnapshot(
-            GitStatusSnapshot(entries: [
-                GitStatusEntry(
-                    path: "Sources/Feature/File.swift",
-                    shape: .ordinary(indexStatus: .unmodified, worktreeStatus: .modified)
-                ),
-                GitStatusEntry(path: "Sources/Other/New.swift", shape: .untracked)
-            ])
-        )
-
-        let feature = coordinator.explorerDecoration(
-            forRelativePath: "Sources/Feature",
-            isDirectory: true
-        )
-        XCTAssertEqual(feature?.presentation.status, .modified)
-        XCTAssertEqual(feature?.indicator, .descendant)
-        XCTAssertEqual(feature?.badgeText, "\u{2022}")
-        XCTAssertTrue(feature?.accessibilityDescription.contains("Modified") == true)
-
-        let sources = coordinator.explorerDecoration(
-            forRelativePath: "Sources",
-            isDirectory: true
-        )
-        XCTAssertEqual(sources?.presentation.status, .modified)
-        XCTAssertEqual(sources?.indicator, .descendant)
-    }
-
-    func testDeletedAndIgnoredEntriesDoNotPropagateToParents() {
-        let coordinator = GitWorkspaceCoordinator(root: FileManager.default.temporaryDirectory)
-        coordinator.applyTestSnapshot(
-            GitStatusSnapshot(entries: [
-                GitStatusEntry(
-                    path: "Deleted/old.txt",
-                    shape: .ordinary(indexStatus: .unmodified, worktreeStatus: .deleted)
-                ),
-                GitStatusEntry(
-                    path: "Mixed/removed.txt",
-                    shape: .ordinary(indexStatus: .modified, worktreeStatus: .deleted)
-                ),
-                GitStatusEntry(path: "Ignored/debug.log", shape: .ignored),
-                GitStatusEntry(path: "Build/", shape: .ignored)
-            ])
-        )
-
-        XCTAssertEqual(
-            coordinator.explorerDecoration(
-                forRelativePath: "Deleted/old.txt",
-                isDirectory: false
-            )?.presentation.status,
-            .deleted
-        )
-        XCTAssertNil(
-            coordinator.explorerDecoration(
-                forRelativePath: "Deleted",
-                isDirectory: true
-            )
-        )
-        XCTAssertEqual(
-            coordinator.explorerDecoration(
-                forRelativePath: "Mixed/removed.txt",
-                isDirectory: false
-            )?.presentation,
-            GitStatusPresentation(status: .modified, colorRole: .stagedModified)
-        )
-        XCTAssertNil(
-            coordinator.explorerDecoration(
-                forRelativePath: "Mixed",
-                isDirectory: true
-            ),
-            "any entry with a deleted side must not create a ghost parent decoration"
-        )
-
-        let ignored = coordinator.explorerDecoration(
-            forRelativePath: "Ignored/debug.log",
-            isDirectory: false
-        )
-        XCTAssertEqual(ignored?.presentation.status, .ignored)
-        XCTAssertNil(ignored?.badgeText)
-        XCTAssertNil(
-            coordinator.explorerDecoration(
-                forRelativePath: "Ignored",
-                isDirectory: true
-            )
-        )
-        XCTAssertEqual(
-            coordinator.explorerDecoration(
-                forRelativePath: "Build",
-                isDirectory: true
-            ),
-            .ignored
-        )
-    }
-
-    func testSourceControlUsesGroupSpecificIndexAndWorktreeColors() {
-        let changedOnBothSides = GitStatusEntry(
-            path: "both.txt",
-            shape: .ordinary(indexStatus: .modified, worktreeStatus: .deleted)
-        )
-        XCTAssertEqual(
-            GitStatusPresentationIndex.sourceControlPresentation(
-                for: changedOnBothSides,
-                in: .stagedChanges
-            ),
-            GitStatusPresentation(status: .modified, colorRole: .stagedModified)
-        )
-        XCTAssertEqual(
-            GitStatusPresentationIndex.sourceControlPresentation(
-                for: changedOnBothSides,
-                in: .changes
-            ),
-            GitStatusPresentation(status: .deleted, colorRole: .deleted)
-        )
-
-        let stagedDeletion = GitStatusEntry(
-            path: "gone.txt",
-            shape: .ordinary(indexStatus: .deleted, worktreeStatus: .unmodified)
-        )
-        XCTAssertEqual(
-            GitStatusPresentationIndex.sourceControlPresentation(
-                for: stagedDeletion,
-                in: .stagedChanges
-            )?.colorRole,
-            .stagedDeleted
-        )
-
-        let coordinator = GitWorkspaceCoordinator(root: FileManager.default.temporaryDirectory)
-        coordinator.applyTestSnapshot(
-            GitStatusSnapshot(entries: [changedOnBothSides, stagedDeletion])
-        )
-        XCTAssertEqual(
-            coordinator.explorerDecoration(
-                forRelativePath: "gone.txt",
-                isDirectory: false
-            )?.presentation.colorRole,
-            .stagedDeleted
-        )
-
-        let stagedOnlyModification = GitStatusEntry(
-            path: "staged-modified.txt",
-            shape: .ordinary(indexStatus: .modified, worktreeStatus: .unmodified)
-        )
-        coordinator.applyTestSnapshot(GitStatusSnapshot(entries: [stagedOnlyModification]))
-        XCTAssertEqual(
-            coordinator.explorerDecoration(
-                forRelativePath: "staged-modified.txt",
-                isDirectory: false
-            )?.presentation.colorRole,
-            .stagedModified
-        )
-    }
-
-    func testRenameLookupIndexesBothCurrentAndOriginalPaths() throws {
-        let coordinator = GitWorkspaceCoordinator(root: FileManager.default.temporaryDirectory)
-        let renamed = GitStatusEntry(
-            path: "new/name.swift",
-            shape: .renameOrCopy(
-                indexStatus: .renamed,
-                worktreeStatus: .unmodified,
-                similarityPercentage: 100,
-                originalPath: "old/name.swift"
-            )
-        )
-        coordinator.applyTestSnapshot(GitStatusSnapshot(entries: [renamed]))
-
-        XCTAssertEqual(
-            try XCTUnwrap(coordinator.statusEntry(forRelativePath: "new/name.swift")),
-            renamed
-        )
-        XCTAssertEqual(
-            try XCTUnwrap(coordinator.statusEntry(forRelativePath: "old/name.swift")),
-            renamed
-        )
-    }
 }

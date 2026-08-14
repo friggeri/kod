@@ -82,7 +82,7 @@ final class EncodingPositionFuzzTests: XCTestCase {
                 return
             }
 
-            for encoding in [LSPPositionEncoding.utf8, .utf16] {
+            for encoding in [SourcePositionEncoding.utf8, .utf16] {
                 let position = try snapshot.position(forUTF8Offset: rawOffset, encoding: encoding)
                 XCTAssertGreaterThanOrEqual(position.line, 0)
                 XCTAssertGreaterThanOrEqual(position.character, 0)

@@ -21,21 +21,17 @@ final class WorkspaceLayoutPersistenceTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let suiteName = "WorkspaceLayoutPersistenceTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-
+        let appFixture = try KodAppTestEnvironment.make(in: self)
         let identity = try WorkspaceIdentity(root: root)
-        let store = WorkspaceLayoutStore(defaults: defaults)
+        let dependencies =
+            appFixture.environment.makeWorkspaceDependencies()
+        let store = dependencies.layoutStore
         if let savedState {
-            store.save(savedState, for: identity)
+            try store.save(savedState, for: identity)
         }
         let controller = WorkspaceViewController(
             identity: identity,
-            trustStore: WorkspaceTrustStore(defaults: defaults),
-            layoutStore: store
+            dependencies: dependencies
         )
         return Fixture(identity: identity, store: store, controller: controller)
     }
@@ -67,50 +63,6 @@ final class WorkspaceLayoutPersistenceTests: XCTestCase {
             ?? item.viewController.view.frame.width
     }
 
-    func testSplitContainerCapturesEveryNestedDividerRatio() throws {
-        let firstID = EditorGroupID()
-        let secondID = EditorGroupID()
-        let thirdID = EditorGroupID()
-        let root = SplitLayoutNode.split(
-            orientation: .horizontal,
-            ratio: 0.5,
-            first: .leaf(firstID),
-            second: .split(
-                orientation: .vertical,
-                ratio: 0.5,
-                first: .leaf(secondID),
-                second: .leaf(thirdID)
-            )
-        )
-        let controller = SplitContainerViewController(root: root) { id in
-            EditorGroupViewController(
-                groupID: id,
-                state: EditorGroupState(id: id)
-            )
-        }
-        _ = host(controller)
-
-        let rootSplit = try XCTUnwrap(controller.view.subviews.first as? NSSplitView)
-        let nestedSplit = try XCTUnwrap(rootSplit.arrangedSubviews[1] as? NSSplitView)
-        rootSplit.setPosition(rootSplit.bounds.width * 0.32, ofDividerAt: 0)
-        controller.view.layoutSubtreeIfNeeded()
-        nestedSplit.setPosition(nestedSplit.bounds.height * 0.68, ofDividerAt: 0)
-        controller.view.layoutSubtreeIfNeeded()
-
-        let expectedRootRatio = rootSplit.arrangedSubviews[0].frame.width / rootSplit.bounds.width
-        let expectedNestedRatio = nestedSplit.arrangedSubviews[0].frame.height / nestedSplit.bounds.height
-        let captured = controller.captureLayout()
-
-        guard case .split(let rootOrientation, let rootRatio, _, let capturedSecond) = captured,
-              case .split(let nestedOrientation, let nestedRatio, _, _) = capturedSecond else {
-            return XCTFail("Expected the nested split tree to be preserved")
-        }
-        XCTAssertEqual(rootOrientation, .horizontal)
-        XCTAssertEqual(nestedOrientation, .vertical)
-        XCTAssertEqual(rootRatio, Double(expectedRootRatio), accuracy: 0.001)
-        XCTAssertEqual(nestedRatio, Double(expectedNestedRatio), accuracy: 0.001)
-    }
-
     func testAppDelegatePersistsWindowAndCollapsedSidebarGeometry() throws {
         let fixture = try makeFixture()
         let window = host(fixture.controller)
@@ -126,9 +78,14 @@ final class WorkspaceLayoutPersistenceTests: XCTestCase {
         fixture.controller.toggleSidebar(nil)
         XCTAssertTrue(sidebarItem.isCollapsed)
 
-        AppDelegate().persistCurrentWorkspaceState(in: window)
+        let appFixture = try KodAppTestEnvironment.make(in: self)
+        AppDelegate(environment: appFixture.environment)
+            .persistCurrentWorkspaceState(in: window)
 
-        let saved = try XCTUnwrap(fixture.store.load(for: fixture.identity))
+        guard case .value(let saved, _) =
+                try fixture.store.load(for: fixture.identity) else {
+            return XCTFail("Expected persisted workspace layout")
+        }
         let geometry = try XCTUnwrap(saved.geometry)
         XCTAssertEqual(geometry.windowFrame.x, Double(window.frame.origin.x), accuracy: 0.5)
         XCTAssertEqual(geometry.windowFrame.y, Double(window.frame.origin.y), accuracy: 0.5)
@@ -146,7 +103,11 @@ final class WorkspaceLayoutPersistenceTests: XCTestCase {
         fixture.controller.toggleMinimap(nil)
 
         XCTAssertFalse(fixture.controller.layoutState.minimapEnabled)
-        XCTAssertFalse(try XCTUnwrap(fixture.store.load(for: fixture.identity)).minimapEnabled)
+        guard case .value(let saved, _) =
+                try fixture.store.load(for: fixture.identity) else {
+            return XCTFail("Expected persisted workspace layout")
+        }
+        XCTAssertFalse(saved.minimapEnabled)
     }
 
     func testSavedWindowAndSidebarGeometryRestoreForReconstructedWorkspace() async throws {
@@ -175,7 +136,7 @@ final class WorkspaceLayoutPersistenceTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(20))
 
         let expectedFrame = try XCTUnwrap(
-            WorkspaceViewController.constrainedWindowFrame(
+            WorkspaceGeometryController.constrainedWindowFrame(
                 savedFrame,
                 minimumSize: window.minSize,
                 visibleScreenFrames: NSScreen.screens.map(\.visibleFrame),
@@ -234,32 +195,7 @@ final class WorkspaceLayoutPersistenceTests: XCTestCase {
         )
     }
 
-    func testWindowFrameConstraintMovesStaleFrameOntoFallbackScreen() throws {
-        let screen = NSRect(x: 0, y: 0, width: 1_440, height: 900)
-        let restored = try XCTUnwrap(
-            WorkspaceViewController.constrainedWindowFrame(
-                WorkspaceWindowFrame(x: 5_000, y: -300, width: 100, height: 100),
-                minimumSize: NSSize(width: 640, height: 420),
-                visibleScreenFrames: [screen],
-                fallbackVisibleFrame: screen
-            )
-        )
-
-        XCTAssertEqual(restored, NSRect(x: 800, y: 0, width: 640, height: 420))
-    }
-
-    func testFullscreenPersistenceSelectsLastNormalWindowFrame() throws {
-        let normalFrame = NSRect(x: 120, y: 100, width: 1_100, height: 720)
-        let fullscreenFrame = NSRect(x: 0, y: 0, width: 1_920, height: 1_080)
-        let selectedFrame = try XCTUnwrap(
-            WorkspaceViewController.normalWindowFrame(
-                currentFrame: fullscreenFrame,
-                isFullScreen: true,
-                lastNormalFrame: normalFrame,
-                persistedFrame: nil
-            )
-        )
-
-        XCTAssertEqual(selectedFrame, normalFrame)
-    }
+    // The pure frame-constraint and fullscreen-selection policy these
+    // tests used to cover now lives in `WorkspaceGeometryController`; see
+    // `WorkspaceGeometryControllerTests`.
 }

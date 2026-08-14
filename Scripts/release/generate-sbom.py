@@ -4,12 +4,13 @@ Materials) for a Kod release build, listing:
 
   - Kod itself (name, version from MARKETING_VERSION, git commit).
   - Every vendored third-party component under
-    Packages/KodCore/Sources (Tree-sitter runtime + grammars, and any
+    Packages/KodCore/Sources and Packages/KodUI/Sources (Tree-sitter runtime,
+    grammars, UI assets, and any
     other vendored code with its own LICENSE file), with the version
     pinned in Scripts/vendor-*/vendor.sh where available.
   - The bundled ripgrep search engine binary.
 
-Kod's SwiftPM package (Packages/KodCore/Package.swift) declares zero
+Kod's SwiftPM packages (`Packages/KodCore` and `Packages/KodUI`) declare zero
 external `.package(url:)` dependencies — every third-party component is
 vendored in-tree and reviewed (see THIRD_PARTY_NOTICES.md) rather than
 resolved at build time, so there is no Package.resolved to enumerate;
@@ -48,7 +49,11 @@ def git_commit() -> str:
 
 def vendored_components() -> list[dict]:
     components = []
-    search_roots = [REPO_ROOT / "Packages" / "KodCore" / "Sources", REPO_ROOT / "Vendor"]
+    search_roots = [
+        REPO_ROOT / "Packages" / "KodCore" / "Sources",
+        REPO_ROOT / "Packages" / "KodUI" / "Sources",
+        REPO_ROOT / "Vendor",
+    ]
     seen_dirs: set[Path] = set()
     for root in search_roots:
         for license_file in sorted(root.rglob("LICENSE*")):

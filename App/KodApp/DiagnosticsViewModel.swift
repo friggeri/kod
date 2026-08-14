@@ -1,10 +1,8 @@
 import Combine
 import DiagnosticsCore
-import FontCore
 import Foundation
 import KodCore
-import ThemeCore
-import WorkspaceCore
+import SettingsCore
 
 /// The `@MainActor` coordinator behind the Diagnostics settings tab
 /// (SPEC 15: "a bounded diagnostics/log viewer"). Polls a shared,
@@ -13,14 +11,13 @@ import WorkspaceCore
 /// the support-bundle export action on top of the same
 /// `CrashReportingSettingsStore`/`SupportBundleGenerator` the rest of
 /// `DiagnosticsCore` already implements. Constructed with an injectable
-/// `BoundedEventLog` (and everything else it depends on defaulted), like
-/// `WorkspaceTrustStore`/`FontSettingsStore`'s injectable-`UserDefaults`
-/// pattern, so it is directly testable without any app-wide singleton.
+/// `BoundedEventLog`, settings store, and quarantine, so it is directly
+/// testable without any app-wide singleton.
 @MainActor
 final class DiagnosticsViewModel: ObservableObject {
     private let diagnosticsLog: BoundedEventLog
     private let crashReportingSettingsStore: CrashReportingSettingsStore
-    private let quarantineLedgers: @MainActor () -> [QuarantinedRecord]
+    private let settingsQuarantine: SettingsQuarantine
     private let appVersion: String
     private let osVersion: String
     private let architecture: String
@@ -33,12 +30,25 @@ final class DiagnosticsViewModel: ObservableObject {
             guard crashReportingEnabled != oldValue else {
                 return
             }
-            var settings = crashReportingSettingsStore.load()
-            settings.isEnabled = crashReportingEnabled
-            crashReportingSettingsStore.save(settings)
+            let settings: CrashReportingSettings
+            do {
+                switch try crashReportingSettingsStore.load() {
+                case .value(let storedSettings, _):
+                    settings = storedSettings
+                case .absent, .quarantined:
+                    settings = CrashReportingSettings()
+                }
+                var updatedSettings = settings
+                updatedSettings.isEnabled = crashReportingEnabled
+                try crashReportingSettingsStore.save(updatedSettings)
+                persistenceErrorDescription = nil
+            } catch {
+                persistenceErrorDescription = error.localizedDescription
+            }
         }
     }
     @Published var lastExportErrorDescription: String?
+    @Published private(set) var persistenceErrorDescription: String?
 
     /// `events`, sorted newest-first, restricted to `minimumLevel` and
     /// above — the only thing `DiagnosticsView` ever renders.
@@ -50,19 +60,24 @@ final class DiagnosticsViewModel: ObservableObject {
 
     init(
         diagnosticsLog: BoundedEventLog,
-        crashReportingSettingsStore: CrashReportingSettingsStore = CrashReportingSettingsStore(),
-        quarantineLedgers: @escaping @MainActor () -> [QuarantinedRecord] = DiagnosticsViewModel.defaultQuarantineLedgers,
+        crashReportingSettingsStore: CrashReportingSettingsStore,
+        settingsQuarantine: SettingsQuarantine,
         appVersion: String = "\(KodBuildInfo.current().version) (\(KodBuildInfo.current().build))",
         osVersion: String = ProcessInfo.processInfo.operatingSystemVersionString,
         architecture: String = KodBuildInfo.current().architecture
-    ) {
+    ) throws(SettingsRepositoryError) {
         self.diagnosticsLog = diagnosticsLog
         self.crashReportingSettingsStore = crashReportingSettingsStore
-        self.quarantineLedgers = quarantineLedgers
+        self.settingsQuarantine = settingsQuarantine
         self.appVersion = appVersion
         self.osVersion = osVersion
         self.architecture = architecture
-        self.crashReportingEnabled = crashReportingSettingsStore.load().isEnabled
+        switch try crashReportingSettingsStore.load() {
+        case .value(let settings, _):
+            self.crashReportingEnabled = settings.isEnabled
+        case .absent, .quarantined:
+            self.crashReportingEnabled = false
+        }
     }
 
     /// Refreshes the on-screen event list/dropped-count from the shared
@@ -82,7 +97,7 @@ final class DiagnosticsViewModel: ObservableObject {
     func generateSupportBundle() async throws -> SupportBundleContents {
         try await SupportBundleGenerator.generate(
             from: diagnosticsLog,
-            quarantine: quarantineLedgers(),
+            quarantine: try settingsQuarantine.records(),
             appVersion: appVersion,
             osVersion: osVersion,
             architecture: architecture
@@ -104,16 +119,4 @@ final class DiagnosticsViewModel: ObservableObject {
         }
     }
 
-    /// Aggregates `.quarantine.ledger()` across every store this app
-    /// persists corrupt-state-quarantined metadata for (SPEC 15):
-    /// `FontSettingsStore`/`ThemeStore`/`WorkspaceLayoutStore`. Each
-    /// ledger lives in `UserDefaults` keyed independently of any one
-    /// store instance, so freshly-constructed default-`UserDefaults`
-    /// stores here read the same persisted ledger the app's real,
-    /// already-open stores would.
-    static func defaultQuarantineLedgers() -> [QuarantinedRecord] {
-        ThemeStore().quarantine.ledger()
-            + FontSettingsStore().quarantine.ledger()
-            + WorkspaceLayoutStore().quarantine.ledger()
-    }
 }

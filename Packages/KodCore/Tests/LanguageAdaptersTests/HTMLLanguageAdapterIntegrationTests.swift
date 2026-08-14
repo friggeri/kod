@@ -1,4 +1,5 @@
 import Foundation
+import SourceIO
 import SourceModel
 import WorkspaceCore
 import XCTest
@@ -13,18 +14,16 @@ final class HTMLLanguageAdapterIntegrationTests: XCTestCase {
     private func makeService(root: URL) throws -> LanguageWorkspaceService {
         let executableURL = try PinnedTestLanguageServerLocator.htmlLanguageServer()
         let identity = try WorkspaceIdentity(root: root)
-        let suiteName = "HTMLLanguageAdapterIntegrationTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-        let trustStore = WorkspaceTrustStore(defaults: defaults)
-        trustStore.trust(identity)
-        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
-        overrideStore.setWorkspaceOverride(
+        let repository = makeLanguageAdaptersTestRepository()
+        let trustStore = WorkspaceTrustStore(repository: repository)
+        try trustStore.trust(identity)
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
+        try overrideStore.setWorkspaceOverride(
             url: executableURL,
             arguments: ["--stdio"],
-            languageKey: HTMLLanguageAdapter.languageKey,
+            languageKey: DefaultLanguageProfiles.html.identifier,
             identity: identity
         )
         return try LanguageProfileServiceFactory.makeService(

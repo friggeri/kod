@@ -55,6 +55,7 @@ final class LanguageHoverControllerTests: XCTestCase {
 
     private func makeTarget(url: URL) -> NavigationTarget {
         NavigationTarget(
+            provider: LanguageProviderFixtures.binding(),
             url: url,
             range: LSPRange(
                 start: LSPPosition(line: 0, character: 0),

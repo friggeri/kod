@@ -7,23 +7,31 @@ import LanguageClient
 /// later, unrelated request — `PeekViewController` only ever replaces
 /// its content when explicitly told to via `show(title:results:)`, and
 /// every result already carries a validated absolute file URL and range
-/// (never a raw, unchecked server response).
+/// (never a raw, unchecked server response) bound to the provider that
+/// produced it, so selecting it navigates through that provider's
+/// negotiated position encoding.
 struct PeekResult: Equatable {
-    let url: URL
-    let range: LSPRange
+    let location: ProviderBoundLocation
     /// A short, human-readable line of context shown next to the file
     /// name (e.g. the source line the target range starts on), so a
     /// user can tell results apart without opening each one.
     let previewLine: String?
 
-    init(url: URL, range: LSPRange, previewLine: String? = nil) {
-        self.url = url
-        self.range = range
+    var url: URL {
+        location.url
+    }
+
+    var range: LSPRange {
+        location.range
+    }
+
+    init(location: ProviderBoundLocation, previewLine: String? = nil) {
+        self.location = location
         self.previewLine = previewLine
     }
 
     init(navigationTarget: NavigationTarget, previewLine: String? = nil) {
-        self.init(url: navigationTarget.url, range: navigationTarget.range, previewLine: previewLine)
+        self.init(location: navigationTarget.location, previewLine: previewLine)
     }
 }
 

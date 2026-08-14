@@ -8,8 +8,12 @@ import XCTest
 /// input is synthesized.
 @MainActor
 final class HierarchyViewControllerTests: XCTestCase {
-    private func makeItem(name: String) -> ValidatedHierarchyItem {
+    private func makeItem(
+        name: String,
+        binding: LanguageProviderBinding = LanguageProviderFixtures.binding()
+    ) -> ValidatedHierarchyItem {
         ValidatedHierarchyItem(
+            provider: binding,
             name: name,
             kind: .function,
             detail: nil,

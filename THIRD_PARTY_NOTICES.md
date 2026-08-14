@@ -104,7 +104,9 @@ is adjusted in the same reproducible script for the target-local header path.
   `957d82b494e5737ef7b3c63e4d01f756d73a9936`)
 - **License:** MIT (Copyright 2025 Material Extensions) — full text at
   `Vendor/Licenses/material-icon-theme-LICENSE.txt`.
-- **Vendored at:** `App/KodApp/MaterialIcons/`. Kod ships the upstream SVGs
+- **Vendored at:** `Packages/KodUI/Sources/KodUIComponents/MaterialIcons/`,
+  shipped as a `KodUIComponents` package resource and loaded through that
+  target's own `Bundle.module`. Kod ships the upstream SVGs
   referenced by its file-name, compound-extension, and light-appearance
   mappings. Folder mappings and unused SVGs are omitted.
 - **Source integrity:** npm tarball SHA-512

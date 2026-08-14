@@ -5,9 +5,11 @@ import XCTest
 /// A pragmatic, regex/line-scanning static-analysis test (deliberately
 /// *not* a full Swift parser — see the task's own framing) that fails
 /// the build if a new hard-coded, user-facing string literal is
-/// introduced into `App/KodApp/*.swift` without going through this
-/// project's localization mechanism (`Localized.string(_:comment:)`,
-/// or a SwiftUI `Text`/`Label`/etc. literal, which auto-localizes
+/// introduced into `App/KodApp` or `Packages/KodUI/Sources` without
+/// going through the owning target's localization mechanism
+/// (`Localized.string(_:comment:)` in the app,
+/// `KodUIStringCatalog.string(_:comment:)` in KodUI, or a SwiftUI
+/// `Text`/`Label`/etc. literal, which auto-localizes
 /// against the String Catalog via its `LocalizedStringKey` initializer
 /// overload — confirmed against the SDK's real overload behavior while
 /// migrating `SettingsView.swift`, the first file migrated in this
@@ -66,9 +68,10 @@ import XCTest
 ///   segments (`\(...)`) are stripped before this check so a mixed
 ///   literal like `"Error: \(error)"` (which *does* have static prose)
 ///   still counts as a violation if left unwrapped.
-/// - Files outside `App/KodApp/` (this test only scans that directory;
-///   `App/KodAppTests/`/`App/KodAppUITests/` fixtures and identifiers
-///   are explicitly out of scope per the task).
+/// - Test and UI-test sources. Production Swift in both the app shell and
+///   every KodUI target is scanned recursively; KodUI localization
+///   resources are separately checked for English values and translator
+///   comments.
 ///
 /// ## Proving this is a real, working check
 ///
@@ -169,14 +172,23 @@ final class UserFacingStringAuditTests: XCTestCase {
         return Self.hasLetter.firstMatch(in: stripped, range: strippedRange) == nil
     }
 
-    /// Scans every `.swift` file directly under `rootDirectory` (non-
-    /// recursive is sufficient for `App/KodApp`, which is a flat
-    /// directory) for sink-pattern violations.
+    /// Scans every `.swift` file recursively under `rootDirectory` for
+    /// sink-pattern violations.
     static func scanForViolations(rootDirectory: URL) throws -> [Violation] {
         let fileManager = FileManager.default
-        let swiftFiles = try fileManager.contentsOfDirectory(at: rootDirectory, includingPropertiesForKeys: nil)
+        guard let enumerator = fileManager.enumerator(
+            at: rootDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey]
+        ) else {
+            throw NSError(
+                domain: "UserFacingStringAuditTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not enumerate \(rootDirectory.path)"]
+            )
+        }
+        let swiftFiles = enumerator.compactMap { $0 as? URL }
             .filter { $0.pathExtension == "swift" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .sorted { $0.path < $1.path }
 
         var violations: [Violation] = []
 
@@ -206,7 +218,7 @@ final class UserFacingStringAuditTests: XCTestCase {
                        let content = literalContent(in: rawLine, afterMatchEnd: quoteIndex),
                        !isNonTranslatable(content) {
                         violations.append(Violation(
-                            file: fileURL.lastPathComponent,
+                            file: relativePath(of: fileURL, under: rootDirectory),
                             line: lineNumber,
                             sink: "accessibility override return \"literal\"",
                             snippet: trimmed
@@ -226,7 +238,7 @@ final class UserFacingStringAuditTests: XCTestCase {
                     guard let content = literalContent(in: rawLine, afterMatchEnd: matchRange.upperBound) else { continue }
                     if isNonTranslatable(content) { continue }
                     violations.append(Violation(
-                        file: fileURL.lastPathComponent,
+                        file: relativePath(of: fileURL, under: rootDirectory),
                         line: lineNumber,
                         sink: sink.name,
                         snippet: trimmed
@@ -238,29 +250,142 @@ final class UserFacingStringAuditTests: XCTestCase {
         return violations
     }
 
-    private func kodAppSourceDirectory() -> URL {
+    private static func relativePath(of fileURL: URL, under rootDirectory: URL) -> String {
+        let rootPath = rootDirectory.standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+        guard filePath.hasPrefix(rootPath + "/") else {
+            return fileURL.lastPathComponent
+        }
+        return String(filePath.dropFirst(rootPath.count + 1))
+    }
+
+    private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // UserFacingStringAuditTests.swift -> App/KodAppTests
             .deletingLastPathComponent() // App/KodAppTests -> App
-            .appendingPathComponent("KodApp")
+            .deletingLastPathComponent() // App -> repository root
+    }
+
+    private func auditedSourceRoots() -> [(label: String, url: URL)] {
+        let root = repositoryRoot()
+        return [
+            ("App/KodApp", root.appendingPathComponent("App/KodApp", isDirectory: true)),
+            (
+                "Packages/KodUI/Sources",
+                root.appendingPathComponent("Packages/KodUI/Sources", isDirectory: true)
+            )
+        ]
     }
 
     // MARK: - The actual regression guard
 
-    func testAppSourceTreeHasNoUnlocalizedUserFacingStringLiterals() throws {
-        let root = kodAppSourceDirectory()
-        var isDirectory: ObjCBool = false
-        XCTAssertTrue(
-            FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory) && isDirectory.boolValue,
-            "expected to find App/KodApp at \(root.path)"
-        )
-
-        let violations = try Self.scanForViolations(rootDirectory: root)
+    func testAppAndKodUISourceTreesHaveNoUnlocalizedUserFacingStringLiterals() throws {
+        var violations: [Violation] = []
+        for (label, root) in auditedSourceRoots() {
+            var isDirectory: ObjCBool = false
+            XCTAssertTrue(
+                FileManager.default.fileExists(
+                    atPath: root.path,
+                    isDirectory: &isDirectory
+                ) && isDirectory.boolValue,
+                "expected to find \(label) at \(root.path)"
+            )
+            violations += try Self.scanForViolations(rootDirectory: root)
+                .map {
+                    Violation(
+                        file: "\(label)/\($0.file)",
+                        line: $0.line,
+                        sink: $0.sink,
+                        snippet: $0.snippet
+                    )
+                }
+        }
         XCTAssertTrue(
             violations.isEmpty,
-            "Found \(violations.count) unlocalized user-facing string literal(s) in App/KodApp:\n"
+            "Found \(violations.count) unlocalized user-facing string literal(s) in production UI sources:\n"
                 + violations.map(\.description).joined(separator: "\n")
         )
+    }
+
+    func testKodUILocalizationResourcesHaveEnglishValuesAndTranslatorComments() throws {
+        let sourcesRoot = repositoryRoot()
+            .appendingPathComponent("Packages/KodUI/Sources", isDirectory: true)
+        let enumerator = try XCTUnwrap(
+            FileManager.default.enumerator(
+                at: sourcesRoot,
+                includingPropertiesForKeys: [.isRegularFileKey]
+            )
+        )
+        let resources = enumerator.compactMap { $0 as? URL }
+            .filter {
+                $0.lastPathComponent == "Localizable.xcstrings"
+                    || $0.lastPathComponent == "Localizable.strings"
+            }
+            .sorted { $0.path < $1.path }
+
+        let localizedTargets = Set(resources.compactMap { resource -> String? in
+            guard let sourcesIndex = resource.pathComponents.lastIndex(of: "Sources"),
+                  resource.pathComponents.indices.contains(sourcesIndex + 1) else {
+                return nil
+            }
+            return resource.pathComponents[sourcesIndex + 1]
+        })
+        XCTAssertEqual(
+            localizedTargets,
+            ["KodUIComponents", "SearchUI", "PreviewUI", "GitUI", "EditorUI"],
+            "expected localization resources for every KodUI target"
+        )
+        for resource in resources {
+            if resource.pathExtension == "xcstrings" {
+                let object = try XCTUnwrap(
+                    try JSONSerialization.jsonObject(with: Data(contentsOf: resource))
+                        as? [String: Any]
+                )
+                let strings = try XCTUnwrap(object["strings"] as? [String: Any])
+                XCTAssertFalse(strings.isEmpty, resource.path)
+                for (key, rawEntry) in strings {
+                    let entry = try XCTUnwrap(rawEntry as? [String: Any])
+                    let comment = try XCTUnwrap(entry["comment"] as? String)
+                    XCTAssertFalse(comment.isEmpty, "\(resource.path): \(key)")
+                    let localizations = try XCTUnwrap(
+                        entry["localizations"] as? [String: Any]
+                    )
+                    let english = try XCTUnwrap(localizations["en"])
+                    XCTAssertTrue(
+                        Self.containsNonemptyLocalizedValue(english),
+                        "\(resource.path): \(key) has no nonempty English value"
+                    )
+                }
+            } else {
+                let source = try String(contentsOf: resource, encoding: .utf8)
+                XCTAssertTrue(source.contains("/*"), "\(resource.path) has no translator comment")
+                XCTAssertNotNil(
+                    source.range(
+                        of: #"\"[^\"]+\"\s*=\s*\"[^\"]+\"\s*;"#,
+                        options: .regularExpression
+                    ),
+                    "\(resource.path) has no localized assignment"
+                )
+            }
+        }
+    }
+
+    private static func containsNonemptyLocalizedValue(_ value: Any) -> Bool {
+        if let dictionary = value as? [String: Any] {
+            if let localizedValue = dictionary["value"] as? String,
+               !localizedValue.isEmpty {
+                return true
+            }
+            return dictionary.values.contains {
+                Self.containsNonemptyLocalizedValue($0)
+            }
+        }
+        if let array = value as? [Any] {
+            return array.contains {
+                Self.containsNonemptyLocalizedValue($0)
+            }
+        }
+        return false
     }
 
     // MARK: - Proof the scanner is real (not a vacuous always-pass check)

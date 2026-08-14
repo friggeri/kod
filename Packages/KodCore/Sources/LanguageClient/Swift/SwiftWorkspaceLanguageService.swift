@@ -1,6 +1,5 @@
 import Foundation
 import SourceModel
-import WorkspaceCore
 
 public enum SwiftLanguageServiceError: Error, Equatable, Sendable {
     case notTrusted
@@ -88,17 +87,21 @@ public actor SwiftWorkspaceLanguageService {
     private let core: LanguageWorkspaceService
 
     public init(
-        identity: WorkspaceIdentity,
-        trustStore: WorkspaceTrustStore,
+        workspaceRoot: URL,
+        authorization: WorkspaceLaunchAuthorization,
         dependencies: Dependencies = Dependencies(),
+        providerID: LanguageProviderID = LanguageProviderID(
+            profileIdentifier: "swift"
+        ),
         onStateChange: @escaping @Sendable (LanguageServerState) -> Void = { _ in },
         onDiagnostics: @escaping @Sendable (URL, [Diagnostic]) -> Void = { _, _ in },
         onNormalizedDiagnostics: @escaping @Sendable (URL, [NormalizedDiagnostic]) -> Void = { _, _ in },
-        onWorkspaceDiagnosticsFailure: @escaping @Sendable (String) -> Void = { _ in }
+        onWorkspaceDiagnosticsFailure: @escaping @Sendable (String) -> Void = { _ in },
+        onDocumentReplayFailure: @escaping @Sendable ([LanguageDocumentReplayFailure]) -> Void = { _ in }
     ) {
         core = LanguageWorkspaceService(
-            identity: identity,
-            trustStore: trustStore,
+            workspaceRoot: workspaceRoot,
+            authorization: authorization,
             configuration: LanguageWorkspaceService.Configuration(
                 languageId: "swift",
                 semanticTokenTypes: Self.semanticTokenTypes,
@@ -108,10 +111,40 @@ public actor SwiftWorkspaceLanguageService {
                 discoverExecutable: dependencies.discoverExecutable,
                 connectionFactory: dependencies.connectionFactory
             ),
+            providerID: providerID,
             onStateChange: onStateChange,
             onDiagnostics: onDiagnostics,
             onNormalizedDiagnostics: onNormalizedDiagnostics,
-            onWorkspaceDiagnosticsFailure: onWorkspaceDiagnosticsFailure
+            onWorkspaceDiagnosticsFailure: onWorkspaceDiagnosticsFailure,
+            onDocumentReplayFailure: onDocumentReplayFailure
+        )
+    }
+
+    /// Boundary convenience for hosts that own a workspace identity value
+    /// and a main-actor trust store (see `WorkspaceTrustAuthorizing`).
+    public init<Trust: WorkspaceTrustAuthorizing>(
+        identity: Trust.Workspace,
+        trustStore: Trust,
+        dependencies: Dependencies = Dependencies(),
+        providerID: LanguageProviderID = LanguageProviderID(
+            profileIdentifier: "swift"
+        ),
+        onStateChange: @escaping @Sendable (LanguageServerState) -> Void = { _ in },
+        onDiagnostics: @escaping @Sendable (URL, [Diagnostic]) -> Void = { _, _ in },
+        onNormalizedDiagnostics: @escaping @Sendable (URL, [NormalizedDiagnostic]) -> Void = { _, _ in },
+        onWorkspaceDiagnosticsFailure: @escaping @Sendable (String) -> Void = { _ in },
+        onDocumentReplayFailure: @escaping @Sendable ([LanguageDocumentReplayFailure]) -> Void = { _ in }
+    ) {
+        self.init(
+            workspaceRoot: trustStore.workspaceRoot(of: identity),
+            authorization: .trustStore(trustStore, workspace: identity),
+            dependencies: dependencies,
+            providerID: providerID,
+            onStateChange: onStateChange,
+            onDiagnostics: onDiagnostics,
+            onNormalizedDiagnostics: onNormalizedDiagnostics,
+            onWorkspaceDiagnosticsFailure: onWorkspaceDiagnosticsFailure,
+            onDocumentReplayFailure: onDocumentReplayFailure
         )
     }
 
@@ -119,6 +152,15 @@ public actor SwiftWorkspaceLanguageService {
         get async {
             await core.currentState
         }
+    }
+
+    /// Identity every cross-file result from this service is bound to.
+    public nonisolated var providerID: LanguageProviderID {
+        core.providerID
+    }
+
+    public func currentProviderBinding() async -> LanguageProviderBinding {
+        await core.currentProviderBinding()
     }
 
     // MARK: - Lifecycle
@@ -133,6 +175,14 @@ public actor SwiftWorkspaceLanguageService {
 
     public func stop() async {
         await core.stop()
+    }
+
+    /// Typed per-document failures from the most recent automatic-restart
+    /// document replay; empty once a replay has fully succeeded.
+    public var documentReplayFailures: [LanguageDocumentReplayFailure] {
+        get async {
+            await core.documentReplayFailures
+        }
     }
 
     // MARK: - Document synchronization

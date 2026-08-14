@@ -1,11 +1,5 @@
-import DiagnosticsCore
 import Foundation
-
-public extension Notification.Name {
-    static let kodLanguageProfilesDidChange = Notification.Name(
-        "kod.languageProfilesDidChange"
-    )
-}
+import SettingsCore
 
 public enum LanguageProfileStoreLoadStatus: Sendable, Equatable {
     case fresh
@@ -110,7 +104,13 @@ private struct PersistedLanguageProfileState: Codable, Sendable {
                 }
                 return record
             }
-        } catch {
+        } catch let error as LanguageProfileValidationError {
+            throw DecodingError.dataCorruptedError(
+                forKey: .records,
+                in: container,
+                debugDescription: String(describing: error)
+            )
+        } catch let error as LanguageProfileStoreError {
             throw DecodingError.dataCorruptedError(
                 forKey: .records,
                 in: container,
@@ -122,31 +122,41 @@ private struct PersistedLanguageProfileState: Codable, Sendable {
 
 @MainActor
 public final class LanguageProfileStore {
-    private let defaults: UserDefaults
+    private let repository: CodableSettingsRepository
     private let persistenceKey: String
     private let overrideStore: LanguageServerOverrideStore
     private var defaultProfilesByIdentifier: [String: LanguageProfile]
     private var recordsByIdentifier: [String: PersistedLanguageProfileRecord] = [:]
     private var nextModifiedOrder: UInt64 = 1
     private var didMigrateGlobalOverrides = false
-    private var changeObservers: [
-        UUID: @MainActor @Sendable () -> Void
-    ] = [:]
+    private var changeObservers: [UUID: ChangeObserver] = [:]
 
-    public let quarantine: CorruptStateQuarantine
     public private(set) var loadStatus: LanguageProfileStoreLoadStatus = .fresh
+
+    public convenience init(
+        defaultProfiles: [LanguageProfile] = DefaultLanguageProfiles.all,
+        repository: CodableSettingsRepository,
+        persistenceKey: String = "kod.language-profiles"
+    ) throws {
+        try self.init(
+            defaultProfiles: defaultProfiles,
+            repository: repository,
+            overrideStore: LanguageServerOverrideStore(
+                repository: repository
+            ),
+            persistenceKey: persistenceKey
+        )
+    }
 
     public init(
         defaultProfiles: [LanguageProfile] = DefaultLanguageProfiles.all,
-        defaults: UserDefaults = .standard,
-        overrideStore: LanguageServerOverrideStore? = nil,
+        repository: CodableSettingsRepository,
+        overrideStore: LanguageServerOverrideStore,
         persistenceKey: String = "kod.language-profiles"
     ) throws {
-        self.defaults = defaults
+        self.repository = repository
         self.persistenceKey = persistenceKey
         self.overrideStore = overrideStore
-            ?? LanguageServerOverrideStore(defaults: defaults)
-        self.quarantine = CorruptStateQuarantine(defaults: defaults)
 
         let validatedDefaults = try defaultProfiles.map { profile in
             let profile = try profile.validated()
@@ -167,27 +177,35 @@ public final class LanguageProfileStore {
         self.defaultProfilesByIdentifier = defaultProfilesByIdentifier
 
         let restoredState: PersistedLanguageProfileState?
-        switch quarantine.decode(
-            PersistedLanguageProfileState.self,
-            forKey: persistenceKey
-        ) {
-        case .restored(let state):
+        switch try repository.read(persistedStateSetting) {
+        case .value(let state, _):
             restoredState = state
             loadStatus = .restored
         case .absent:
             restoredState = nil
             loadStatus = .fresh
-        case .quarantined(let reason):
+        case .quarantined(let record):
             restoredState = nil
-            loadStatus = .rebuiltAfterQuarantine(reason: reason)
+            loadStatus = .rebuiltAfterQuarantine(reason: record.reason)
         }
 
         merge(restoredState: restoredState)
+        let migrationWasNeeded = !didMigrateGlobalOverrides
         let migratedIdentifiers = try migrateGlobalOverridesIfNeeded()
         try persist()
         for identifier in migratedIdentifiers {
-            self.overrideStore.clearGlobalOverride(languageKey: identifier)
+            try self.overrideStore.clearGlobalOverride(
+                languageKey: identifier
+            )
         }
+        if migrationWasNeeded {
+            didMigrateGlobalOverrides = true
+            try persist()
+        }
+    }
+
+    public var quarantine: SettingsQuarantine {
+        repository.quarantine
     }
 
     public var profiles: [LanguageProfile] {
@@ -215,17 +233,22 @@ public final class LanguageProfileStore {
         recordsByIdentifier[identifier.lowercased()]?.isCustomized
     }
 
+    /// Registers `observer`, called synchronously inside every successful
+    /// mutation commit. The returned token owns the registration and cancels
+    /// it when released.
     @discardableResult
     public func observeChanges(
         _ observer: @escaping @MainActor @Sendable () -> Void
-    ) -> UUID {
+    ) -> SettingsObservation {
         let identifier = UUID()
-        changeObservers[identifier] = observer
-        return identifier
-    }
-
-    public func removeChangeObserver(_ identifier: UUID) {
-        changeObservers.removeValue(forKey: identifier)
+        let state = ChangeObserverState()
+        changeObservers[identifier] = ChangeObserver(
+            state: state,
+            callback: observer
+        )
+        return SettingsObservation {
+            state.cancel()
+        }
     }
 
     @discardableResult
@@ -343,10 +366,11 @@ public final class LanguageProfileStore {
             } else if record.profile.origin == .custom {
                 merged[identifier] = record
             } else if record.isCustomized {
-                var retiredProfile = record.profile
-                retiredProfile.origin = .custom
+                // A profile a previous version shipped is no longer a
+                // default: keep the user's edits, but never let it keep
+                // shipped-only capabilities now that it is custom.
                 merged[identifier] = PersistedLanguageProfileRecord(
-                    profile: retiredProfile,
+                    profile: record.profile.sanitizedAsCustomProfile(),
                     isCustomized: true
                 )
             }
@@ -379,9 +403,10 @@ public final class LanguageProfileStore {
         }
         var migratedIdentifiers: [String] = []
         for identifier in defaultProfilesByIdentifier.keys.sorted() {
-            guard let override = overrideStore.globalOverride(
-                languageKey: identifier
-            ),
+            guard case .value(let override, _) =
+                    try overrideStore.globalOverride(
+                        languageKey: identifier
+                    ),
                   var record = recordsByIdentifier[identifier],
                   var configuration = record.profile.languageServer else {
                 continue
@@ -397,7 +422,6 @@ public final class LanguageProfileStore {
             recordsByIdentifier[identifier] = record
             migratedIdentifiers.append(identifier)
         }
-        didMigrateGlobalOverrides = true
         return migratedIdentifiers
     }
 
@@ -431,18 +455,50 @@ public final class LanguageProfileStore {
                 $0.profile.identifier < $1.profile.identifier
             }
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        defaults.set(try encoder.encode(state), forKey: persistenceKey)
+        try repository.write(state, to: persistedStateSetting)
     }
 
     private func postChange() {
-        for observer in changeObservers.values {
-            observer()
+        changeObservers = changeObservers.filter { _, observer in
+            observer.state.isActive
         }
-        NotificationCenter.default.post(
-            name: .kodLanguageProfilesDidChange,
-            object: self
+        for observer in changeObservers.values where observer.state.isActive {
+            observer.callback()
+        }
+    }
+
+    private var persistedStateSetting: CodableSetting<PersistedLanguageProfileState> {
+        CodableSetting(
+            key: persistenceKey,
+            currentVersion: 1,
+            migrations: [
+                .unversionedCodable(PersistedLanguageProfileState.self) {
+                    $0
+                }
+            ]
         )
+    }
+}
+
+private struct ChangeObserver {
+    let state: ChangeObserverState
+    let callback: @MainActor @Sendable () -> Void
+}
+
+private final class ChangeObserverState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var active = true
+
+    var isActive: Bool {
+        lock.lock()
+        let value = active
+        lock.unlock()
+        return value
+    }
+
+    func cancel() {
+        lock.lock()
+        active = false
+        lock.unlock()
     }
 }

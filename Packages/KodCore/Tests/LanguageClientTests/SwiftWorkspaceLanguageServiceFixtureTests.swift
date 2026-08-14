@@ -1,27 +1,21 @@
 import Foundation
+import SourceIO
 import SourceModel
-import WorkspaceCore
 import XCTest
 @testable import LanguageClient
 
 final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
-    @MainActor
-    private func makeTrustedIdentity(named: String = #function) throws -> (WorkspaceIdentity, WorkspaceTrustStore, URL) {
+    /// A fresh, isolated workspace root. Launch authorization is an
+    /// injected capability, so no trust store (and no `UserDefaults`
+    /// suite) is involved in exercising the service.
+    private func makeWorkspaceRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         addTeardownBlock {
             try? FileManager.default.removeItem(at: root)
         }
-        let identity = try WorkspaceIdentity(root: root)
-        let suiteName = "SwiftWorkspaceLanguageServiceFixtureTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-        let store = WorkspaceTrustStore(defaults: defaults)
-        store.trust(identity)
-        return (identity, store, root)
+        return root
     }
 
     private func makeDependencies(scenario: String, environment: [String: String]? = nil) throws -> SwiftWorkspaceLanguageService.Dependencies {
@@ -38,28 +32,20 @@ final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
     }
 
     func testStartThrowsWhenWorkspaceIsNotTrusted() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: root)
-        }
-        let identity = try WorkspaceIdentity(root: root)
-        let suiteName = "UntrustedWorkspace.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-        let untrustedStore = await MainActor.run { WorkspaceTrustStore(defaults: defaults) }
+        let root = try makeWorkspaceRoot()
 
-        // Discovery must never even be attempted for an untrusted
+        // Discovery must never even be attempted for an unauthorized
         // workspace (SPEC 13.1): fail the test if it is.
         let discoveryWasCalled = LockedBox(false)
         let dependencies = SwiftWorkspaceLanguageService.Dependencies(discoverExecutable: {
             discoveryWasCalled.set(true)
             return URL(fileURLWithPath: "/nonexistent")
         })
-        let service = SwiftWorkspaceLanguageService(identity: identity, trustStore: untrustedStore, dependencies: dependencies)
+        let service = SwiftWorkspaceLanguageService(
+            workspaceRoot: root,
+            authorization: .denied,
+            dependencies: dependencies
+        )
 
         do {
             try await service.start()
@@ -70,13 +56,43 @@ final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
         XCTAssertFalse(discoveryWasCalled.get())
     }
 
+    /// The gate is consulted on every launch attempt rather than cached,
+    /// so a workspace that becomes authorized starts without the service
+    /// being recreated — and one that loses authorization stops starting.
+    func testStartConsultsAuthorizationOnEveryAttempt() async throws {
+        let root = try makeWorkspaceRoot()
+        let isAuthorized = LockedBox(false)
+        let service = SwiftWorkspaceLanguageService(
+            workspaceRoot: root,
+            authorization: WorkspaceLaunchAuthorization { isAuthorized.get() },
+            dependencies: try makeDependencies(scenario: "normal")
+        )
+
+        do {
+            try await service.start()
+            XCTFail("Expected notTrusted")
+        } catch SwiftLanguageServiceError.notTrusted {
+            // expected
+        }
+
+        isAuthorized.set(true)
+        try await service.start()
+        addTeardownBlock { await service.stop() }
+        let state = await service.currentState
+        XCTAssertEqual(state, .ready)
+    }
+
     @MainActor
     func testDocumentSyncRejectsRequestsForUnopenedOrStaleSnapshots() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let dependencies = try makeDependencies(scenario: "normal")
-        let service = SwiftWorkspaceLanguageService(identity: identity, trustStore: store, dependencies: dependencies)
+        let service = SwiftWorkspaceLanguageService(
+            workspaceRoot: root,
+            authorization: .authorized,
+            dependencies: dependencies
+        )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let fileURL = root.appendingPathComponent("Fake.swift")
         let snapshot = SourceSnapshot(text: "let x = 1", url: fileURL, version: 1)
@@ -116,11 +132,15 @@ final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
         // pull diagnostics succeeds normally here, and the *absence* case
         // is covered by capability-gating unit assertions below against a
         // fabricated `ServerCapabilities`.
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let dependencies = try makeDependencies(scenario: "normal")
-        let service = SwiftWorkspaceLanguageService(identity: identity, trustStore: store, dependencies: dependencies)
+        let service = SwiftWorkspaceLanguageService(
+            workspaceRoot: root,
+            authorization: .authorized,
+            dependencies: dependencies
+        )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let fileURL = root.appendingPathComponent("Fake.swift")
         let snapshot = SourceSnapshot(text: "let x = 1", url: fileURL, version: 1)
@@ -135,11 +155,15 @@ final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testInvalidRangesFromTheServerAreDiscardedRatherThanShown() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let dependencies = try makeDependencies(scenario: "invalid-range")
-        let service = SwiftWorkspaceLanguageService(identity: identity, trustStore: store, dependencies: dependencies)
+        let service = SwiftWorkspaceLanguageService(
+            workspaceRoot: root,
+            authorization: .authorized,
+            dependencies: dependencies
+        )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let fileURL = root.appendingPathComponent("Fake.swift")
         let snapshot = SourceSnapshot(text: "let x = 1", url: fileURL, version: 1)
@@ -161,11 +185,15 @@ final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testExtendedCapabilitiesRoundTripThroughTheSwiftFacingWrapper() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let dependencies = try makeDependencies(scenario: "normal")
-        let service = SwiftWorkspaceLanguageService(identity: identity, trustStore: store, dependencies: dependencies)
+        let service = SwiftWorkspaceLanguageService(
+            workspaceRoot: root,
+            authorization: .authorized,
+            dependencies: dependencies
+        )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let fileURL = root.appendingPathComponent("Fake.swift")
         let snapshot = SourceSnapshot(text: "let value = 1\n", url: fileURL, version: 1)
@@ -214,11 +242,15 @@ final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testExtendedCapabilitiesAreGatedOffWhenUnadvertised() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let dependencies = try makeDependencies(scenario: "capability-absent")
-        let service = SwiftWorkspaceLanguageService(identity: identity, trustStore: store, dependencies: dependencies)
+        let service = SwiftWorkspaceLanguageService(
+            workspaceRoot: root,
+            authorization: .authorized,
+            dependencies: dependencies
+        )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let fileURL = root.appendingPathComponent("Fake.swift")
         let snapshot = SourceSnapshot(text: "let value = 1\n", url: fileURL, version: 1)
@@ -261,7 +293,7 @@ final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testRestartResynchronizesPreviouslyOpenDocuments() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let stateFile = root.appendingPathComponent("state.log")
         FileManager.default.createFile(atPath: stateFile.path, contents: nil)
 
@@ -269,9 +301,13 @@ final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
             scenario: "crash-immediately",
             environment: ["FAKE_LSP_STATE_FILE": stateFile.path]
         )
-        let service = SwiftWorkspaceLanguageService(identity: identity, trustStore: store, dependencies: dependencies)
+        let service = SwiftWorkspaceLanguageService(
+            workspaceRoot: root,
+            authorization: .authorized,
+            dependencies: dependencies
+        )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let fileURL = root.appendingPathComponent("Fake.swift")
         let snapshot = SourceSnapshot(text: "let x = 1", url: fileURL, version: 1)
@@ -292,20 +328,7 @@ final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testRepositoryFilesAreNeverModifiedByLanguageServiceOperations() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let identity = try WorkspaceIdentity(root: root)
-        let suiteName = "RepoImmutability.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let store = WorkspaceTrustStore(defaults: defaults)
-        store.trust(identity)
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: root)
-        }
+        let root = try makeWorkspaceRoot()
 
         let fileURL = root.appendingPathComponent("Fake.swift")
         let originalContents = "let x = 1\n"
@@ -313,9 +336,13 @@ final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
         let originalChecksum = try Data(contentsOf: fileURL)
 
         let dependencies = try makeDependencies(scenario: "normal")
-        let service = SwiftWorkspaceLanguageService(identity: identity, trustStore: store, dependencies: dependencies)
+        let service = SwiftWorkspaceLanguageService(
+            workspaceRoot: root,
+            authorization: .authorized,
+            dependencies: dependencies
+        )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
 
         let snapshot = try SourceSnapshotLoader().load(url: fileURL, version: 1)
         try await service.didOpen(snapshot)
@@ -331,19 +358,19 @@ final class SwiftWorkspaceLanguageServiceFixtureTests: XCTestCase {
 
     @MainActor
     func testSwiftWrapperPreservesInteractiveRequestPriority() async throws {
-        let (identity, store, root) = try makeTrustedIdentity()
+        let root = try makeWorkspaceRoot()
         let stateFile = root.appendingPathComponent("priority-state")
         FileManager.default.createFile(atPath: stateFile.path, contents: Data())
         let service = SwiftWorkspaceLanguageService(
-            identity: identity,
-            trustStore: store,
+            workspaceRoot: root,
+            authorization: .authorized,
             dependencies: try makeDependencies(
                 scenario: "priority",
                 environment: ["FAKE_LSP_STATE_FILE": stateFile.path]
             )
         )
         try await service.start()
-        defer { Task { await service.stop() } }
+        addTeardownBlock { await service.stop() }
         let snapshot = SourceSnapshot(
             text: "let value = 1\n",
             url: root.appendingPathComponent("Fake.swift"),

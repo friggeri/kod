@@ -1,5 +1,4 @@
 import Foundation
-import WorkspaceCore
 import XCTest
 @testable import GitCore
 
@@ -62,12 +61,11 @@ final class GitRevisionContentTests: XCTestCase {
         XCTAssertFalse(workingTreeDiff.hunks.isEmpty)
 
         _ = try fixture.commit(message: "initial", date: "2024-01-01T10:00:00 -0500")
-        await context.invalidate(for: WorkspaceChangeBatch(paths: [
-            WorkspaceChangePath(
-                path: fixture.rootURL.appendingPathComponent(".git/HEAD").path,
-                flags: .modified
+        await context.invalidate(
+            GitRepositoryInvalidation(
+                changedPaths: [fixture.rootURL.appendingPathComponent(".git/HEAD").path]
             )
-        ]))
+        )
         let committedHeadExists = try await context.headExists()
         XCTAssertTrue(committedHeadExists)
     }
@@ -162,9 +160,11 @@ final class GitRevisionContentTests: XCTestCase {
 
         try fixture.write("a.txt", text: "two\n")
         try fixture.add("a.txt")
-        await context.invalidate(for: WorkspaceChangeBatch(paths: [
-            WorkspaceChangePath(path: fixture.rootURL.appendingPathComponent("a.txt").path, flags: .modified)
-        ]))
+        await context.invalidate(
+            GitRepositoryInvalidation(
+                changedPaths: [fixture.rootURL.appendingPathComponent("a.txt").path]
+            )
+        )
 
         let refreshed = try await context.revisionContent(source: .index, path: "a.txt")
         XCTAssertEqual(refreshed.bytes, Data("two\n".utf8))

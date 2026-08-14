@@ -267,6 +267,7 @@ public enum LanguageProfileValidationError: Error, Sendable, Equatable {
     case invalidMinimumMajorVersion
     case invalidSelectedExecutablePath(String)
     case unsafeCustomConfiguration
+    case unsafeCustomDiscoveryStrategy
     case configurationTooLarge
 }
 
@@ -321,6 +322,8 @@ extension LanguageProfileValidationError: LocalizedError {
             "A selected language-server executable must use an absolute local path: \(path)"
         case .unsafeCustomConfiguration:
             "Custom profiles cannot provide initialization payloads or built-in support presets."
+        case .unsafeCustomDiscoveryStrategy:
+            "Custom profiles cannot use Kod's built-in toolchain discovery tools."
         case .configurationTooLarge:
             "The language-server configuration is too large."
         }
@@ -328,6 +331,47 @@ extension LanguageProfileValidationError: LocalizedError {
 }
 
 public extension LanguageProfile {
+    /// Rewrites this profile as a user-owned custom profile, dropping
+    /// every shipped-only capability (initialization payloads, workspace
+    /// configuration, network access, support notes, and toolchain
+    /// discovery strategies). Used when a profile that a previous
+    /// version shipped is no longer a default: the user's associations
+    /// and executable choice survive, the shipped capabilities do not.
+    func sanitizedAsCustomProfile() -> LanguageProfile {
+        var profile = self
+        profile.origin = .custom
+        if var configuration = profile.languageServer {
+            configuration.initializationOptions = nil
+            configuration.workspaceConfiguration = [:]
+            configuration.networkAccess = .none
+            configuration.supportNotes = []
+            configuration.executableCandidates = configuration
+                .executableCandidates
+                .map { candidate in
+                    var candidate = candidate
+                    candidate.discoveryStrategies = candidate
+                        .discoveryStrategies
+                        .filter { strategy in
+                            switch strategy {
+                            case .path, .packageManagerLocations:
+                                return true
+                            case .xcrun, .rustup:
+                                return false
+                            }
+                        }
+                    if candidate.discoveryStrategies.isEmpty {
+                        candidate.discoveryStrategies = [
+                            .path,
+                            .packageManagerLocations
+                        ]
+                    }
+                    return candidate
+                }
+            profile.languageServer = configuration
+        }
+        return profile
+    }
+
     func validated() throws -> LanguageProfile {
         var profile = self
         profile.identifier = try Self.normalizedIdentifier(
@@ -470,8 +514,19 @@ public extension LanguageProfile {
                         case .path, .packageManagerLocations:
                             break
                         case .xcrun(let tool):
+                            // `xcrun`/`rustup` launch a real toolchain
+                            // tool and then launch whatever path it
+                            // reports, so they stay shipped-only.
+                            guard origin == .default else {
+                                throw LanguageProfileValidationError
+                                    .unsafeCustomDiscoveryStrategy
+                            }
                             _ = try Self.normalizedExecutableName(tool)
                         case .rustup(let component):
+                            guard origin == .default else {
+                                throw LanguageProfileValidationError
+                                    .unsafeCustomDiscoveryStrategy
+                            }
                             _ = try Self.normalizedExecutableName(component)
                         }
                     }

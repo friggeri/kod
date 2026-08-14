@@ -1,6 +1,7 @@
 import AppKit
 import DiagnosticsCore
 import LanguageAdapters
+import SettingsCore
 import SourceModel
 import WorkspaceCore
 import XCTest
@@ -12,6 +13,12 @@ import XCTest
 /// must stop any running language-service coordinators.
 @MainActor
 final class WorkspaceViewControllerTrustControlTests: XCTestCase {
+    private func makeRepository() -> CodableSettingsRepository {
+        CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
+    }
+
     private func findView(identifier: String, in view: NSView) -> NSView? {
         if view.identifier?.rawValue == identifier {
             return view
@@ -30,7 +37,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         controller: WorkspaceViewController,
         trustStore: WorkspaceTrustStore,
         log: BoundedEventLog,
-        defaults: UserDefaults
+        repository: CodableSettingsRepository
     ) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("WorkspaceViewControllerTrustControlTests-\(UUID().uuidString)", isDirectory: true)
@@ -39,26 +46,25 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let suiteName = "WorkspaceViewControllerTrustControlTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
+        let repository = CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
 
         let identity = try WorkspaceIdentity(root: root)
-        let trustStore = WorkspaceTrustStore(defaults: defaults)
         let log = BoundedEventLog()
-        let languageSupportService = languageSupportService
-            ?? LanguageSupportService()
-        let controller = WorkspaceViewController(
-            identity: identity,
-            trustStore: trustStore,
-            layoutStore: WorkspaceLayoutStore(defaults: defaults),
+        let appEnvironment = try AppEnvironment.testing(
+            settingsRepository: repository,
             diagnosticsLog: log,
             languageSupportService: languageSupportService
         )
+        let dependencies = appEnvironment.makeWorkspaceDependencies()
+        let trustStore = dependencies.trustStore
+        let controller = WorkspaceViewController(
+            identity: identity,
+            dependencies: dependencies
+        )
         _ = controller.view // triggers loadView(), building the trust banner etc.
-        return (controller, trustStore, log, defaults)
+        return (controller, trustStore, log, repository)
     }
 
     private func waitForPromptUpdate() async throws {
@@ -69,7 +75,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
 
     func testRevokeTrustCallsTrustStoreRevokeAndUpdatesTrustState() throws {
         let (controller, trustStore, _, _) = try makeFixture()
-        trustStore.trust(controller.identity)
+        try trustStore.trust(controller.identity)
         XCTAssertTrue(trustStore.isTrusted(controller.identity))
 
         controller.revokeTrust(nil)
@@ -178,9 +184,9 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
                 isIgnored: false
             )
         ]
-        let item = controller.outlineView(outline, child: 0, ofItem: nil)
+        let item = controller.explorer.outlineView(outline, child: 0, ofItem: nil)
         let cell = try XCTUnwrap(
-            controller.outlineView(
+            controller.explorer.outlineView(
                 outline,
                 viewFor: outline.outlineTableColumn,
                 item: item
@@ -191,7 +197,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
     }
 
     func testTrustBannerOnlyAppearsWhenWorkspaceIsFirstOpened() throws {
-        let (firstController, _, _, defaults) = try makeFixture()
+        let (firstController, _, _, repository) = try makeFixture()
         let firstBanner = try XCTUnwrap(
             findView(identifier: "workspace.trustBanner", in: firstController.view)
         )
@@ -199,8 +205,9 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
 
         let reopenedController = WorkspaceViewController(
             identity: firstController.identity,
-            trustStore: WorkspaceTrustStore(defaults: defaults),
-            layoutStore: WorkspaceLayoutStore(defaults: defaults)
+            dependencies: try AppEnvironment.testing(
+                settingsRepository: repository
+            ).makeWorkspaceDependencies()
         )
         _ = reopenedController.view
         let reopenedBanner = try XCTUnwrap(
@@ -287,7 +294,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
 
     func testRevokeTrustStopsLanguageServiceCoordinatorsWithoutCrashing() throws {
         let (controller, trustStore, _, _) = try makeFixture()
-        trustStore.trust(controller.identity)
+        try trustStore.trust(controller.identity)
 
         // No document has been opened, so no real language-server
         // process is running yet; this asserts `handleTrustRevoked()`
@@ -300,13 +307,13 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
     }
 
     func testMissingServerPromptIsTrustGatedAndNotNowSuppressesItForTheSession() async throws {
-        let suiteName =
-            "WorkspaceViewControllerTrustControlTests.LanguageProfiles.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let repository = makeRepository()
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
         let profileStore = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.shell],
-            defaults: defaults,
+            repository: repository,
             overrideStore: overrideStore
         )
         let service = LanguageSupportService(
@@ -343,7 +350,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         try await waitForPromptUpdate()
         XCTAssertTrue(banner.isHidden)
 
-        trustStore.trust(controller.identity)
+        try trustStore.trust(controller.identity)
         controller.multiLanguageServicesCoordinator.onMissingServer?(
             DefaultLanguageProfiles.shell
         )
@@ -389,16 +396,13 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
     /// hide the currently displayed matching banner on its own — no
     /// profile edit or manual executable selection required.
     func testExecutableDiscoveryHidesTheMatchingBannerWithoutProfileEditOrManualSelection() async throws {
-        let suiteName =
-            "WorkspaceViewControllerTrustControlTests.Discovery.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let repository = makeRepository()
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
         let profileStore = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.shell],
-            defaults: defaults,
+            repository: repository,
             overrideStore: overrideStore
         )
         let shouldSucceed = DiscoveryGate(false)
@@ -431,7 +435,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         )
         window.contentViewController = controller
         controller.viewDidAppear()
-        trustStore.trust(controller.identity)
+        try trustStore.trust(controller.identity)
 
         let banner = try XCTUnwrap(
             findView(
@@ -467,19 +471,16 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
     /// missing-server prompt alone — only clearing that profile's own
     /// stale queue entry so it doesn't awkwardly resurface later.
     func testExecutableDiscoveryForOneProfileLeavesADifferentActivePromptUntouched() async throws {
-        let suiteName =
-            "WorkspaceViewControllerTrustControlTests.DiscoveryUnrelated.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let repository = makeRepository()
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
         let profileStore = try LanguageProfileStore(
             defaultProfiles: [
                 DefaultLanguageProfiles.shell,
                 DefaultLanguageProfiles.markdown
             ],
-            defaults: defaults,
+            repository: repository,
             overrideStore: overrideStore
         )
         let shellShouldSucceed = DiscoveryGate(false)
@@ -513,7 +514,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         )
         window.contentViewController = controller
         controller.viewDidAppear()
-        trustStore.trust(controller.identity)
+        try trustStore.trust(controller.identity)
 
         let banner = try XCTUnwrap(
             findView(
@@ -586,13 +587,13 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
     }
 
     func testMissingServerBannerOffersInstallationHelpForAKnownDefaultProfile() async throws {
-        let suiteName =
-            "WorkspaceViewControllerTrustControlTests.InstallationHelp.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let repository = makeRepository()
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
         let profileStore = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.markdown],
-            defaults: defaults,
+            repository: repository,
             overrideStore: overrideStore
         )
         let service = LanguageSupportService(
@@ -616,7 +617,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         )
         window.contentViewController = controller
         controller.viewDidAppear()
-        trustStore.trust(controller.identity)
+        try trustStore.trust(controller.identity)
 
         controller.multiLanguageServicesCoordinator.onMissingServer?(
             DefaultLanguageProfiles.markdown
@@ -648,13 +649,13 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
     }
 
     func testMissingServerBannerFallsBackToTheDirectoryForACustomProfile() async throws {
-        let suiteName =
-            "WorkspaceViewControllerTrustControlTests.CustomFallback.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let repository = makeRepository()
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
         let profileStore = try LanguageProfileStore(
             defaultProfiles: [],
-            defaults: defaults,
+            repository: repository,
             overrideStore: overrideStore
         )
         let service = LanguageSupportService(
@@ -703,7 +704,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         )
         window.contentViewController = controller
         controller.viewDidAppear()
-        trustStore.trust(controller.identity)
+        try trustStore.trust(controller.identity)
 
         controller.multiLanguageServicesCoordinator.onMissingServer?(
             customProfile
@@ -731,13 +732,13 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
     }
 
     func testRevokingTrustDuringServerDiscoveryDoesNotShowAStalePrompt() async throws {
-        let suiteName =
-            "WorkspaceViewControllerTrustControlTests.DelayedDiscovery.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let repository = makeRepository()
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
         let profileStore = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.shell],
-            defaults: defaults,
+            repository: repository,
             overrideStore: overrideStore
         )
         let service = LanguageSupportService(
@@ -762,7 +763,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         )
         window.contentViewController = controller
         controller.viewDidAppear()
-        trustStore.trust(controller.identity)
+        try trustStore.trust(controller.identity)
         controller.multiLanguageServicesCoordinator.onMissingServer?(
             DefaultLanguageProfiles.shell
         )
@@ -781,13 +782,13 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
     }
 
     func testUnknownExtensionPromptCreatesAPrefilledCustomProfile() async throws {
-        let suiteName =
-            "WorkspaceViewControllerTrustControlTests.UnknownProfile.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
+        let repository = makeRepository()
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
         let profileStore = try LanguageProfileStore(
             defaultProfiles: [],
-            defaults: defaults,
+            repository: repository,
             overrideStore: overrideStore
         )
         let service = LanguageSupportService(
@@ -805,7 +806,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         )
         window.contentViewController = controller
         controller.viewDidAppear()
-        trustStore.trust(controller.identity)
+        try trustStore.trust(controller.identity)
 
         let unknownURL = controller.identity.root.appendingPathComponent(
             "example.widget"
@@ -869,14 +870,31 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
 
     func testPreviewSourceControlLivesInFixedWindowToolbarSlot() async throws {
         let (controller, _, _, _) = try makeFixture()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
+        let services = WorkspaceWindowController.Services(
+            makeWindow: { contentViewController in
+                let window = NSWindow(
+                    contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+                    styleMask: [.titled, .closable, .resizable],
+                    backing: .buffered,
+                    defer: false
+                )
+                window.contentViewController = contentViewController
+                return window
+            },
+            present: { _ in },
+            focus: { _ in },
+            activate: {},
+            beginSession: { _ in },
+            shutdownSession: { _ in }
         )
-        window.contentViewController = controller
-        controller.viewDidAppear()
+        let windowController = WorkspaceWindowController(
+            identity: controller.identity,
+            session: controller.session,
+            workspaceViewController: controller,
+            services: services
+        )
+        windowController.showSessionWindow()
+        let window = try XCTUnwrap(windowController.window)
         window.layoutIfNeeded()
 
         let item = try XCTUnwrap(

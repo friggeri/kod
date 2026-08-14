@@ -1,6 +1,6 @@
 import Foundation
+import SourceIO
 import SourceModel
-import WorkspaceCore
 import XCTest
 @testable import LanguageClient
 
@@ -53,15 +53,6 @@ final class SourceKitLSPIntegrationTests: XCTestCase {
 
     @MainActor
     private func makeTrustedService(root: URL) throws -> SwiftWorkspaceLanguageService {
-        let identity = try WorkspaceIdentity(root: root)
-        let suiteName = "SourceKitLSPIntegrationTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-        let store = WorkspaceTrustStore(defaults: defaults)
-        store.trust(identity)
-
         let dependencies = SwiftWorkspaceLanguageService.Dependencies(
             connectionFactory: { configuration, onStateChange, onNotification in
                 var configuration = configuration
@@ -77,7 +68,11 @@ final class SourceKitLSPIntegrationTests: XCTestCase {
                 )
             }
         )
-        return SwiftWorkspaceLanguageService(identity: identity, trustStore: store, dependencies: dependencies)
+        return SwiftWorkspaceLanguageService(
+            workspaceRoot: root,
+            authorization: .authorized,
+            dependencies: dependencies
+        )
     }
 
     @MainActor

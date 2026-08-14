@@ -2,25 +2,33 @@ import AppKit
 import Combine
 import DiagnosticsCore
 import FontCore
+import KodUIComponents
+import SettingsCore
 import SwiftUI
 import ThemeCore
 
-/// Backing store for `SettingsView`'s bindings; persists every change
-/// immediately and broadcasts `.kodAppearanceSettingsChanged` so open
-/// windows re-apply live (SPEC 7.2: "Theme switching updates the visible
-/// UI immediately").
+/// Backing store for `SettingsView`'s bindings. Each mutation is persisted
+/// immediately; open surfaces observe the injected stores with owned
+/// cancellation tokens (SPEC 7.2).
 @MainActor
 private final class SettingsModel: ObservableObject {
     private let themeStore: ThemeStore
     private let fontSettingsStore: FontSettingsStore
+    @Published private(set) var persistenceError: SettingsRepositoryError?
 
     @Published var selectedThemeIdentifier: String {
         didSet {
             guard selectedThemeIdentifier != oldValue else {
                 return
             }
-            themeStore.setActiveThemeIdentifier(selectedThemeIdentifier)
-            AppearanceSettings.broadcastChange()
+            do {
+                try themeStore.setActiveThemeIdentifier(
+                    selectedThemeIdentifier
+                )
+                persistenceError = nil
+            } catch {
+                persistenceError = error
+            }
         }
     }
 
@@ -31,40 +39,66 @@ private final class SettingsModel: ObservableObject {
             guard fontSettings != oldValue else {
                 return
             }
-            fontSettingsStore.save(fontSettings)
-            AppearanceSettings.broadcastChange()
+            do {
+                try fontSettingsStore.save(fontSettings)
+                persistenceError = nil
+            } catch {
+                persistenceError = error
+            }
         }
     }
 
-    init(themeStore: ThemeStore, fontSettingsStore: FontSettingsStore) {
+    init(
+        themeStore: ThemeStore,
+        fontSettingsStore: FontSettingsStore
+    ) throws(SettingsRepositoryError) {
         self.themeStore = themeStore
         self.fontSettingsStore = fontSettingsStore
-        let active = themeStore.resolvedActiveTheme(
-            systemIsDark: AppearanceSettings.isSystemDark(),
-            systemIsHighContrast: AppearanceSettings.isSystemHighContrast()
+        let active = try themeStore.resolvedActiveTheme(
+            systemIsDark: AppearanceCenter.systemIsDark(),
+            systemIsHighContrast: AppearanceCenter.systemIsHighContrast()
         )
         self.selectedThemeIdentifier = active.identifier
-        self.availableThemes = BundledThemes.all + themeStore.importedThemes()
-        self.fontSettings = fontSettingsStore.load()
+        switch try themeStore.importedThemes() {
+        case .value(let themes, _):
+            self.availableThemes = BundledThemes.all + themes
+        case .absent, .quarantined:
+            self.availableThemes = BundledThemes.all
+        }
+        switch try fontSettingsStore.load() {
+        case .value(let settings, _):
+            self.fontSettings = settings
+        case .absent, .quarantined:
+            self.fontSettings = .default
+        }
     }
 
-    func refreshAvailableThemes() {
-        availableThemes = BundledThemes.all + themeStore.importedThemes()
+    func refreshAvailableThemes() throws(SettingsRepositoryError) {
+        switch try themeStore.importedThemes() {
+        case .value(let themes, _):
+            availableThemes = BundledThemes.all + themes
+        case .absent, .quarantined:
+            availableThemes = BundledThemes.all
+        }
     }
 
-    func addImportedTheme(_ theme: KodTheme) {
-        themeStore.addImportedTheme(theme)
-        refreshAvailableThemes()
+    func addImportedTheme(
+        _ theme: KodTheme
+    ) throws(SettingsRepositoryError) {
+        try themeStore.addImportedTheme(theme)
+        try refreshAvailableThemes()
         selectedThemeIdentifier = theme.identifier
     }
 
-    func removeImportedTheme(identifier: String) {
-        themeStore.removeImportedTheme(identifier: identifier)
-        refreshAvailableThemes()
+    func removeImportedTheme(
+        identifier: String
+    ) throws(SettingsRepositoryError) {
+        try themeStore.removeImportedTheme(identifier: identifier)
+        try refreshAvailableThemes()
         if selectedThemeIdentifier == identifier {
             selectedThemeIdentifier = BundledThemes.defaultTheme(
-                isDark: AppearanceSettings.isSystemDark(),
-                isHighContrast: AppearanceSettings.isSystemHighContrast()
+                isDark: AppearanceCenter.systemIsDark(),
+                isHighContrast: AppearanceCenter.systemIsHighContrast()
             ).identifier
         }
     }
@@ -79,28 +113,38 @@ final class SettingsWindowController: NSWindowController {
     private let diagnosticsModel: DiagnosticsViewModel
     private let languageSupportService: LanguageSupportService
     private var selectedTab = SettingsTab.theme
+    private var subscriptions: Set<AnyCancellable> = []
 
-    convenience init(
-        diagnosticsLog: BoundedEventLog = BoundedEventLog(),
-        languageSupportService: LanguageSupportService = LanguageSupportService()
-    ) {
-        self.init(
-            themeStore: ThemeStore(),
-            fontSettingsStore: FontSettingsStore(),
-            diagnosticsLog: diagnosticsLog,
-            languageSupportService: languageSupportService
+    convenience init(environment: AppEnvironment) throws {
+        try self.init(
+            themeStore: environment.themeStore,
+            fontSettingsStore: environment.fontSettingsStore,
+            crashReportingSettingsStore: environment
+                .makeCrashReportingSettingsStore(),
+            settingsQuarantine: environment.settingsRepository.quarantine,
+            diagnosticsLog: environment.diagnosticsLog,
+            languageSupportService: environment.languageSupportService
         )
     }
 
     init(
         themeStore: ThemeStore,
         fontSettingsStore: FontSettingsStore,
-        diagnosticsLog: BoundedEventLog = BoundedEventLog(),
-        languageSupportService: LanguageSupportService = LanguageSupportService()
-    ) {
-        let model = SettingsModel(themeStore: themeStore, fontSettingsStore: fontSettingsStore)
+        crashReportingSettingsStore: CrashReportingSettingsStore,
+        settingsQuarantine: SettingsQuarantine,
+        diagnosticsLog: BoundedEventLog,
+        languageSupportService: LanguageSupportService
+    ) throws {
+        let model = try SettingsModel(
+            themeStore: themeStore,
+            fontSettingsStore: fontSettingsStore
+        )
         self.model = model
-        self.diagnosticsModel = DiagnosticsViewModel(diagnosticsLog: diagnosticsLog)
+        self.diagnosticsModel = try DiagnosticsViewModel(
+            diagnosticsLog: diagnosticsLog,
+            crashReportingSettingsStore: crashReportingSettingsStore,
+            settingsQuarantine: settingsQuarantine
+        )
         self.languageSupportService = languageSupportService
 
         let window = NSWindow(
@@ -114,6 +158,14 @@ final class SettingsWindowController: NSWindowController {
         window.center()
         super.init(window: window)
 
+        model.$persistenceError
+            .compactMap { $0 }
+            .sink { [weak self] error in
+                Task { @MainActor in
+                    self?.presentPersistenceError(error)
+                }
+            }
+            .store(in: &subscriptions)
         window.contentViewController = NSHostingController(rootView: makeView())
     }
 
@@ -134,7 +186,9 @@ final class SettingsWindowController: NSWindowController {
             ),
             availableThemes: model.availableThemes,
             onImportVSCodeTheme: { [weak self] in self?.presentImportPanel() },
-            onRemoveImportedTheme: { [model] identifier in model.removeImportedTheme(identifier: identifier) },
+            onRemoveImportedTheme: { [weak self] identifier in
+                self?.removeImportedTheme(identifier: identifier)
+            },
             fontSettings: Binding(
                 get: { [model] in model.fontSettings },
                 set: { [model] in model.fontSettings = $0 }
@@ -154,6 +208,22 @@ final class SettingsWindowController: NSWindowController {
                 )
             }
         )
+    }
+
+    private func removeImportedTheme(identifier: String) {
+        do {
+            try model.removeImportedTheme(identifier: identifier)
+        } catch {
+            presentImportError(error)
+        }
+    }
+
+    private func presentPersistenceError(_ error: SettingsRepositoryError) {
+        guard let window else {
+            return
+        }
+        let alert = NSAlert(error: error)
+        alert.beginSheetModal(for: window)
     }
 
     func showLanguageSupport(profileIdentifier: String? = nil) {
@@ -254,7 +324,7 @@ final class SettingsWindowController: NSWindowController {
             let data = try Data(contentsOf: url)
             let identifier = "imported.\(url.deletingPathExtension().lastPathComponent).\(UUID().uuidString.prefix(8))"
             let (theme, report) = try VSCodeThemeImporter.import(jsonData: data, identifier: identifier)
-            model.addImportedTheme(theme)
+            try model.addImportedTheme(theme)
             window?.contentViewController = NSHostingController(rootView: makeView())
 
             if !report.isEmpty {

@@ -1,8 +1,22 @@
 import AppKit
 import CodeViewport
+import FontCore
+import KodUIComponents
 import LanguageAdapters
+import SettingsCore
 import SourceModel
 import SyntaxCore
+import ThemeCore
+
+@MainActor
+private final class StandaloneDocumentRootView: NSView {
+    var onEffectiveAppearanceChanged: (() -> Void)?
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onEffectiveAppearanceChanged?()
+    }
+}
 
 /// Wraps `CodeDocumentViewController` for the single-file (non-workspace)
 /// window path so Find in File, Go to Line, and Word Wrap share the same
@@ -12,6 +26,9 @@ import SyntaxCore
 final class StandaloneDocumentViewController: NSViewController {
     private var documentController: CodeDocumentViewController
     private let languageSupportService: LanguageSupportService
+    private let appearanceCenter: AppearanceCenter
+    private var appearanceObservation: SettingsObservation?
+    private var profileObservation: SettingsObservation?
     private var goToLinePanelController: GoToLinePanelController?
     private var wordWrapEnabled = false {
         didSet { documentController.wordWrapEnabled = wordWrapEnabled }
@@ -22,30 +39,29 @@ final class StandaloneDocumentViewController: NSViewController {
 
     init(
         snapshot: SourceSnapshot,
-        languageSupportService: LanguageSupportService
+        languageSupportService: LanguageSupportService,
+        appearanceCenter: AppearanceCenter
     ) {
         self.languageSupportService = languageSupportService
+        self.appearanceCenter = appearanceCenter
+        let appearance = appearanceCenter.snapshot
         documentController = CodeDocumentViewController(
             snapshot: snapshot,
             syntaxLanguage: languageSupportService.syntaxLanguage(
                 for: snapshot
             ),
-            theme: AppearanceSettings.currentTheme(),
-            fontSettings: AppearanceSettings.currentFontSettings()
+            theme: appearance.theme,
+            fontSettings: appearance.fontSettings
         )
         super.init(nibName: nil, bundle: nil)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appearanceSettingsDidChange),
-            name: .kodAppearanceSettingsChanged,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(languageProfilesDidChange(_:)),
-            name: .kodLanguageProfilesDidChange,
-            object: languageSupportService.profileStore
-        )
+        appearanceObservation = appearanceCenter.observe {
+            [weak self] snapshot in
+            self?.applyAppearance(snapshot)
+        }
+        profileObservation = languageSupportService.profileRegistry
+            .observeChanges { [weak self] in
+                self?.languageProfilesDidChange()
+            }
     }
 
     @available(*, unavailable)
@@ -53,19 +69,12 @@ final class StandaloneDocumentViewController: NSViewController {
         nil
     }
 
-    deinit {
-        NotificationCenter.default.removeObserver(self)
+    private func applyAppearance(_ snapshot: AppearanceCenter.Snapshot) {
+        documentController.theme = snapshot.theme
+        documentController.fontSettings = snapshot.fontSettings
     }
 
-    @objc
-    private func appearanceSettingsDidChange() {
-        documentController.theme = AppearanceSettings.currentTheme()
-        documentController.fontSettings = AppearanceSettings.currentFontSettings()
-    }
-
-    @objc
-    private func languageProfilesDidChange(_ notification: Notification) {
-        languageSupportService.profileRegistry.reload()
+    private func languageProfilesDidChange() {
         let syntaxLanguage = languageSupportService.syntaxLanguage(
             for: documentController.snapshot
         )
@@ -113,7 +122,11 @@ final class StandaloneDocumentViewController: NSViewController {
     }
 
     override func loadView() {
-        view = NSView()
+        let rootView = StandaloneDocumentRootView()
+        rootView.onEffectiveAppearanceChanged = { [weak self] in
+            self?.appearanceCenter.refresh()
+        }
+        view = rootView
         installDocumentController(documentController)
     }
 

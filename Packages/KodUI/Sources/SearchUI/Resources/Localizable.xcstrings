@@ -1,0 +1,234 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "%@, %lld match%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$lld match%3$@"
+          }
+        }
+      },
+      "comment": "Accessibility label for a search-result file row, naming the file and its match count",
+      "extractionState": "manual"
+    },
+    "%lld matches in %lld files.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld matches in %2$lld files."
+          }
+        }
+      },
+      "comment": "Status label summarizing a completed workspace search's match/file counts",
+      "extractionState": "manual"
+    },
+    "Case": {
+      "comment": "Checkbox toggling case-sensitive workspace search",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Case"
+          }
+        }
+      }
+    },
+    "Exclude (e.g. Generated/**)": {
+      "comment": "Placeholder text for the exclude-glob filter field in workspace search",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exclude (e.g. Generated/**)"
+          }
+        }
+      }
+    },
+    "Hidden": {
+      "comment": "Checkbox toggling inclusion of hidden files in workspace search",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden"
+          }
+        }
+      }
+    },
+    "Ignored": {
+      "comment": "Checkbox toggling inclusion of ignored files in workspace search",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignored"
+          }
+        }
+      }
+    },
+    "Include (e.g. *.swift)": {
+      "comment": "Placeholder text for the include-glob filter field in workspace search",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include (e.g. *.swift)"
+          }
+        }
+      }
+    },
+    "Line %lld: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Line %1$lld: %2$@"
+          }
+        }
+      },
+      "comment": "Accessibility label for a search-result match row, naming the line number and its text",
+      "extractionState": "manual"
+    },
+    "No results.": {
+      "comment": "Status label shown when a workspace search finds no matches",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No results."
+          }
+        }
+      }
+    },
+    "Regex": {
+      "comment": "Checkbox toggling regular-expression matching in workspace search",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regex"
+          }
+        }
+      }
+    },
+    "Results": {
+      "comment": "Column title for the workspace search results outline view",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Results"
+          }
+        }
+      }
+    },
+    "Search Workspace": {
+      "comment": "Placeholder text in the workspace search field",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Workspace"
+          }
+        }
+      }
+    },
+    "Search failed: %@": {
+      "comment": "Status label shown when a workspace search fails",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search failed: %@"
+          }
+        }
+      }
+    },
+    "Search is unavailable: %@.": {
+      "comment": "Status text shown when the workspace search engine fails to initialize",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search is unavailable: %@."
+          }
+        }
+      }
+    },
+    "Searching…": {
+      "comment": "Status label shown while a workspace search is in progress",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Searching…"
+          }
+        }
+      }
+    },
+    "Showing first %lld matches (more available).": {
+      "comment": "Status label shown when a workspace search's results were truncated",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Showing first %lld matches (more available)."
+          }
+        }
+      }
+    },
+    "Word": {
+      "comment": "Checkbox toggling whole-word matching in workspace search",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Word"
+          }
+        }
+      }
+    },
+    "Workspace search engine failed to initialize": {
+      "comment": "Diagnostics log message recorded when the workspace text search engine fails to start",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace search engine failed to initialize"
+          }
+        }
+      }
+    },
+    "Workspace search failed": {
+      "comment": "Diagnostics log message recorded when a workspace search fails",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace search failed"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.1"
+}

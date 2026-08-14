@@ -167,6 +167,21 @@ swift test \
     --package-path "$repository_root/Packages/KodCore" \
     -Xswiftc -warnings-as-errors
 
+# `KodUI` is the presentation package: reusable `KodUIComponents` plus
+# `SearchUI`, `PreviewUI`, `GitUI`, and `EditorUI`. Its component,
+# resource/localization, controller, and cross-feature integration tests
+# run exactly like KodCore's — the same
+# serialized step in this script, the same `-Xswiftc -warnings-as-errors`
+# gate, and the same reused per-package `.build` cache — and they are
+# headless by construction: they build AppKit views, may retain an
+# off-screen window for real layout geometry, and read this package's
+# own bundled resources without ever making a window key, ordering one
+# front, or driving UI automation.
+printf '%s\n' "==> Testing KodUI"
+swift test \
+    --package-path "$repository_root/Packages/KodUI" \
+    -Xswiftc -warnings-as-errors
+
 # UI automation (KodAppUITests, XCUIApplication, AppleScript, or anything
 # that drives the user's mouse/keyboard) must never run here. This is a
 # permanent constraint of this script, not something later phases may
@@ -175,24 +190,25 @@ swift test \
 # KodAppTests. Phase 9's Git integration (status/diff/blame, Source
 # Control sidebar, Explorer badges, gutter decorations, diff/blame
 # viewers, commit popovers) is validated exclusively through
-# GitCoreTests (package-level, including the real-Git process-spy and
-# worktree/.git immutability suites) and KodAppTests' headless
-# controller/model tests below — never through KodAppUITests, which
+# GitCoreTests (including the real-Git process-spy and worktree/.git
+# immutability suites), KodUI's GitUI/EditorUI controller tests, and the
+# App shell's GitQuickDiffCoordinator integration tests below — never
+# through KodAppUITests, which
 # remains permanently excluded from this script. Phase 10's built-in
 # previews (Markdown/image/JSON/plist tabs, the Source/Preview toggle,
 # and every safe link/image control) are likewise validated exclusively
-# through PreviewCoreTests (package-level golden/hostile/no-network/
-# immutability/latency coverage) and KodAppTests' headless
-# `PreviewViewController`/`EditorGroupViewController` integration tests
-# below — never through KodAppUITests. Phase 11's full accessibility
+# through PreviewCoreTests (golden/hostile/no-network/immutability/
+# latency coverage) and KodUI's PreviewUI/EditorUI controller tests —
+# never through KodAppUITests. Phase 11's full accessibility
 # contract (roles/labels/values/actions/UTF-16 range math/rotor models
 # for `CodeViewport`, plus every panel's accessibility labels across the
 # app shell), its keyboard-command registry, its zoom/appearance/
 # high-contrast model tests, and its pseudolocalization/user-facing-
 # string-audit tests are validated exclusively through
 # `CodeViewportAccessibilityTests`/`DiagnosticsCoreTests` (package-level)
-# and KodAppTests' headless view-controller/view-model tests below — a
-# real VoiceOver session is deliberately never launched by this script;
+# KodUI's headless tab/controller tests, and the remaining App-shell
+# view-controller/view-model tests below — a real VoiceOver session is
+# deliberately never launched by this script;
 # see `docs/manual-voiceover-checklist.md` for the manual release check
 # that covers what only a human running VoiceOver can verify.
 printf '%s\n' "==> Testing Kod app logic (headless; UI automation is never launched)"

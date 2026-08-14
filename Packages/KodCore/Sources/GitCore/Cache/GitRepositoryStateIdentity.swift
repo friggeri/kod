@@ -9,10 +9,9 @@ import Foundation
 public struct GitRepositoryStateIdentity: Equatable, Sendable {
     public let headDescription: String
     public let indexFingerprint: String?
-    /// Bumped externally (see `GitResultCache.invalidate(for:)`) whenever
-    /// the FSEvents pipeline reports a worktree change, so an edit that
-    /// only touches tracked working-tree files — never `HEAD` or the
-    /// index — still invalidates cached diffs/status.
+    /// Bumped by `GitContext.invalidate(_:)` whenever its client reports a
+    /// repository change, so an edit that only touches tracked working-tree
+    /// files — never `HEAD` or the index — still invalidates cached results.
     public let worktreeGeneration: Int
 
     public init(headDescription: String, indexFingerprint: String?, worktreeGeneration: Int) {

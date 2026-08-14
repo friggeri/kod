@@ -1,12 +1,21 @@
+import SettingsCore
 import XCTest
 @testable import ThemeCore
 
 final class ThemeStoreTests: XCTestCase {
-    private func makeIsolatedDefaults() -> UserDefaults {
-        let suiteName = "kod.theme-store-tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-        return defaults
+    @MainActor
+    private func makeStore() -> (
+        ThemeStore,
+        CodableSettingsRepository,
+        InMemorySettingsKeyValueStore
+    ) {
+        let keyValueStore = InMemorySettingsKeyValueStore()
+        let repository = CodableSettingsRepository(store: keyValueStore)
+        return (
+            ThemeStore(repository: repository),
+            repository,
+            keyValueStore
+        )
     }
 
     private func sampleTheme(identifier: String) -> KodTheme {
@@ -16,43 +25,77 @@ final class ThemeStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testImportedThemesEmptyWhenNothingSaved() {
-        let store = ThemeStore(defaults: makeIsolatedDefaults())
-        XCTAssertEqual(store.importedThemes(), [])
+    func testImportedThemesAreAbsentWhenNothingSaved() throws {
+        let (store, _, _) = makeStore()
+        XCTAssertEqual(try store.importedThemes(), .absent)
     }
 
     @MainActor
-    func testAddThenLoadImportedThemeRoundTrips() {
-        let defaults = makeIsolatedDefaults()
-        let store = ThemeStore(defaults: defaults)
+    func testAddThenLoadImportedThemeRoundTrips() throws {
+        let (store, _, _) = makeStore()
         let theme = sampleTheme(identifier: "custom.one")
 
-        store.addImportedTheme(theme)
+        try store.addImportedTheme(theme)
 
-        XCTAssertEqual(store.importedThemes().map(\.identifier), ["custom.one"])
+        guard case .value(let themes, _) = try store.importedThemes() else {
+            return XCTFail("Expected persisted themes")
+        }
+        XCTAssertEqual(themes.map(\.identifier), ["custom.one"])
     }
 
     @MainActor
-    func testCorruptImportedThemesAreQuarantinedAndRebuiltAsEmpty() {
-        let defaults = makeIsolatedDefaults()
-        defaults.set(Data("not valid json {{{".utf8), forKey: "kod.imported-themes")
-        let store = ThemeStore(defaults: defaults)
+    func testLegacyActiveThemeStringMigratesToEnvelope() throws {
+        let (store, _, keyValueStore) = makeStore()
+        try keyValueStore.setValue(
+            .string("kod.dark"),
+            forKey: "kod.active-theme-identifier"
+        )
 
-        let themes = store.importedThemes()
-
-        XCTAssertEqual(themes, [], "corrupt imported themes must fail safe to an empty list")
-        XCTAssertEqual(store.quarantine.ledger().count, 1)
-        XCTAssertEqual(store.quarantine.ledger()[0].key, "kod.imported-themes")
-
-        // Rebuild must work: importing after quarantine must not resurrect
-        // the corrupt bytes or fail again.
-        store.addImportedTheme(sampleTheme(identifier: "custom.two"))
-        XCTAssertEqual(store.importedThemes().map(\.identifier), ["custom.two"])
+        XCTAssertEqual(
+            try store.activeThemeIdentifier(),
+            .value(
+                "kod.dark",
+                provenance: .migrated(
+                    from: .unversioned,
+                    toVersion: 1
+                )
+            )
+        )
+        guard let stored = try keyValueStore.value(
+            forKey: "kod.active-theme-identifier"
+        ),
+              case .data = stored else {
+            return XCTFail("Expected version envelope after migration")
+        }
     }
 
     @MainActor
-    func testLegacyPersistedThemeWithoutExpandedGitColorsIsNotQuarantined() throws {
-        let defaults = makeIsolatedDefaults()
+    func testCorruptImportedThemesAreQuarantinedAndCanRebuild() throws {
+        let (store, repository, keyValueStore) = makeStore()
+        try keyValueStore.setValue(
+            .data(Data("not valid json {{{".utf8)),
+            forKey: "kod.imported-themes"
+        )
+
+        guard case .quarantined(let record) =
+                try store.importedThemes() else {
+            return XCTFail("Expected quarantine")
+        }
+        XCTAssertEqual(record.key, "kod.imported-themes")
+        XCTAssertEqual(try repository.quarantine.records(), [record])
+
+        try store.addImportedTheme(
+            sampleTheme(identifier: "custom.two")
+        )
+        guard case .value(let rebuilt, _) = try store.importedThemes() else {
+            return XCTFail("Expected rebuilt themes")
+        }
+        XCTAssertEqual(rebuilt.map(\.identifier), ["custom.two"])
+    }
+
+    @MainActor
+    func testLegacyPersistedThemeWithoutExpandedGitColorsMigrates() throws {
+        let (store, repository, keyValueStore) = makeStore()
         var theme = sampleTheme(identifier: "legacy.theme")
         theme.git.modified = ThemeColor(hex: "#123456")!
         theme.git.added = ThemeColor(hex: "#234567")!
@@ -74,15 +117,22 @@ final class ThemeStoreTests: XCTestCase {
         }
         storedTheme["git"] = git
         array[0] = storedTheme
-        defaults.set(
-            try JSONSerialization.data(withJSONObject: array),
+        try keyValueStore.setValue(
+            .data(try JSONSerialization.data(withJSONObject: array)),
             forKey: "kod.imported-themes"
         )
 
-        let store = ThemeStore(defaults: defaults)
-        let restored = try XCTUnwrap(store.importedThemes().first)
+        guard case .value(let restoredThemes, let provenance) =
+                try store.importedThemes() else {
+            return XCTFail("Expected migrated themes")
+        }
+        let restored = try XCTUnwrap(restoredThemes.first)
 
-        XCTAssertTrue(store.quarantine.ledger().isEmpty)
+        XCTAssertEqual(
+            provenance,
+            .migrated(from: .unversioned, toVersion: 1)
+        )
+        XCTAssertTrue(try repository.quarantine.records().isEmpty)
         XCTAssertEqual(restored.identifier, "legacy.theme")
         XCTAssertEqual(restored.git.renamed, restored.git.modified)
         XCTAssertEqual(restored.git.untracked, restored.git.added)

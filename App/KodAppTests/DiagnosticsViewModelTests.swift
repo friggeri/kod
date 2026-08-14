@@ -1,4 +1,5 @@
 import DiagnosticsCore
+import SettingsCore
 import XCTest
 @testable import Kod
 
@@ -11,13 +12,10 @@ import XCTest
 /// user explicitly opted in first.
 @MainActor
 final class DiagnosticsViewModelTests: XCTestCase {
-    private func makeIsolatedDefaults() -> UserDefaults {
-        let suiteName = "DiagnosticsViewModelTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-        return defaults
+    private func makeRepository() -> CodableSettingsRepository {
+        CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
     }
 
     // MARK: - Redaction-only guarantee
@@ -40,10 +38,13 @@ final class DiagnosticsViewModelTests: XCTestCase {
             ]
         )
 
-        let model = DiagnosticsViewModel(
+        let repository = makeRepository()
+        let model = try DiagnosticsViewModel(
             diagnosticsLog: log,
-            crashReportingSettingsStore: CrashReportingSettingsStore(defaults: makeIsolatedDefaults()),
-            quarantineLedgers: { [] }
+            crashReportingSettingsStore: CrashReportingSettingsStore(
+                repository: repository
+            ),
+            settingsQuarantine: repository.quarantine
         )
         await model.refresh()
 
@@ -71,10 +72,13 @@ final class DiagnosticsViewModelTests: XCTestCase {
         for index in 0..<5 {
             await log.record(subsystem: .app, level: .debug, message: "event \(index)")
         }
-        let model = DiagnosticsViewModel(
+        let repository = makeRepository()
+        let model = try DiagnosticsViewModel(
             diagnosticsLog: log,
-            crashReportingSettingsStore: CrashReportingSettingsStore(defaults: makeIsolatedDefaults()),
-            quarantineLedgers: { [] }
+            crashReportingSettingsStore: CrashReportingSettingsStore(
+                repository: repository
+            ),
+            settingsQuarantine: repository.quarantine
         )
         await model.refresh()
         XCTAssertGreaterThan(model.droppedCount, 0)
@@ -88,10 +92,20 @@ final class DiagnosticsViewModelTests: XCTestCase {
         await log.record(subsystem: .git, level: .info, message: "Opening the workspace's Git repository failed or found none")
 
         let quarantineRecord = QuarantinedRecord(key: "test.key", reason: "corrupt", quarantinedAt: Date(), byteCount: 12)
-        let model = DiagnosticsViewModel(
+        let keyValueStore = InMemorySettingsKeyValueStore(
+            initialValues: [
+                SettingsQuarantine.defaultLedgerKey: .data(
+                    try JSONEncoder().encode([quarantineRecord])
+                )
+            ]
+        )
+        let repository = CodableSettingsRepository(store: keyValueStore)
+        let model = try DiagnosticsViewModel(
             diagnosticsLog: log,
-            crashReportingSettingsStore: CrashReportingSettingsStore(defaults: makeIsolatedDefaults()),
-            quarantineLedgers: { [quarantineRecord] },
+            crashReportingSettingsStore: CrashReportingSettingsStore(
+                repository: repository
+            ),
+            settingsQuarantine: repository.quarantine,
             appVersion: "1.0 (test)",
             osVersion: "Test OS 1.0",
             architecture: "test-arch"
@@ -122,14 +136,16 @@ final class DiagnosticsViewModelTests: XCTestCase {
 
     // MARK: - Crash-reporting toggle
 
-    func testCrashReportingDefaultsToOffAndPersistsAcrossReload() {
-        let defaults = makeIsolatedDefaults()
+    func testCrashReportingDefaultsToOffAndPersistsAcrossReload() throws {
+        let repository = makeRepository()
         let log = BoundedEventLog()
 
-        let firstModel = DiagnosticsViewModel(
+        let firstModel = try DiagnosticsViewModel(
             diagnosticsLog: log,
-            crashReportingSettingsStore: CrashReportingSettingsStore(defaults: defaults),
-            quarantineLedgers: { [] }
+            crashReportingSettingsStore: CrashReportingSettingsStore(
+                repository: repository
+            ),
+            settingsQuarantine: repository.quarantine
         )
         XCTAssertFalse(firstModel.crashReportingEnabled, "Crash reporting must default to off")
 
@@ -137,17 +153,21 @@ final class DiagnosticsViewModelTests: XCTestCase {
 
         // A freshly reloaded model (mirroring the app being relaunched)
         // must observe the persisted, explicitly-opted-in value.
-        let reloadedModel = DiagnosticsViewModel(
+        let reloadedModel = try DiagnosticsViewModel(
             diagnosticsLog: log,
-            crashReportingSettingsStore: CrashReportingSettingsStore(defaults: defaults),
-            quarantineLedgers: { [] }
+            crashReportingSettingsStore: CrashReportingSettingsStore(
+                repository: repository
+            ),
+            settingsQuarantine: repository.quarantine
         )
         XCTAssertTrue(reloadedModel.crashReportingEnabled, "The opt-in must persist across a store reload")
     }
 
     func testUploadCoordinatorNeverInvokesTransportUnlessToggleWasExplicitlyEnabled() async throws {
-        let defaults = makeIsolatedDefaults()
-        let settingsStore = CrashReportingSettingsStore(defaults: defaults)
+        let repository = makeRepository()
+        let settingsStore = CrashReportingSettingsStore(
+            repository: repository
+        )
         let transport = RecordingCrashReportTransport()
         let coordinator = CrashReportUploadCoordinator(settingsStore: settingsStore, transport: transport)
         let report = CrashReport(redactedPayload: Data("<redacted>".utf8))
@@ -165,7 +185,7 @@ final class DiagnosticsViewModelTests: XCTestCase {
         XCTAssertTrue(sent.isEmpty, "RecordingCrashReportTransport must stay empty while opted out")
 
         // Only after an explicit opt-in does the coordinator invoke the transport.
-        settingsStore.save(CrashReportingSettings(isEnabled: true))
+        try settingsStore.save(CrashReportingSettings(isEnabled: true))
         try await coordinator.upload(report)
         sent = await transport.sentReports
         XCTAssertEqual(sent.count, 1)

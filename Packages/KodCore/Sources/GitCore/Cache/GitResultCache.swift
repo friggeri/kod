@@ -8,8 +8,8 @@ import Foundation
 /// they are looked up — never by writing anything to the repository
 /// itself, only to this process's own memory. `GitContext` owns the
 /// shared worktree-generation counter and calls `invalidateAll()` here
-/// from the FSEvents pipeline; this type has no filesystem-watching
-/// knowledge of its own.
+/// when its client reports repository changes; this type has no
+/// filesystem-watching knowledge of its own.
 public actor GitResultCache<Value: Sendable> {
     private struct Entry {
         let identity: GitRepositoryStateIdentity

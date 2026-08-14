@@ -144,7 +144,7 @@ final class PseudolocalizationTests: XCTestCase {
 
     // MARK: - Genuine overflow detection
 
-    /// `GitPresentedStatus.letter` (see `GitWorkspaceCoordinator.swift`) is
+    /// `GitPresentedStatus.letter` (see `GitStatusPresentation.swift`) is
     /// deliberately a single glyph ("A"/"M"/"D"/"R"/"C"/"T"/"U"/"!")
     /// sized to fit a
     /// small fixed badge; its layout budget is exactly one glyph's

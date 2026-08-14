@@ -442,24 +442,33 @@ Git integration is read-only and optional for non-Git folders.
 - SwiftUI selectively for settings, setup flows, and low-frequency inspector surfaces where it does not constrain performance.
 - Tree-sitter C libraries behind typed Swift wrappers.
 - Foundation `Process` for isolated language-server, search, and Git subprocesses.
-- SQLite for small versioned metadata such as recent workspaces and restoration state; never for source-content indexing.
+- `SettingsCore` over an explicitly injected UserDefaults or in-memory adapter for small versioned metadata such as recent workspaces and restoration state; never for source-content indexing.
 
 ### 11.2 Major modules
 
 | Module | Responsibility |
 | --- | --- |
-| `KodApp` | App lifecycle, commands, windows, restoration, updates |
+| `KodApp` | Thin app shell: lifecycle, composition, commands, windows, sessions, updates |
+| `KodCore` | Build/version metadata (`KodBuildInfo`) only; not an umbrella dependency |
+| `KodUIComponents` | Shared AppKit primitives, appearance observation, icons, localization |
+| `SearchUI` | Streaming workspace-search presentation |
+| `PreviewUI` | Native Markdown, image, JSON, and plist presentation |
+| `GitUI` | Source Control, diff/blame, and shared Git presentation models |
+| `EditorUI` | Tabs, splits, source/preview runtime, and editor-group presentation |
 | `WorkspaceCore` | Root identity, trust, file discovery, ignore rules, FSEvents |
-| `SourceModel` | Immutable snapshots, decoding, line index, position mapping |
+| `SourceModel` | Immutable in-memory snapshots, line index, position mapping |
+| `SourceIO` | Read-only filesystem access, decoding, classification capabilities |
 | `CodeViewport` | Virtualized layout, Core Text drawing, selection, folding, accessibility |
+| `TextDecorationModel` | Portable theme colors and decoration composition |
 | `SyntaxCore` | Tree-sitter parsers, queries, captures, parse scheduling |
 | `LanguageClient` | JSON-RPC, LSP state machine, capability filtering, cancellation |
 | `LanguageAdapters` | Language profiles, routing, local executable discovery, and configuration |
 | `SearchCore` | Filename fuzzy index, file find, streaming text search |
 | `GitCore` | Safe read-only status, diff, blame, cache invalidation |
 | `ThemeCore` | Native themes, VS Code import, resolved style tables |
-| `PreviewCore` | Markdown, image, JSON, and plist previews |
-| `SettingsCore` | Global and external per-workspace settings, migrations |
+| `FontCore` | Font discovery and validated editor typography settings |
+| `PreviewCore` | Markdown, image, JSON, and plist parsing/render models |
+| `SettingsCore` | Typed adapters, versioned migrations, observation, quarantine |
 | `DiagnosticsCore` | Local logs, crash state, support bundle redaction |
 
 Module boundaries must be testable without constructing a window or starting a real server.

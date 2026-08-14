@@ -110,6 +110,10 @@ func appendStateFileLine(_ line: String) {
     }
 }
 
+// Recorded as early as possible so a test can assert this exact child
+// process is gone once the client has shut its service down.
+appendStateFileLine("pid:\(ProcessInfo.processInfo.processIdentifier)")
+
 let legendTokenTypes = ["namespace", "type", "class", "enum", "function", "variable"]
 let legendTokenModifiers = ["declaration", "readonly"]
 
@@ -716,6 +720,23 @@ func handleInlayHint(id: JSONRPCID) {
 }
 
 func handleSignatureHelp(id: JSONRPCID) {
+    switch scenario {
+    case "signature-help-empty":
+        // A valid, explicitly empty response: the client must report
+        // `nil` for this and only this.
+        respond(id: id, result: .null)
+        return
+
+    case "signature-help-malformed":
+        // Structurally invalid for `SignatureHelp`: the client must
+        // surface a decoding failure rather than silently reporting
+        // "no signature".
+        respond(id: id, result: .string("not a signature help object"))
+        return
+
+    default:
+        break
+    }
     respond(id: id, result: .object([
         "signatures": .array([
             .object([

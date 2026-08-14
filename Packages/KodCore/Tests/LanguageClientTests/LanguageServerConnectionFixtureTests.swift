@@ -32,7 +32,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         let configuration = try makeConfiguration(scenario: "normal")
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let state = await connection.state
         XCTAssertEqual(state, .ready)
@@ -57,7 +57,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
             }
         })
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let deadline = Date().addingTimeInterval(3)
         while logMessages.count() == 0, Date() < deadline {
@@ -71,7 +71,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         let configuration = try makeConfiguration(scenario: "normal")
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let hover: Hover = try await connection.sendRequest(
             .hover,
@@ -139,7 +139,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
             }
         })
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("fake.swift")
         try await connection.sendNotification(
@@ -169,7 +169,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
             }
         )
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let deadline = ContinuousClock.now + .seconds(3)
         while messages.snapshot().count < 2, ContinuousClock.now < deadline {
@@ -196,7 +196,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
             }
         })
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let deadline = Date().addingTimeInterval(3)
         while logMessages.count() < 2, Date() < deadline {
@@ -222,7 +222,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
             }
         })
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let deadline = Date().addingTimeInterval(3)
         while logMessages.count() < 1, Date() < deadline {
@@ -243,7 +243,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
             }
         })
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let deadline = Date().addingTimeInterval(3)
         while logMessages.count() < 1, Date() < deadline {
@@ -268,7 +268,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
             }
         })
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let deadline = Date().addingTimeInterval(3)
         while logMessages.count() < 2, Date() < deadline {
@@ -290,7 +290,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         let configuration = try makeConfiguration(scenario: "normal")
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("fake.swift")
         let positionParams = TextDocumentPositionParams(
@@ -368,7 +368,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         let configuration = try makeConfiguration(scenario: "capability-absent")
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let capabilities = await connection.serverCapabilities
         XCTAssertNil(capabilities?.declarationProvider)
@@ -388,7 +388,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         let configuration = try makeConfiguration(scenario: "unsafe-document-link")
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("fake.swift")
         let links: DocumentLinkResult = try await connection.sendRequest(
@@ -418,7 +418,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         )
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let task = Task<Hover, Error> {
             try await connection.sendRequest(
@@ -454,7 +454,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         let configuration = try makeConfiguration(scenario: "timeout", requestTimeout: 10)
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let task = Task<Hover, Error> {
             try await connection.sendRequest(
@@ -496,7 +496,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         )
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
         let document = TextDocumentIdentifier(
             uri: DocumentURI(
                 fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("fake.swift")
@@ -542,7 +542,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         let configuration = try makeConfiguration(scenario: "timeout", requestTimeout: 0.4)
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         do {
             let _: Hover = try await connection.sendRequest(
@@ -569,7 +569,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
             }
         })
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let deadline = Date().addingTimeInterval(3)
         while progressEvents.count() < 3, Date() < deadline {
@@ -594,7 +594,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         let configuration = try makeConfiguration(scenario: "stderr-noisy")
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         try await Task.sleep(nanoseconds: 500_000_000)
         let log = await connection.stderrLog
@@ -611,7 +611,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         let configuration = try makeConfiguration(scenario: "malformed-json-body", requestTimeout: 1)
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         do {
             let _: Hover = try await connection.sendRequest(
@@ -639,7 +639,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         let configuration = try makeConfiguration(scenario: "framing-error-oversized", maxMessageByteCount: 1_024)
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let deadline = Date().addingTimeInterval(5)
         while true {
@@ -660,7 +660,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         let configuration = try makeConfiguration(scenario: "framing-error-header")
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let deadline = Date().addingTimeInterval(5)
         while true {
@@ -686,7 +686,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         )
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let deadline = Date().addingTimeInterval(5)
         var state = await connection.state
@@ -712,7 +712,7 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         let configuration = try makeConfiguration(scenario: "invalid-range")
         let connection = LanguageServerConnection(configuration: configuration)
         try await connection.start()
-        defer { Task { await connection.shutdown() } }
+        addTeardownBlock { await connection.shutdown() }
 
         let hover: Hover = try await connection.sendRequest(
             .hover,

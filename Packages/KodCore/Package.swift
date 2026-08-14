@@ -13,11 +13,14 @@ let package = Package(
     ],
     products: [
         .library(name: "KodCore", targets: ["KodCore"]),
+        .library(name: "SettingsCore", targets: ["SettingsCore"]),
         .library(name: "SourceModel", targets: ["SourceModel"]),
+        .library(name: "SourceIO", targets: ["SourceIO"]),
         .library(name: "CodeViewport", targets: ["CodeViewport"]),
         .library(name: "WorkspaceCore", targets: ["WorkspaceCore"]),
         .library(name: "SyntaxCore", targets: ["SyntaxCore"]),
         .library(name: "ThemeCore", targets: ["ThemeCore"]),
+        .library(name: "TextDecorationModel", targets: ["TextDecorationModel"]),
         .library(name: "FontCore", targets: ["FontCore"]),
         .library(name: "SearchCore", targets: ["SearchCore"]),
         .library(name: "LanguageClient", targets: ["LanguageClient"]),
@@ -34,12 +37,22 @@ let package = Package(
     ],
     targets: [
         .target(name: "KodCore"),
+        .target(name: "SettingsCore"),
         .target(name: "SourceModel"),
+        .target(name: "SourceIO", dependencies: ["SourceModel"]),
         .target(
             name: "CodeViewport",
-            dependencies: ["SourceModel", "SyntaxCore", "ThemeCore", "FontCore"]
+            dependencies: [
+                "SourceModel",
+                "SourceIO",
+                "SyntaxCore",
+                "ThemeCore",
+                "TextDecorationModel",
+                "LanguageClient",
+                "FontCore"
+            ]
         ),
-        .target(name: "WorkspaceCore", dependencies: ["SourceModel", "DiagnosticsCore"]),
+        .target(name: "WorkspaceCore", dependencies: ["SourceModel", "SettingsCore"]),
         .target(
             name: "SearchCore",
             resources: [
@@ -299,7 +312,6 @@ let package = Package(
             name: "SyntaxCore",
             dependencies: [
                 "SourceModel",
-                "ThemeCore",
                 "CTreeSitter",
                 "CTreeSitterSwift",
                 "CTreeSitterTypeScript",
@@ -328,18 +340,27 @@ let package = Package(
             ]
         ),
 
-        .target(name: "ThemeCore", dependencies: ["DiagnosticsCore"]),
-        .target(name: "FontCore", dependencies: ["DiagnosticsCore"]),
+        // Dependency-light, platform-neutral decoration value model: portable
+        // colors plus the versioned layer/run types every producer of
+        // decorations speaks. No AppKit, no theme schema, no parser, no LSP.
+        .target(name: "TextDecorationModel"),
 
+        .target(name: "ThemeCore", dependencies: ["SettingsCore", "TextDecorationModel"]),
+        .target(name: "FontCore", dependencies: ["SettingsCore"]),
+
+        // Platform-neutral LSP client: workspace trust and identity enter
+        // through injected capabilities (`WorkspaceLaunchAuthorization`,
+        // an explicit root URL), never through WorkspaceCore.
         .target(
             name: "LanguageClient",
-            dependencies: ["SourceModel", "SyntaxCore", "ThemeCore", "WorkspaceCore"]
+            dependencies: ["SourceModel"]
         ),
         .target(
             name: "LanguageAdapters",
             dependencies: [
                 "DiagnosticsCore",
                 "LanguageClient",
+                "SettingsCore",
                 "SourceModel",
                 "SyntaxCore",
                 "WorkspaceCore"
@@ -349,20 +370,22 @@ let package = Package(
             name: "FakeLanguageServer",
             dependencies: ["LanguageClient"]
         ),
-        .target(
-            name: "GitCore",
-            dependencies: ["WorkspaceCore"]
-        ),
+        .target(name: "GitCore"),
         .executableTarget(
             name: "GitProcessSpy"
         ),
         .target(
             name: "PreviewCore",
-            dependencies: ["SourceModel", "SyntaxCore", "ThemeCore", "CCMarkGFMExtensions"]
+            dependencies: [
+                "SourceModel",
+                "SourceIO",
+                "SyntaxCore",
+                "ThemeCore",
+                "TextDecorationModel",
+                "CCMarkGFMExtensions"
+            ]
         ),
-        .target(
-            name: "DiagnosticsCore"
-        ),
+        .target(name: "DiagnosticsCore", dependencies: ["SettingsCore"]),
         .target(name: "UpdaterCore"),
         .executableTarget(
             name: "UpdateFeedTool",
@@ -378,16 +401,34 @@ let package = Package(
             dependencies: ["KodCore"]
         ),
         .testTarget(
+            name: "SettingsCoreTests",
+            dependencies: ["SettingsCore"]
+        ),
+        .testTarget(
             name: "SourceModelTests",
             dependencies: ["SourceModel", "FuzzSupport"]
         ),
         .testTarget(
+            name: "SourceIOTests",
+            dependencies: ["SourceIO", "SourceModel"]
+        ),
+        .testTarget(
             name: "CodeViewportTests",
-            dependencies: ["CodeViewport", "SourceModel", "SyntaxCore", "ThemeCore", "FontCore", "FuzzSupport"]
+            dependencies: [
+                "CodeViewport",
+                "SourceModel",
+                "SourceIO",
+                "SyntaxCore",
+                "ThemeCore",
+                "TextDecorationModel",
+                "LanguageClient",
+                "FontCore",
+                "FuzzSupport"
+            ]
         ),
         .testTarget(
             name: "WorkspaceCoreTests",
-            dependencies: ["WorkspaceCore", "SourceModel", "KodFixtureSupport", "DiagnosticsCore", "FuzzSupport"]
+            dependencies: ["WorkspaceCore", "SourceModel", "KodFixtureSupport", "SettingsCore", "FuzzSupport"]
         ),
         .testTarget(
             name: "KodFixtureSupportTests",
@@ -401,15 +442,19 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "TextDecorationModelTests",
+            dependencies: ["TextDecorationModel"]
+        ),
+        .testTarget(
             name: "ThemeCoreTests",
-            dependencies: ["ThemeCore", "DiagnosticsCore", "FuzzSupport"],
+            dependencies: ["ThemeCore", "TextDecorationModel", "SettingsCore", "FuzzSupport"],
             resources: [
                 .copy("Fixtures")
             ]
         ),
         .testTarget(
             name: "FontCoreTests",
-            dependencies: ["FontCore", "DiagnosticsCore"]
+            dependencies: ["FontCore", "SettingsCore"]
         ),
         .testTarget(
             name: "SearchCoreTests",
@@ -420,17 +465,17 @@ let package = Package(
         ),
         .testTarget(
             name: "LanguageClientTests",
-            dependencies: ["LanguageClient", "SourceModel", "SyntaxCore", "ThemeCore", "WorkspaceCore", "FakeLanguageServer", "FuzzSupport"],
+            dependencies: ["LanguageClient", "SourceModel", "SourceIO", "FakeLanguageServer", "FuzzSupport"],
             exclude: ["Fixtures"]
         ),
         .testTarget(
             name: "LanguageAdaptersTests",
-            dependencies: ["LanguageAdapters", "LanguageClient", "SourceModel", "WorkspaceCore", "FakeLanguageServer"],
+            dependencies: ["LanguageAdapters", "LanguageClient", "SettingsCore", "SourceModel", "SourceIO", "WorkspaceCore", "FakeLanguageServer"],
             exclude: ["Fixtures"]
         ),
         .testTarget(
             name: "GitCoreTests",
-            dependencies: ["GitCore", "SourceModel", "WorkspaceCore", "SyntaxCore", "ThemeCore", "GitProcessSpy", "FuzzSupport"]
+            dependencies: ["GitCore", "SourceModel", "SyntaxCore", "ThemeCore", "GitProcessSpy", "FuzzSupport"]
         ),
         .testTarget(
             name: "PreviewCoreTests",
@@ -441,7 +486,7 @@ let package = Package(
         ),
         .testTarget(
             name: "DiagnosticsCoreTests",
-            dependencies: ["DiagnosticsCore", "FuzzSupport"]
+            dependencies: ["DiagnosticsCore", "SettingsCore", "FuzzSupport"]
         ),
         .testTarget(
             name: "UpdaterCoreTests",
@@ -454,10 +499,12 @@ let package = Package(
                 "CodeViewport",
                 "SyntaxCore",
                 "ThemeCore",
+                "TextDecorationModel",
                 "FontCore",
                 "WorkspaceCore",
                 "GitCore",
                 "SearchCore",
+                "SettingsCore",
                 "DiagnosticsCore",
                 "KodFixtureSupport"
             ]

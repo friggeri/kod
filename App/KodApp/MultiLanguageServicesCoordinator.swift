@@ -3,8 +3,22 @@ import DiagnosticsCore
 import Foundation
 import LanguageAdapters
 import LanguageClient
+import SettingsCore
 import SourceModel
 import WorkspaceCore
+
+/// Cancellation handle for a document close that has been scheduled but has
+/// not started its `didClose` yet. Declared outside the coordinator so it is
+/// plainly non-isolated: `MultiLanguageServicesCoordinator`'s default
+/// scheduler constructs one from inside a closure that is not itself
+/// main-actor isolated.
+struct LanguageDocumentCloseSchedule {
+    let cancel: @MainActor () -> Void
+
+    init(cancel: @escaping @MainActor () -> Void) {
+        self.cancel = cancel
+    }
+}
 
 /// Owns one lazily-started generic LSP service per enabled language profile for
 /// a workspace. Swift and every other language share this path; syntax and
@@ -20,14 +34,64 @@ final class MultiLanguageServicesCoordinator {
 
     private var services: [String: LanguageWorkspaceService] = [:]
     private var serviceProfiles: [String: LanguageProfile] = [:]
+    /// Provider-ID-to-service routing for cross-file results. A definition,
+    /// workspace symbol, or hierarchy item is routed back through the
+    /// provider that produced it, never through whichever profile happens
+    /// to claim its target file: a cross-language target would otherwise
+    /// reach a different server, with a different negotiated position
+    /// encoding and no knowledge of the item's opaque `data`.
+    private var providerRouter = LanguageProviderRouter<LanguageWorkspaceService>()
+    /// The provider identity currently registered for each profile. A
+    /// replacement service gets a new identity, so handles bound to its
+    /// predecessor stop routing rather than silently reaching its successor.
+    private var providerIDsByProfile: [String: LanguageProviderID] = [:]
     private var startupTasks: [String: Task<Void, Never>] = [:]
     private var startupGenerations: [String: Int] = [:]
     private var statesByProfile: [String: LanguageServerState] = [:]
-    private var controllersByRelativePath: [
-        String: WeakMultiLanguageDocumentController
+    /// Every live `CodeDocumentViewController` showing a file, keyed by the
+    /// canonical standardized document URL. The same file can legitimately
+    /// be open in several editor groups at once (split panes), so this is a
+    /// list per URL rather than the single weak entry per relative path
+    /// that used to silently drop every pane but the newest one.
+    private var registrationsByURL: [URL: [DocumentRegistration]] = [:]
+    /// One in-flight semantic-token request per *registration* — one pane's
+    /// cancellation or close must never cancel another pane's decoration
+    /// work for the same file.
+    private var semanticDecorationTasks: [
+        DocumentRegistrationID: Task<Void, Never>
     ] = [:]
-    private var semanticDecorationTasks: [String: Task<Void, Never>] = [:]
-    private var profileObserver: UUID?
+    /// What a language service has actually accepted per document URL,
+    /// recorded only *after* `synchronize` returns, so a close knows
+    /// whether the server really holds the document.
+    private var synchronizedDocuments: [URL: DocumentSynchronizationRecord] = [:]
+    /// The one in-flight `synchronize` per document URL. Every other pane
+    /// arriving for the same (profile, version) awaits this task instead of
+    /// issuing its own didOpen/didChange, and no pane may request document
+    /// features until it has resolved successfully.
+    private var synchronizationsInFlight: [URL: DocumentSynchronization] = [:]
+    /// Closes that are either waiting out `documentCloseGracePeriod` or
+    /// already running their `didClose`. Retained until the close operation
+    /// completes so a reopen can either cancel a still-sleeping close or
+    /// await one that has already begun.
+    private var pendingDocumentCloses: [URL: PendingDocumentClose] = [:]
+    private var nextRegistrationValue: UInt64 = 0
+    private var nextOperationGeneration: UInt64 = 0
+    private var nextTrackedTaskValue: UInt64 = 0
+    /// Every unstructured task the coordinator itself starts (document
+    /// synchronization, restarts, profile-change and trust-revocation
+    /// service stops, close re-evaluation). Tracked so `stopAll()` can
+    /// cancel and await all of them instead of letting them outlive the
+    /// coordinator's own shutdown.
+    private var trackedTasks: [UInt64: Task<Void, Never>] = [:]
+    private var profileObserver: SettingsObservation?
+    /// The single in-flight `stopAll()`; concurrent and repeated calls
+    /// join it rather than racing a second shutdown.
+    private var shutdownTask: Task<Void, Never>?
+    private(set) var isShutDown = false
+    /// How many times a pane joined an already in-flight synchronization
+    /// instead of issuing a duplicate request. Exposed so tests can observe
+    /// coalescing deterministically rather than by sleeping.
+    private(set) var synchronizationJoinCount = 0
 
     var onStateChange: (() -> Void)?
     /// Snapshot-normalized diagnostics for the currently open editors.
@@ -35,14 +99,85 @@ final class MultiLanguageServicesCoordinator {
     var onNormalizedDiagnostics: ((URL, [NormalizedDiagnostic]) -> Void)?
     var onMissingServer: ((LanguageProfile) -> Void)?
     var onUnknownFileType: ((URL) -> Void)?
+    var onDocumentReplayFailure: ((LanguageProfile, String) -> Void)?
+    /// Fires with the standardized document URL once its *final* live pane
+    /// has been unregistered and the document closed on its language
+    /// service. Editor-facing markers are cleared with it; workspace-wide
+    /// Problems entries in `diagnosticsStore` deliberately survive, exactly
+    /// like a file that was never opened at all.
+    var onDocumentClosed: ((URL) -> Void)?
+    /// SPEC 6.3: "Closing the last view sends `didClose` after a short
+    /// reuse grace period." Closing a tab and immediately reopening the
+    /// same file — or a split-tree rebuild that re-creates the pane —
+    /// therefore keeps the document open on the server instead of churning
+    /// through didClose/didOpen.
+    var documentCloseGracePeriod: Duration = .milliseconds(250)
+    /// Injectable timer behind the grace period. Production sleeps for
+    /// `delay` and then fires; tests substitute a scheduler that captures
+    /// `fire` and invokes (or drops) it explicitly, so close timing is
+    /// deterministic and no test ever sleeps.
+    var scheduleDocumentClose: (
+        _ delay: Duration,
+        _ fire: @escaping @Sendable @MainActor () -> Void
+    ) -> LanguageDocumentCloseSchedule = { delay, fire in
+        let task = Task { @MainActor in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else {
+                return
+            }
+            fire()
+        }
+        return LanguageDocumentCloseSchedule { task.cancel() }
+    }
+
+    /// The callbacks the coordinator binds into every language service it
+    /// creates, grouped so service construction itself can be injected.
+    struct LanguageServiceBinding {
+        let providerID: LanguageProviderID
+        let onStateChange: @Sendable (LanguageServerState) -> Void
+        let onDiagnostics: @Sendable (URL, [Diagnostic]) -> Void
+        let onNormalizedDiagnostics: @Sendable (URL, [NormalizedDiagnostic]) -> Void
+        let onWorkspaceDiagnosticsFailure: @Sendable (String) -> Void
+        let onDocumentReplayFailure: @Sendable ([LanguageDocumentReplayFailure]) -> Void
+    }
+
+    /// Replaces profile-driven service construction. Production leaves
+    /// this `nil` and resolves the profile's executable through
+    /// `LanguageProfileServiceFactory`; tests substitute a factory so
+    /// headless coverage never launches a real server process.
+    var makeLanguageService: (
+        (_ profile: LanguageProfile, _ binding: LanguageServiceBinding)
+            throws -> LanguageWorkspaceService
+    )?
+
+    private func makeService(
+        for profile: LanguageProfile,
+        binding: LanguageServiceBinding
+    ) throws -> LanguageWorkspaceService {
+        if let makeLanguageService {
+            return try makeLanguageService(profile, binding)
+        }
+        return try LanguageProfileServiceFactory.makeService(
+            for: profile,
+            identity: identity,
+            trustStore: trustStore,
+            overrideStore: overrideStore,
+            providerID: binding.providerID,
+            onStateChange: binding.onStateChange,
+            onDiagnostics: binding.onDiagnostics,
+            onNormalizedDiagnostics: binding.onNormalizedDiagnostics,
+            onWorkspaceDiagnosticsFailure: binding.onWorkspaceDiagnosticsFailure,
+            onDocumentReplayFailure: binding.onDocumentReplayFailure
+        )
+    }
 
     init(
         identity: WorkspaceIdentity,
         trustStore: WorkspaceTrustStore,
         profileRegistry: LanguageProfileRegistry,
-        overrideStore: LanguageServerOverrideStore = LanguageServerOverrideStore(),
-        diagnosticsLog: BoundedEventLog = BoundedEventLog(),
-        diagnosticsStore: WorkspaceDiagnosticsStore = WorkspaceDiagnosticsStore()
+        overrideStore: LanguageServerOverrideStore,
+        diagnosticsLog: BoundedEventLog,
+        diagnosticsStore: WorkspaceDiagnosticsStore
     ) {
         self.identity = identity
         self.trustStore = trustStore
@@ -58,6 +193,148 @@ final class MultiLanguageServicesCoordinator {
 
     private var isTrusted: Bool {
         trustStore.isTrusted(identity)
+    }
+
+    /// Starts one coordinator-owned unstructured task and retains it
+    /// until it finishes, so `stopAll()` can cancel and await everything
+    /// this coordinator set in motion. Work requested after shutdown is
+    /// dropped rather than started.
+    @discardableResult
+    private func track(
+        _ operation: @escaping @MainActor @Sendable () async -> Void
+    ) -> Task<Void, Never>? {
+        guard !isShutDown else {
+            return nil
+        }
+        nextTrackedTaskValue &+= 1
+        let identifier = nextTrackedTaskValue
+        let task = Task { @MainActor [weak self] in
+            await operation()
+            self?.trackedTasks.removeValue(forKey: identifier)
+        }
+        trackedTasks[identifier] = task
+        return task
+    }
+
+    /// Explicit, idempotent shutdown for the whole workspace's language
+    /// services (SPEC 6.2). Cancels and awaits every piece of work this
+    /// coordinator owns — startup, per-registration semantic decoration,
+    /// in-flight synchronization, scheduled and running document closes,
+    /// decoration retries, and profile restart/replacement work — then
+    /// awaits `stop()` on every service before returning. Concurrent and
+    /// repeated calls join the same operation instead of racing.
+    func stopAll() async {
+        if let shutdownTask {
+            await shutdownTask.value
+            return
+        }
+        guard !isShutDown else {
+            return
+        }
+        let task = Task<Void, Never> { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            await self.performShutdown()
+        }
+        shutdownTask = task
+        await task.value
+    }
+
+    /// Spelling used by app lifecycle code; identical to `stopAll()`.
+    func shutdown() async {
+        await stopAll()
+    }
+
+    private func performShutdown() async {
+        isShutDown = true
+        if let profileObserver {
+            profileObserver.cancel()
+            self.profileObserver = nil
+        }
+
+        // Nothing new may be scheduled from here on; every generation is
+        // advanced first so any callback that resumes mid-shutdown is
+        // already stale.
+        for key in Set(startupTasks.keys).union(services.keys) {
+            startupGenerations[key, default: 0] += 1
+        }
+
+        // Closes still waiting out the grace period never run; closes
+        // already issuing `didClose` are awaited so the server is not
+        // left holding a document Kod has forgotten.
+        let closes = pendingDocumentCloses
+        pendingDocumentCloses = closes.filter { $0.value.closeTask != nil }
+        var runningCloses: [Task<Void, Never>] = []
+        for (_, pending) in closes {
+            pending.schedule?.cancel()
+            if let closeTask = pending.closeTask {
+                runningCloses.append(closeTask)
+            }
+        }
+
+        let semanticTasks = Array(semanticDecorationTasks.values)
+        semanticDecorationTasks.removeAll()
+        semanticTasks.forEach { $0.cancel() }
+
+        let synchronizations = synchronizationsInFlight.values.map(\.task)
+        synchronizationsInFlight.removeAll()
+        synchronizations.forEach { $0.cancel() }
+
+        let startups = Array(startupTasks.values)
+        startupTasks.removeAll()
+        startups.forEach { $0.cancel() }
+
+        let pendingWork = Array(trackedTasks.values)
+        trackedTasks.removeAll()
+        pendingWork.forEach { $0.cancel() }
+
+        for task in runningCloses {
+            await task.value
+        }
+        for task in semanticTasks {
+            await task.value
+        }
+        for task in synchronizations {
+            _ = await task.value
+        }
+        for task in startups {
+            await task.value
+        }
+        for task in pendingWork {
+            await task.value
+        }
+        pendingDocumentCloses.removeAll()
+
+        // Editor-facing markers are cleared for every document that was
+        // still open; workspace-wide Problems entries deliberately
+        // survive, exactly like a file that was never opened at all.
+        clearNormalizedDiagnosticsForOpenDocuments()
+        registrationsByURL.removeAll()
+        synchronizedDocuments.removeAll()
+
+        let runningServices = services
+        services.removeAll()
+        serviceProfiles.removeAll()
+        providerRouter.removeAll()
+        providerIDsByProfile.removeAll()
+        statesByProfile.removeAll()
+        onStateChange?()
+
+        for service in runningServices.values {
+            await service.stop()
+        }
+    }
+
+    /// Awaits the coordinator-owned work started so far without
+    /// cancelling anything. Exposed so tests can observe document
+    /// synchronization and restart work deterministically.
+    func waitForPendingWork() async {
+        while !trackedTasks.isEmpty {
+            for task in Array(trackedTasks.values) {
+                await task.value
+            }
+        }
     }
 
     var languageServerProfiles: [LanguageProfile] {
@@ -78,6 +355,9 @@ final class MultiLanguageServicesCoordinator {
         relativePath: String,
         controller: CodeDocumentViewController
     ) {
+        guard !isShutDown else {
+            return
+        }
         guard let resolved = resolvedProfile(for: controller.snapshot) else {
             onUnknownFileType?(controller.snapshot.url)
             return
@@ -85,33 +365,439 @@ final class MultiLanguageServicesCoordinator {
         guard resolved.profile.languageServer != nil else {
             return
         }
-        controllersByRelativePath[relativePath] =
-            WeakMultiLanguageDocumentController(controller)
+        let registrationID = register(
+            controller: controller,
+            relativePath: relativePath
+        )
         guard isTrusted else {
             return
         }
-        Task {
-            await self.syncAndDecorate(
+        track { [weak self] in
+            await self?.syncAndDecorate(
                 resolved: resolved,
-                relativePath: relativePath,
-                controller: controller
+                registrationID: registrationID
             )
         }
     }
 
+    /// Counterpart to `handleDocumentReady`: the editor group is about to
+    /// permanently discard `controller`'s content (tab closed, replaced,
+    /// tombstoned, or its group removed). Only this pane's in-flight work
+    /// is cancelled; the document stays open on the language service for as
+    /// long as any other pane still shows the same file, and only the final
+    /// pane's removal sends `textDocument/didClose`.
+    ///
+    /// Never called for a live tab transfer between editor groups: the same
+    /// controller keeps running in the destination group, so there is no
+    /// close/open churn on the server.
+    func handleDocumentClosed(
+        relativePath _: String,
+        controller: CodeDocumentViewController
+    ) {
+        unregister(controller: controller)
+    }
+
+    // MARK: - Document registration
+
+    /// Registers (or refreshes) `controller` as a live pane for its
+    /// document URL and returns its stable registration identity. Repeated
+    /// calls for the same controller — every reload emits one — reuse the
+    /// existing registration rather than accumulating duplicates.
+    private func register(
+        controller: CodeDocumentViewController,
+        relativePath: String
+    ) -> DocumentRegistrationID {
+        let url = controller.snapshot.url.standardizedFileURL
+        // Reopening reuses the still-open document. A close that has not
+        // started yet is cancelled outright; one whose didClose is already
+        // running cannot be — the synchronization path awaits it instead,
+        // so didOpen can never overtake it.
+        cancelScheduledDocumentClose(at: url)
+        var registrations = registrationsByURL[url] ?? []
+        if let index = registrations.firstIndex(
+            where: { $0.controller === controller }
+        ) {
+            registrations[index].relativePath = relativePath
+            registrationsByURL[url] = registrations
+            // A dead pane for another file may have been released since the
+            // last registration; sweep it now so nothing accumulates.
+            pruneDeadRegistrations()
+            return registrations[index].id
+        }
+        nextRegistrationValue &+= 1
+        let id = DocumentRegistrationID(value: nextRegistrationValue)
+        registrations.append(
+            DocumentRegistration(
+                id: id,
+                controller: controller,
+                relativePath: relativePath
+            )
+        )
+        registrationsByURL[url] = registrations
+        // Pruning *after* inserting the live registration matters: a reload
+        // registers the replacement controller while the superseded one may
+        // already be deallocated, and closing the document in between would
+        // produce a pointless didClose/didOpen round trip.
+        pruneDeadRegistrations()
+        return id
+    }
+
+    private func unregister(controller: CodeDocumentViewController) {
+        let url = controller.snapshot.url.standardizedFileURL
+        if var registrations = registrationsByURL[url] {
+            let removed = registrations.filter {
+                $0.controller === controller || $0.controller == nil
+            }
+            registrations.removeAll {
+                $0.controller === controller || $0.controller == nil
+            }
+            cancelSemanticDecorations(for: removed)
+            if registrations.isEmpty {
+                registrationsByURL.removeValue(forKey: url)
+                closeDocument(at: url)
+            } else {
+                registrationsByURL[url] = registrations
+            }
+        }
+        pruneDeadRegistrations()
+    }
+
+    /// Drops registrations whose controller has been released without an
+    /// explicit close (e.g. an editor group deallocated wholesale), so the
+    /// table never accumulates dead weak entries and their semantic-token
+    /// tasks never outlive the pane that requested them.
+    private func pruneDeadRegistrations() {
+        for (url, registrations) in registrationsByURL {
+            let dead = registrations.filter { $0.controller == nil }
+            guard !dead.isEmpty else {
+                continue
+            }
+            cancelSemanticDecorations(for: dead)
+            let live = registrations.filter { $0.controller != nil }
+            if live.isEmpty {
+                registrationsByURL.removeValue(forKey: url)
+                closeDocument(at: url)
+            } else {
+                registrationsByURL[url] = live
+            }
+        }
+    }
+
+    private func cancelSemanticDecorations(
+        for registrations: [DocumentRegistration]
+    ) {
+        for registration in registrations {
+            semanticDecorationTasks.removeValue(
+                forKey: registration.id
+            )?.cancel()
+        }
+    }
+
+    // MARK: - Document close lifecycle
+
+    /// Schedules `url`'s close for after SPEC 6.3's short reuse grace
+    /// period. The scheduled close is represented by a generation-tagged
+    /// entry that lives until the whole operation completes, so a reopen
+    /// can tell "still sleeping, cancel it" from "didClose already running,
+    /// await it".
+    private func closeDocument(at url: URL) {
+        guard !isShutDown else {
+            return
+        }
+        if let pending = pendingDocumentCloses[url] {
+            guard pending.closeTask == nil else {
+                // A close is already running. It owns the URL until it
+                // finishes; re-evaluate afterwards so a reopen-then-close
+                // that happened inside that window is not dropped and
+                // cannot leave the document open on the server forever.
+                let runningClose = pending.closeTask
+                track { [weak self] in
+                    await runningClose?.value
+                    guard let self,
+                          !self.isShutDown,
+                          self.registrationsByURL[url] == nil,
+                          self.synchronizedDocuments[url] != nil else {
+                        return
+                    }
+                    self.closeDocument(at: url)
+                }
+                return
+            }
+            pending.schedule?.cancel()
+        }
+        nextOperationGeneration &+= 1
+        let generation = nextOperationGeneration
+        let schedule = scheduleDocumentClose(documentCloseGracePeriod) {
+            [weak self] in
+            self?.fireScheduledDocumentClose(at: url, generation: generation)
+        }
+        pendingDocumentCloses[url] = PendingDocumentClose(
+            generation: generation,
+            schedule: schedule,
+            closeTask: nil
+        )
+    }
+
+    /// Cancels a close that has not started its `didClose` yet. A close
+    /// already in progress is deliberately left alone — cancelling it
+    /// mid-flight is exactly the race that let a reopen's didOpen be
+    /// followed by a stale didClose.
+    private func cancelScheduledDocumentClose(at url: URL) {
+        guard let pending = pendingDocumentCloses[url],
+              pending.closeTask == nil else {
+            return
+        }
+        pending.schedule?.cancel()
+        pendingDocumentCloses.removeValue(forKey: url)
+    }
+
+    /// The grace period elapsed. A fire from a superseded or already-
+    /// started schedule is inert, and a file that was reopened in the
+    /// meantime is never closed.
+    private func fireScheduledDocumentClose(at url: URL, generation: UInt64) {
+        guard let pending = pendingDocumentCloses[url],
+              pending.generation == generation,
+              pending.closeTask == nil else {
+            return
+        }
+        guard registrationsByURL[url] == nil else {
+            pendingDocumentCloses.removeValue(forKey: url)
+            return
+        }
+        beginDocumentClose(at: url, generation: generation)
+    }
+
+    /// Runs the close itself. Any synchronization already in flight for
+    /// this file is awaited *first*: closing around it would let a didOpen
+    /// land after didClose and leave a document open on the server that
+    /// nobody owns. Only once nothing is in flight — and the file is still
+    /// unowned — is the completed synchronization record read and
+    /// `didClose` issued, followed by the editor-facing marker clear and
+    /// the close output. The pending entry and the synchronization record
+    /// are dropped only after all of that has completed. The workspace-wide
+    /// diagnostics store is left untouched: Problems keeps reporting a file
+    /// nobody has open.
+    private func beginDocumentClose(at url: URL, generation: UInt64) {
+        let closeTask = Task { @MainActor [weak self] in
+            await self?.awaitSynchronizations(at: url)
+            guard let self else {
+                return
+            }
+            guard self.registrationsByURL[url] == nil else {
+                // Reopened while we waited: the document stays open, and
+                // its markers are deliberately left alone.
+                self.finishDocumentClose(at: url, generation: generation)
+                return
+            }
+            let record = self.synchronizedDocuments[url]
+            if let record, let service = self.services[record.profileIdentifier] {
+                do {
+                    try await service.didClose(url: url)
+                } catch {
+                    // Recorded rather than swallowed; the document is still
+                    // dropped locally so a later reopen resynchronizes.
+                    self.recordDocumentCloseFailure(
+                        profileIdentifier: record.profileIdentifier,
+                        url: url,
+                        reason: error.localizedDescription
+                    )
+                }
+            }
+            self.synchronizedDocuments.removeValue(forKey: url)
+            self.onNormalizedDiagnostics?(url, [])
+            self.onDocumentClosed?(url)
+            self.finishDocumentClose(at: url, generation: generation)
+        }
+        pendingDocumentCloses[url] = PendingDocumentClose(
+            generation: generation,
+            schedule: nil,
+            closeTask: closeTask
+        )
+    }
+
+    private func finishDocumentClose(at url: URL, generation: UInt64) {
+        if pendingDocumentCloses[url]?.generation == generation {
+            pendingDocumentCloses.removeValue(forKey: url)
+        }
+    }
+
+    /// Awaits whatever synchronization is in flight for `url`. A close must
+    /// never overtake a didOpen/didChange that has already been issued, and
+    /// no *new* synchronization can start while a close is running (its
+    /// caller blocks in `settleDocumentClose(before:)` first), so this
+    /// settles in bounded time.
+    private func awaitSynchronizations(at url: URL) async {
+        var awaitedGenerations: Set<UInt64> = []
+        while let inFlight = synchronizationsInFlight[url],
+              !awaitedGenerations.contains(inFlight.generation) {
+            awaitedGenerations.insert(inFlight.generation)
+            _ = await inFlight.task.value
+        }
+    }
+
+    /// Settles `url`'s close before a synchronization runs: a close that
+    /// has not started is cancelled (the file is open again), and one that
+    /// is already running is awaited to completion, so `didOpen` can never
+    /// be overtaken by a `didClose` for the same document.
+    private func settleDocumentClose(before url: URL) async {
+        while let pending = pendingDocumentCloses[url] {
+            guard let closeTask = pending.closeTask else {
+                pending.schedule?.cancel()
+                pendingDocumentCloses.removeValue(forKey: url)
+                return
+            }
+            await closeTask.value
+        }
+    }
+
+    /// Awaits an in-progress close for `url` without cancelling anything.
+    /// Used by tests to observe close completion deterministically.
+    func waitForDocumentClose(forURL url: URL) async {
+        while let closeTask = pendingDocumentCloses[
+            url.standardizedFileURL
+        ]?.closeTask {
+            await closeTask.value
+        }
+    }
+
+    /// Closes that are scheduled or running right now. Exposed so tests
+    /// can assert nothing survives `stopAll()`.
+    var pendingDocumentCloseCount: Int {
+        pendingDocumentCloses.count
+    }
+
+    /// Document synchronizations in flight right now.
+    var inFlightSynchronizationCount: Int {
+        synchronizationsInFlight.count
+    }
+
+    /// Coordinator-owned unstructured tasks still running right now.
+    var pendingWorkCount: Int {
+        trackedTasks.count
+    }
+
+    private func recordDocumentCloseFailure(
+        profileIdentifier: String,
+        url: URL,
+        reason: String
+    ) {
+        Task {
+            await diagnosticsLog.record(
+                subsystem: .languageServer,
+                level: .warning,
+                message: Localized.string(
+                    "\(profileIdentifier) language server failed to close a document",
+                    comment: "Diagnostics log message recorded when a textDocument/didClose request fails"
+                ),
+                context: [
+                    DiagnosticContextField(
+                        name: "workspaceRoot",
+                        category: .fullPath,
+                        value: identity.root.path
+                    ),
+                    DiagnosticContextField(
+                        name: "document",
+                        category: .fullPath,
+                        value: url.path
+                    ),
+                    DiagnosticContextField(
+                        name: "reason",
+                        category: .diagnosticMessage,
+                        value: reason
+                    )
+                ]
+            )
+        }
+    }
+
+    private func liveRegistrations()
+    -> [(url: URL, registration: DocumentRegistration)] {
+        var live: [(url: URL, registration: DocumentRegistration)] = []
+        for (url, registrations) in registrationsByURL {
+            for registration in registrations where registration.controller != nil {
+                live.append((url: url, registration: registration))
+            }
+        }
+        return live
+    }
+
+    private func registration(
+        with id: DocumentRegistrationID
+    ) -> DocumentRegistration? {
+        for registrations in registrationsByURL.values {
+            if let match = registrations.first(where: { $0.id == id }) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func liveController(
+        with id: DocumentRegistrationID
+    ) -> CodeDocumentViewController? {
+        registration(with: id)?.controller
+    }
+
+    /// Live panes currently showing `url`. Exposed for tests, which assert
+    /// that two split panes on one file are both tracked, that closing one
+    /// leaves the other, and that nothing accumulates.
+    func liveDocumentControllers(
+        forURL url: URL
+    ) -> [CodeDocumentViewController] {
+        (registrationsByURL[url.standardizedFileURL] ?? []).compactMap(\.controller)
+    }
+
+    /// Applies one semantic-token result to *every* live pane showing
+    /// `url` at `snapshotVersion`, each against its own theme, and returns
+    /// how many panes accepted the layer. Fan-out is the point: two panes
+    /// showing one file must both get decorated, and neither may clobber
+    /// the other's compositor state.
+    @discardableResult
+    func applySemanticTokens(
+        _ tokens: [SemanticToken],
+        url: URL,
+        snapshotVersion: Int
+    ) -> Int {
+        var applied = 0
+        for registration in registrationsByURL[url.standardizedFileURL] ?? [] {
+            guard let controller = registration.controller,
+                  controller.snapshot.version == snapshotVersion else {
+                continue
+            }
+            let layer = SemanticTokenDecorationSource.layer(
+                fromTokens: tokens,
+                theme: controller.theme,
+                snapshotVersion: snapshotVersion,
+                layerVersion: 1
+            )
+            if controller.viewport.applyDecorationLayer(layer) {
+                applied += 1
+            }
+        }
+        return applied
+    }
+
     func restart(profileIdentifier: String) {
-        guard let service = services[profileIdentifier],
+        guard !isShutDown,
+              let service = services[profileIdentifier],
               let profile = profileRegistry.snapshot.profile(
                   identifier: profileIdentifier
               ) else {
             return
         }
         cancelDecorations(for: profileIdentifier)
+        // `LanguageWorkspaceService.restart()` drops every open document,
+        // so the coordinator's "already open at this version" record must
+        // go with it or the resynchronization below would skip didOpen.
+        clearSynchronizationRecords(for: profileIdentifier)
         diagnosticsStore.clear(owner: profileIdentifier)
-        Task {
+        track { [weak self] in
             do {
                 try await service.restart()
             } catch {
+                return
+            }
+            guard let self, !self.isShutDown else {
                 return
             }
             await self.resynchronizeOpenDocuments(for: profile)
@@ -153,11 +839,27 @@ final class MultiLanguageServicesCoordinator {
         return services[resolved.profile.identifier]
     }
 
-    /// Converts a raw LSP range into a UTF-8 byte range validated against
-    /// `snapshot`, using the position encoding negotiated with whichever
-    /// language service owns the file. Falls back to the LSP default
-    /// (UTF-16) only when no service exists for it, so navigation still
-    /// works for files whose server never started.
+    /// Converts a provider-bound cross-file location into a UTF-8 byte
+    /// range inside `snapshot`, always through the encoding the
+    /// *originating* provider negotiated. Deliberately pure and
+    /// synchronous: looking the service up by `location.url` is exactly
+    /// the bug this replaces — a Swift definition inside a TypeScript
+    /// file, or a target whose own profile negotiated a different
+    /// encoding, would otherwise be converted with the wrong one.
+    func utf8Range(
+        for location: ProviderBoundLocation,
+        in snapshot: SourceSnapshot
+    ) -> Range<Int>? {
+        location.utf8Range(in: snapshot)
+    }
+
+    /// Converts an *unbound* raw LSP range — a published diagnostic, which
+    /// is always reported for the file it belongs to by that file's own
+    /// provider — using the position encoding negotiated with the service
+    /// that owns the file. Falls back to the LSP default (UTF-16) only
+    /// when no service exists for it, so navigation still works for files
+    /// whose server never started. Cross-file results must use the bound
+    /// overload instead.
     func utf8Range(
         for range: LSPRange,
         in snapshot: SourceSnapshot
@@ -171,7 +873,7 @@ final class MultiLanguageServicesCoordinator {
     private static func utf8Range(
         _ range: LSPRange,
         in snapshot: SourceSnapshot,
-        encoding: LSPPositionEncoding
+        encoding: SourcePositionEncoding
     ) -> Range<Int>? {
         guard let start = try? snapshot.utf8Offset(
             for: SourcePosition(
@@ -371,21 +1073,20 @@ final class MultiLanguageServicesCoordinator {
         )
     }
 
+    /// Expands a call hierarchy item on the provider that produced it —
+    /// verified live and at the same generation — so its opaque `data` is
+    /// never sent to a server inferred from `item.url`.
     func callHierarchyIncomingCalls(
         item: ValidatedHierarchyItem
     ) async throws -> [ValidatedIncomingCall] {
-        guard let service = service(forURL: item.url) else {
-            return []
-        }
+        let service = try self.service(boundTo: item.provider)
         return try await service.callHierarchyIncomingCalls(item: item)
     }
 
     func callHierarchyOutgoingCalls(
         item: ValidatedHierarchyItem
     ) async throws -> [ValidatedOutgoingCall] {
-        guard let service = service(forURL: item.url) else {
-            return []
-        }
+        let service = try self.service(boundTo: item.provider)
         return try await service.callHierarchyOutgoingCalls(item: item)
     }
 
@@ -405,23 +1106,59 @@ final class MultiLanguageServicesCoordinator {
     func typeHierarchySupertypes(
         item: ValidatedHierarchyItem
     ) async throws -> [ValidatedHierarchyItem] {
-        guard let service = service(forURL: item.url) else {
-            return []
-        }
+        let service = try self.service(boundTo: item.provider)
         return try await service.typeHierarchySupertypes(item: item)
     }
 
     func typeHierarchySubtypes(
         item: ValidatedHierarchyItem
     ) async throws -> [ValidatedHierarchyItem] {
-        guard let service = service(forURL: item.url) else {
-            return []
-        }
+        let service = try self.service(boundTo: item.provider)
         return try await service.typeHierarchySubtypes(item: item)
     }
 
+    // MARK: - Provider routing
+
+    private func registerProvider(
+        _ providerID: LanguageProviderID,
+        service: LanguageWorkspaceService,
+        for profileIdentifier: String
+    ) {
+        if let previous = providerIDsByProfile[profileIdentifier] {
+            providerRouter.unregister(previous)
+        }
+        providerIDsByProfile[profileIdentifier] = providerID
+        providerRouter.register(service, for: providerID)
+    }
+
+    private func unregisterProvider(for profileIdentifier: String) {
+        guard let providerID = providerIDsByProfile
+            .removeValue(forKey: profileIdentifier) else {
+            return
+        }
+        providerRouter.unregister(providerID)
+    }
+
+    /// The provider identity currently serving `profileIdentifier`, or
+    /// `nil` when no service has been created for it yet.
+    func providerID(forProfileIdentifier profileIdentifier: String) -> LanguageProviderID? {
+        providerIDsByProfile[profileIdentifier]
+    }
+
+    /// Routes a provider-bound result back to the service that produced
+    /// it. Throws `LanguageProviderRoutingError.providerUnavailable` when
+    /// that service is gone or has been replaced — never falls back to
+    /// another provider, and never infers one from the result's URL.
+    func service(
+        boundTo binding: LanguageProviderBinding
+    ) throws -> LanguageWorkspaceService {
+        try providerRouter.service(for: binding)
+    }
+
     func handleLanguageSupportChanged(languageKey: String) {
-        profileRegistry.reload()
+        guard !isShutDown else {
+            return
+        }
         handleProfilesChanged()
         if services[languageKey] != nil {
             restart(profileIdentifier: languageKey)
@@ -445,7 +1182,8 @@ final class MultiLanguageServicesCoordinator {
     /// the service is already starting/indexing/ready/busy — repeated
     /// Settings refreshes must not restart a healthy service.
     func handleLanguageServerExecutableAvailable(languageKey: String) {
-        guard isTrusted,
+        guard !isShutDown,
+              isTrusted,
               let profile = profileRegistry.snapshot.profile(
                   identifier: languageKey
               ),
@@ -458,8 +1196,8 @@ final class MultiLanguageServicesCoordinator {
             // stale status and retry for whichever open documents match.
             statesByProfile.removeValue(forKey: languageKey)
             onStateChange?()
-            Task {
-                await self.resynchronizeOpenDocuments(for: profile)
+            track { [weak self] in
+                await self?.resynchronizeOpenDocuments(for: profile)
             }
             return
         }
@@ -477,15 +1215,19 @@ final class MultiLanguageServicesCoordinator {
     }
 
     func handleTrustGranted() {
-        guard isTrusted else {
+        guard !isShutDown, isTrusted else {
             return
         }
         resynchronizeAllOpenDocuments()
     }
 
     func handleTrustRevoked() {
+        guard !isShutDown else {
+            return
+        }
         semanticDecorationTasks.values.forEach { $0.cancel() }
         semanticDecorationTasks.removeAll()
+        synchronizedDocuments.removeAll()
         clearNormalizedDiagnosticsForOpenDocuments()
         for identifier in diagnosticsStore.snapshot.diagnosticsByOwner.keys {
             diagnosticsStore.clear(owner: identifier)
@@ -502,17 +1244,22 @@ final class MultiLanguageServicesCoordinator {
         let runningServices = services
         services.removeAll()
         serviceProfiles.removeAll()
+        providerRouter.removeAll()
+        providerIDsByProfile.removeAll()
         for key in statesByProfile.keys {
             statesByProfile[key] = .disabled(
                 reason: "Workspace trust revoked"
             )
         }
         onStateChange?()
-        Task {
+        track { [weak self] in
             for service in runningServices.values {
                 await service.stop()
             }
-            await diagnosticsLog.record(
+            guard let self else {
+                return
+            }
+            await self.diagnosticsLog.record(
                 subsystem: .languageServer,
                 level: .info,
                 message: Localized.string(
@@ -523,7 +1270,7 @@ final class MultiLanguageServicesCoordinator {
                     DiagnosticContextField(
                         name: "workspaceRoot",
                         category: .fullPath,
-                        value: identity.root.path
+                        value: self.identity.root.path
                     )
                 ]
             )
@@ -540,9 +1287,8 @@ final class MultiLanguageServicesCoordinator {
         forOpenURL url: URL
     ) -> ResolvedLanguageProfile? {
         let standardizedURL = url.standardizedFileURL
-        for weakController in controllersByRelativePath.values {
-            guard let snapshot = weakController.controller?.snapshot,
-                  snapshot.url.standardizedFileURL == standardizedURL else {
+        for registration in registrationsByURL[standardizedURL] ?? [] {
+            guard let snapshot = registration.controller?.snapshot else {
                 continue
             }
             return resolvedProfile(for: snapshot)
@@ -562,6 +1308,9 @@ final class MultiLanguageServicesCoordinator {
     private func startServiceIfNeeded(
         resolved: ResolvedLanguageProfile
     ) async -> LanguageWorkspaceService? {
+        guard !isShutDown else {
+            return nil
+        }
         let profile = resolved.profile
         let key = profile.identifier
         if let existing = services[key] {
@@ -576,73 +1325,85 @@ final class MultiLanguageServicesCoordinator {
 
         startupGenerations[key, default: 0] += 1
         let generation = startupGenerations[key, default: 0]
+        let providerID = LanguageProviderID(profileIdentifier: key)
+        let binding = LanguageServiceBinding(
+            providerID: providerID,
+            onStateChange: { [weak self] newState in
+                Task { @MainActor in
+                    guard let self,
+                          self.startupGenerations[key] == generation,
+                          self.services[key] != nil else {
+                        return
+                    }
+                    if newState == .starting,
+                       self.statesByProfile[key] != nil {
+                        self.diagnosticsStore.clear(owner: key)
+                    }
+                    self.statesByProfile[key] = newState
+                    self.recordStateChangeIfDegraded(
+                        profile: profile,
+                        newState
+                    )
+                    if case .missing = newState {
+                        self.onMissingServer?(profile)
+                    }
+                    self.onStateChange?()
+                }
+            },
+            onDiagnostics: { [weak self] url, diagnostics in
+                Task { @MainActor in
+                    guard let self,
+                          self.startupGenerations[key] == generation,
+                          self.services[key] != nil else {
+                        return
+                    }
+                    self.diagnosticsStore.replace(
+                        owner: key,
+                        resource: url,
+                        diagnostics: diagnostics
+                    )
+                }
+            },
+            onNormalizedDiagnostics: { [weak self] url, diagnostics in
+                Task { @MainActor in
+                    guard let self,
+                          self.startupGenerations[key] == generation,
+                          self.services[key] != nil else {
+                        return
+                    }
+                    self.onNormalizedDiagnostics?(url, diagnostics)
+                }
+            },
+            onWorkspaceDiagnosticsFailure: { [weak self] reason in
+                Task { @MainActor in
+                    guard let self,
+                          self.startupGenerations[key] == generation,
+                          self.services[key] != nil else {
+                        return
+                    }
+                    self.recordWorkspaceDiagnosticsFailure(
+                        profile: profile,
+                        reason: reason
+                    )
+                }
+            },
+            onDocumentReplayFailure: { [weak self] failures in
+                Task { @MainActor in
+                    guard let self,
+                          self.startupGenerations[key] == generation,
+                          self.services[key] != nil else {
+                        return
+                    }
+                    self.handleDocumentReplayFailures(
+                        failures,
+                        profile: profile
+                    )
+                }
+            }
+        )
         let newService: LanguageWorkspaceService
         do {
-            newService = try LanguageProfileServiceFactory.makeService(
-                for: profile,
-                identity: identity,
-                trustStore: trustStore,
-                overrideStore: overrideStore,
-                onStateChange: { [weak self] newState in
-                    Task { @MainActor in
-                        guard let self,
-                              self.startupGenerations[key] == generation,
-                              self.services[key] != nil else {
-                            return
-                        }
-                        if newState == .starting,
-                           self.statesByProfile[key] != nil {
-                            self.diagnosticsStore.clear(owner: key)
-                        }
-                        self.statesByProfile[key] = newState
-                        self.recordStateChangeIfDegraded(
-                            profile: profile,
-                            newState
-                        )
-                        if case .missing = newState {
-                            self.onMissingServer?(profile)
-                        }
-                        self.onStateChange?()
-                    }
-                },
-                onDiagnostics: { [weak self] url, diagnostics in
-                    Task { @MainActor in
-                        guard let self,
-                              self.startupGenerations[key] == generation,
-                              self.services[key] != nil else {
-                            return
-                        }
-                        self.diagnosticsStore.replace(
-                            owner: key,
-                            resource: url,
-                            diagnostics: diagnostics
-                        )
-                    }
-                },
-                onNormalizedDiagnostics: { [weak self] url, diagnostics in
-                    Task { @MainActor in
-                        guard let self,
-                              self.startupGenerations[key] == generation,
-                              self.services[key] != nil else {
-                            return
-                        }
-                        self.onNormalizedDiagnostics?(url, diagnostics)
-                    }
-                },
-                onWorkspaceDiagnosticsFailure: { [weak self] reason in
-                    Task { @MainActor in
-                        guard let self,
-                              self.startupGenerations[key] == generation,
-                              self.services[key] != nil else {
-                            return
-                        }
-                        self.recordWorkspaceDiagnosticsFailure(
-                            profile: profile,
-                            reason: reason
-                        )
-                    }
-                }
-            )
+            newService = try makeService(for: profile, binding: binding)
         } catch {
             statesByProfile[key] = .missing(
                 reason: error.localizedDescription
@@ -654,6 +1415,7 @@ final class MultiLanguageServicesCoordinator {
 
         services[key] = newService
         serviceProfiles[key] = profile
+        registerProvider(providerID, service: newService, for: key)
         let startupTask = Task {
             do {
                 try await newService.start()
@@ -667,6 +1429,7 @@ final class MultiLanguageServicesCoordinator {
             startupTasks.removeValue(forKey: key)
         }
         guard isTrusted,
+              !isShutDown,
               startupGenerations[key] == generation,
               services[key] === newService else {
             return nil
@@ -706,46 +1469,174 @@ final class MultiLanguageServicesCoordinator {
 
     private func syncAndDecorate(
         resolved: ResolvedLanguageProfile,
-        relativePath: String,
-        controller: CodeDocumentViewController
+        registrationID: DocumentRegistrationID
     ) async {
+        guard let controller = liveController(with: registrationID) else {
+            return
+        }
         let snapshot = controller.snapshot
         guard let service = await startServiceIfNeeded(
             resolved: resolved
         ) else {
             return
         }
-        let synchronization: LanguageDocumentSynchronizationResult
-        do {
-            synchronization = try await service.synchronize(snapshot)
-        } catch {
+        guard let startedController = liveController(with: registrationID),
+              startedController.snapshot.version == snapshot.version else {
             return
         }
-        guard let liveController =
-                controllersByRelativePath[relativePath]?.controller,
-              liveController.snapshot.version == snapshot.version else {
+        let profileIdentifier = resolved.profile.identifier
+        // No document feature — semantic tokens included — may be requested
+        // before the service has actually accepted this snapshot, so a
+        // failed or superseded synchronization stops here.
+        guard let synchronization = await synchronizeDocument(
+            snapshot: snapshot,
+            profileIdentifier: profileIdentifier,
+            registrationID: registrationID,
+            service: service
+        ) else {
+            return
+        }
+        guard let decoratedController = liveController(with: registrationID),
+              decoratedController.snapshot.version == snapshot.version else {
             return
         }
         if synchronization != .changed {
             await publishStoredDiagnostics(
-                owner: resolved.profile.identifier,
+                owner: profileIdentifier,
                 snapshot: snapshot,
                 service: service
             )
         }
         scheduleSemanticDecoration(
-            profileIdentifier: resolved.profile.identifier,
-            relativePath: relativePath,
-            controller: liveController,
+            profileIdentifier: profileIdentifier,
+            registrationID: registrationID,
+            controller: decoratedController,
             service: service
         )
     }
 
+    // MARK: - Document synchronization
+
+    /// Synchronizes `snapshot` with `service`, returning `nil` if the
+    /// service rejected it or the requesting pane went away first. Any
+    /// pending or in-progress close for this file is settled first, and
+    /// concurrent panes are coalesced onto a single request, so the server
+    /// sees exactly one didOpen/didChange per (document, version) and never
+    /// a didClose that overtakes it.
+    private func synchronizeDocument(
+        snapshot: SourceSnapshot,
+        profileIdentifier: String,
+        registrationID: DocumentRegistrationID,
+        service: LanguageWorkspaceService
+    ) async -> LanguageDocumentSynchronizationResult? {
+        let url = snapshot.url.standardizedFileURL
+        return await synchronizeCoalescing(
+            url: url,
+            profileIdentifier: profileIdentifier,
+            version: snapshot.version,
+            shouldStart: { [weak self] in
+                // Settling a close (or an older synchronization) can take
+                // long enough for the requesting pane to close: opening the
+                // document again here would leave the server holding a file
+                // nobody owns.
+                guard let self,
+                      let controller = self.liveController(with: registrationID),
+                      controller.snapshot.version == snapshot.version else {
+                    return false
+                }
+                return true
+            }
+        ) { [weak self] in
+            do {
+                let result = try await service.synchronize(snapshot)
+                // Recorded only now: before this point the server does not
+                // hold the document, so nothing may assume it does.
+                if let self, self.services[profileIdentifier] === service {
+                    self.synchronizedDocuments[url] = DocumentSynchronizationRecord(
+                        profileIdentifier: profileIdentifier,
+                        version: snapshot.version
+                    )
+                }
+                return result
+            } catch {
+                return nil
+            }
+        }
+    }
+
+    /// Serializes and coalesces synchronization for one document URL.
+    /// A caller for the (profile, version) already in flight awaits that
+    /// same task rather than issuing a duplicate request; a caller for a
+    /// different version waits for the in-flight one to settle first, so an
+    /// older version's didChange can never overtake a newer didOpen; and a
+    /// close in progress is always settled before anything is issued.
+    /// `shouldStart` is re-evaluated once everything has settled and
+    /// immediately before the request is issued — a caller whose pane
+    /// disappeared while waiting returns `nil` without a didOpen.
+    /// `operation` performs the actual synchronization and returns `nil`
+    /// when it fails. Exposed so tests can exercise the serialization
+    /// directly, without a live language service.
+    func synchronizeCoalescing(
+        url: URL,
+        profileIdentifier: String,
+        version: Int,
+        shouldStart: @Sendable @MainActor () -> Bool = { true },
+        operation: @escaping @Sendable @MainActor () async
+            -> LanguageDocumentSynchronizationResult?
+    ) async -> LanguageDocumentSynchronizationResult? {
+        guard !isShutDown else {
+            return nil
+        }
+        let url = url.standardizedFileURL
+        var awaitedGenerations: Set<UInt64> = []
+        while true {
+            guard !isShutDown, shouldStart() else {
+                return nil
+            }
+            await settleDocumentClose(before: url)
+            guard shouldStart() else {
+                return nil
+            }
+            guard let inFlight = synchronizationsInFlight[url] else {
+                break
+            }
+            if inFlight.profileIdentifier == profileIdentifier,
+               inFlight.version == version {
+                synchronizationJoinCount += 1
+                return await inFlight.task.value
+            }
+            guard !awaitedGenerations.contains(inFlight.generation) else {
+                break
+            }
+            awaitedGenerations.insert(inFlight.generation)
+            _ = await inFlight.task.value
+        }
+        // Nothing below suspends before the new task is registered, so a
+        // close cannot slip in between this check and the request.
+        guard !isShutDown, shouldStart() else {
+            return nil
+        }
+        nextOperationGeneration &+= 1
+        let generation = nextOperationGeneration
+        let task = Task { @MainActor in
+            await operation()
+        }
+        synchronizationsInFlight[url] = DocumentSynchronization(
+            generation: generation,
+            profileIdentifier: profileIdentifier,
+            version: version,
+            task: task
+        )
+        let result = await task.value
+        if synchronizationsInFlight[url]?.generation == generation {
+            synchronizationsInFlight.removeValue(forKey: url)
+        }
+        return result
+    }
+
     private func clearNormalizedDiagnosticsForOpenDocuments() {
         clearNormalizedDiagnostics(at: Set(
-            controllersByRelativePath.values.compactMap {
-                $0.controller?.snapshot.url.standardizedFileURL
-            }
+            liveRegistrations().map { $0.url }
         ))
     }
 
@@ -755,16 +1646,26 @@ final class MultiLanguageServicesCoordinator {
         }
     }
 
+    private func clearSynchronizationRecords(for profileIdentifier: String) {
+        for (url, record) in synchronizedDocuments
+        where record.profileIdentifier == profileIdentifier {
+            synchronizedDocuments.removeValue(forKey: url)
+        }
+    }
+
     private func scheduleSemanticDecoration(
         profileIdentifier: String,
-        relativePath: String,
+        registrationID: DocumentRegistrationID,
         controller: CodeDocumentViewController,
         service: LanguageWorkspaceService,
         delay: Duration = .zero
     ) {
-        semanticDecorationTasks[relativePath]?.cancel()
+        guard !isShutDown else {
+            return
+        }
+        semanticDecorationTasks[registrationID]?.cancel()
         let snapshot = controller.snapshot
-        semanticDecorationTasks[relativePath] = Task {
+        semanticDecorationTasks[registrationID] = Task {
             @MainActor [weak self, weak controller] in
             if delay != .zero {
                 do {
@@ -774,14 +1675,13 @@ final class MultiLanguageServicesCoordinator {
                 }
             }
             guard let self, let controller,
-                  self.controllersByRelativePath[relativePath]?.controller
-                    === controller,
+                  self.liveController(with: registrationID) === controller,
                   controller.snapshot.version == snapshot.version else {
                 return
             }
             await self.applySemanticDecoration(
                 profileIdentifier: profileIdentifier,
-                relativePath: relativePath,
+                registrationID: registrationID,
                 controller: controller,
                 service: service,
                 snapshot: snapshot
@@ -791,36 +1691,32 @@ final class MultiLanguageServicesCoordinator {
 
     private func applySemanticDecoration(
         profileIdentifier: String,
-        relativePath: String,
+        registrationID: DocumentRegistrationID,
         controller: CodeDocumentViewController,
         service: LanguageWorkspaceService,
         snapshot: SourceSnapshot
     ) async {
         do {
             let tokens = try await service.semanticTokens(snapshot: snapshot)
-            guard let stillLiveController =
-                    controllersByRelativePath[relativePath]?.controller,
-                  stillLiveController.snapshot.version
-                    == snapshot.version else {
+            guard liveController(with: registrationID) != nil else {
                 return
             }
-            let layer = SemanticTokenDecorationSource.layer(
-                fromTokens: tokens,
-                theme: stillLiveController.theme,
-                snapshotVersion: snapshot.version,
-                layerVersion: 1
+            // Decorations fan out to every pane showing this file at this
+            // version, not just the one that requested them.
+            applySemanticTokens(
+                tokens,
+                url: snapshot.url,
+                snapshotVersion: snapshot.version
             )
-            stillLiveController.viewport.applyDecorationLayer(layer)
         } catch is CancellationError {
             guard !Task.isCancelled,
-                  controllersByRelativePath[relativePath]?.controller
-                    === controller,
+                  liveController(with: registrationID) === controller,
                   controller.snapshot.version == snapshot.version else {
                 return
             }
             scheduleSemanticDecoration(
                 profileIdentifier: profileIdentifier,
-                relativePath: relativePath,
+                registrationID: registrationID,
                 controller: controller,
                 service: service,
                 delay: .milliseconds(250)
@@ -896,8 +1792,62 @@ final class MultiLanguageServicesCoordinator {
         }
     }
 
+    /// A relaunched server could not be re-sent every document Kod had
+    /// open, so the service deliberately never reported `.ready` for that
+    /// generation. The affected documents are dropped from the
+    /// synchronization records — the server demonstrably does not hold
+    /// them — and their editor markers are cleared, so a later reopen or
+    /// manual restart resynchronizes from scratch instead of assuming a
+    /// document the server never received is still live.
+    private func handleDocumentReplayFailures(
+        _ failures: [LanguageDocumentReplayFailure],
+        profile: LanguageProfile
+    ) {
+        guard !failures.isEmpty else {
+            return
+        }
+        let urls = Set(failures.map { $0.url.standardizedFileURL })
+        for url in urls {
+            synchronizedDocuments.removeValue(forKey: url)
+        }
+        clearNormalizedDiagnostics(at: urls)
+        // Bounded: one entry per failed replay batch, listing at most the
+        // first few documents rather than every open file.
+        let listed = failures
+            .prefix(3)
+            .map(\.localizedDescription)
+            .joined(separator: "; ")
+        let remainder = failures.count - min(failures.count, 3)
+        let reason = remainder > 0 ? "\(listed) (+\(remainder) more)" : listed
+        onDocumentReplayFailure?(profile, reason)
+        Task {
+            await diagnosticsLog.record(
+                subsystem: .languageServer,
+                level: .warning,
+                message: Localized.string(
+                    "\(profile.identifier) language server could not be resynchronized after restarting",
+                    comment: "Diagnostics log message recorded when documents cannot be reopened on a restarted language server"
+                ),
+                context: [
+                    DiagnosticContextField(
+                        name: "workspaceRoot",
+                        category: .fullPath,
+                        value: identity.root.path
+                    ),
+                    DiagnosticContextField(
+                        name: "reason",
+                        category: .diagnosticMessage,
+                        value: reason
+                    )
+                ]
+            )
+        }
+    }
+
     private func handleProfilesChanged() {
-        profileRegistry.reload()
+        guard !isShutDown else {
+            return
+        }
         let activeProfiles = Dictionary(
             uniqueKeysWithValues: languageServerProfiles.map {
                 ($0.identifier, $0)
@@ -917,9 +1867,8 @@ final class MultiLanguageServicesCoordinator {
                 profiles: changedProfiles
             )
             let affectedURLs = Set(
-                controllersByRelativePath.values.compactMap {
-                    weakController -> URL? in
-                    guard let snapshot = weakController.controller?.snapshot,
+                liveRegistrations().compactMap { entry -> URL? in
+                    guard let snapshot = entry.registration.controller?.snapshot,
                           previousProfiles.resolve(snapshot: snapshot) != nil else {
                         return nil
                     }
@@ -936,49 +1885,51 @@ final class MultiLanguageServicesCoordinator {
             startupTasks.removeValue(forKey: identifier)?.cancel()
             services.removeValue(forKey: identifier)
             serviceProfiles.removeValue(forKey: identifier)
+            unregisterProvider(for: identifier)
             statesByProfile.removeValue(forKey: identifier)
             diagnosticsStore.clear(owner: identifier)
+            clearSynchronizationRecords(for: identifier)
             servicesToStop.append(service)
         }
         semanticDecorationTasks.values.forEach { $0.cancel() }
         semanticDecorationTasks.removeAll()
         onStateChange?()
-        Task {
+        track { [weak self] in
             for service in servicesToStop {
                 await service.stop()
             }
-            self.resynchronizeAllOpenDocuments()
+            self?.resynchronizeAllOpenDocuments()
         }
     }
 
     private func cancelDecorations(for profileIdentifier: String) {
-        for (relativePath, weakController) in controllersByRelativePath {
-            guard let snapshot = weakController.controller?.snapshot,
+        for entry in liveRegistrations() {
+            guard let snapshot = entry.registration.controller?.snapshot,
                   resolvedProfile(for: snapshot)?.profile.identifier
                     == profileIdentifier else {
                 continue
             }
             semanticDecorationTasks.removeValue(
-                forKey: relativePath
+                forKey: entry.registration.id
             )?.cancel()
         }
     }
 
     private func resynchronizeAllOpenDocuments() {
-        guard isTrusted else {
+        guard !isShutDown, isTrusted else {
             return
         }
-        for (relativePath, weakController) in controllersByRelativePath {
-            guard let controller = weakController.controller,
+        for entry in liveRegistrations() {
+            guard let controller = entry.registration.controller,
                   let resolved = resolvedProfile(for: controller.snapshot),
                   resolved.profile.languageServer != nil else {
                 continue
             }
-            Task {
-                await self.syncAndDecorate(
+            let registrationID = entry.registration.id
+            track { [weak self] in
+                await self?.syncAndDecorate(
                     resolved: resolved,
-                    relativePath: relativePath,
-                    controller: controller
+                    registrationID: registrationID
                 )
             }
         }
@@ -987,25 +1938,61 @@ final class MultiLanguageServicesCoordinator {
     private func resynchronizeOpenDocuments(
         for profile: LanguageProfile
     ) async {
-        for (relativePath, weakController) in controllersByRelativePath {
-            guard let controller = weakController.controller,
+        guard !isShutDown else {
+            return
+        }
+        for entry in liveRegistrations() {
+            guard let controller = entry.registration.controller,
                   let resolved = resolvedProfile(for: controller.snapshot),
                   resolved.profile.identifier == profile.identifier else {
                 continue
             }
             await syncAndDecorate(
                 resolved: resolved,
-                relativePath: relativePath,
-                controller: controller
+                registrationID: entry.registration.id
             )
         }
     }
 
-    private struct WeakMultiLanguageDocumentController {
-        weak var controller: CodeDocumentViewController?
+    /// Stable identity for one registered pane, so per-pane semantic-token
+    /// work can be cancelled without touching another pane showing the same
+    /// file — and without keying off an object address that a released
+    /// controller would make ambiguous.
+    private struct DocumentRegistrationID: Hashable {
+        let value: UInt64
+    }
 
-        init(_ controller: CodeDocumentViewController) {
-            self.controller = controller
-        }
+    private struct DocumentRegistration {
+        let id: DocumentRegistrationID
+        weak var controller: CodeDocumentViewController?
+        var relativePath: String
+    }
+
+    private struct DocumentSynchronizationRecord: Equatable {
+        let profileIdentifier: String
+        let version: Int
+    }
+
+    /// The single in-flight synchronization for one document URL. Panes
+    /// arriving for the same (profile, version) await `task`; the
+    /// generation makes a superseded entry identifiable without relying on
+    /// task identity.
+    private struct DocumentSynchronization {
+        let generation: UInt64
+        let profileIdentifier: String
+        let version: Int
+        let task: Task<LanguageDocumentSynchronizationResult?, Never>
+    }
+
+    /// A close for one document URL, from the moment it is scheduled until
+    /// its `didClose` (and the marker clear and close output that follow)
+    /// has completed. `schedule` is non-nil only while it is still waiting
+    /// out the grace period — that is exactly the window in which a reopen
+    /// may cancel it; once `closeTask` is set the close is irreversible and
+    /// a reopen must await it.
+    private struct PendingDocumentClose {
+        let generation: UInt64
+        let schedule: LanguageDocumentCloseSchedule?
+        let closeTask: Task<Void, Never>?
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import LanguageClient
 import SourceModel
 import WorkspaceCore
 import XCTest
@@ -75,54 +76,53 @@ final class BuiltInLanguageSupportTests: XCTestCase {
         XCTAssertEqual(result.arguments, ["--stdio"])
     }
 
-    func testJSONDefinitionsKeepPreferredNameAndSupportStandaloneName() throws {
-        let preferred = "vscode-json-language-server"
-        let standalone = "vscode-json-languageserver"
+    func testJSONProfileKeepsPreferredNameAndSupportsStandaloneName() throws {
         let candidate = try XCTUnwrap(
             DefaultLanguageProfiles.json.languageServer?
                 .executableCandidates.first
         )
         XCTAssertEqual(
             candidate.executableNames,
-            [preferred, standalone]
+            ["vscode-json-language-server", "vscode-json-languageserver"]
         )
         XCTAssertEqual(candidate.arguments, ["--stdio"])
-
-        let legacyProfile = try XCTUnwrap(
-            JSONLanguageAdapter.executableProfiles.first
+        XCTAssertNil(
+            candidate.versionArguments,
+            "This server errors out on any invocation without a transport flag"
         )
-        XCTAssertEqual(
-            legacyProfile.executableNames,
-            Set([preferred, standalone])
-        )
-        XCTAssertEqual(legacyProfile.arguments, ["--stdio"])
     }
 
     func testTOMLFallsBackToTaploWhenTombiIsUnavailable() throws {
         let directory = try makeTemporaryDirectory()
         let taplo = try makeExecutable(named: "taplo", in: directory)
 
-        let result = try TOMLLanguageAdapter.discover(
+        let result = try LanguageServerDiscoveryEngine.resolve(
+            profile: DefaultLanguageProfiles.toml,
             overrideStore: makeOverrideStore(),
             identity: nil,
             loginShellPath: { directory.path },
-            packageManagerDirectories: []
+            packageManagerDirectories: [],
+            xcrunProbe: { _ in nil },
+            rustupProbe: { _ in nil }
         )
 
         XCTAssertEqual(result.url, taplo)
         XCTAssertEqual(result.arguments, ["lsp", "stdio"])
     }
 
-    func testTOMLPrefersSystemTombiWithItsOwnProfile() throws {
+    func testTOMLPrefersTombiWithItsOwnCandidateArguments() throws {
         let directory = try makeTemporaryDirectory()
         let tombi = try makeExecutable(named: "tombi", in: directory)
         _ = try makeExecutable(named: "taplo", in: directory)
 
-        let result = try TOMLLanguageAdapter.discover(
+        let result = try LanguageServerDiscoveryEngine.resolve(
+            profile: DefaultLanguageProfiles.toml,
             overrideStore: makeOverrideStore(),
             identity: nil,
             loginShellPath: { directory.path },
-            packageManagerDirectories: []
+            packageManagerDirectories: [],
+            xcrunProbe: { _ in nil },
+            rustupProbe: { _ in nil }
         )
 
         XCTAssertEqual(result.url, tombi)
@@ -136,14 +136,26 @@ final class BuiltInLanguageSupportTests: XCTestCase {
             in: directory
         )
 
-        let resolved = ShellLanguageAdapter.discoverShellCheck(
+        let resolved = ShellCheckSupport.discoverShellCheck(
             loginShellPath: "relative-bin:\(directory.path)",
             packageManagerDirectories: []
         )
-
         XCTAssertEqual(resolved, shellCheck)
+
+        let shipped = try XCTUnwrap(
+            DefaultLanguageProfiles.shell.languageServer?.workspaceConfiguration
+        )
         XCTAssertEqual(
-            ShellLanguageAdapter.configuration(
+            shipped["bashIde"],
+            .object([
+                "shellcheckPath": .string(""),
+                "shfmt": .object(["path": .string("")])
+            ]),
+            "The shipped profile is the only place this configuration is defined"
+        )
+        XCTAssertEqual(
+            ShellCheckSupport.resolvedWorkspaceConfiguration(
+                shipped,
                 shellCheckURL: resolved
             ),
             [
@@ -154,13 +166,20 @@ final class BuiltInLanguageSupportTests: XCTestCase {
             ]
         )
         XCTAssertEqual(
-            ShellLanguageAdapter.configuration(
+            ShellCheckSupport.resolvedWorkspaceConfiguration(
+                shipped,
                 shellCheckURL: nil
-            )["bashIde"],
-            .object([
-                "shellcheckPath": .string(""),
-                "shfmt": .object(["path": .string("")])
-            ])
+            ),
+            shipped
+        )
+    }
+
+    func testShellCheckHelperNeverInventsConfigurationTheProfileDidNotShip() {
+        XCTAssertTrue(
+            ShellCheckSupport.resolvedWorkspaceConfiguration(
+                [:],
+                shellCheckURL: URL(fileURLWithPath: "/usr/local/bin/shellcheck")
+            ).isEmpty
         )
     }
 
@@ -185,11 +204,6 @@ final class BuiltInLanguageSupportTests: XCTestCase {
     }
 
     private func makeOverrideStore() throws -> LanguageServerOverrideStore {
-        let suiteName = "BuiltInLanguageSupportTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-        return LanguageServerOverrideStore(defaults: defaults)
+        makeLanguageAdaptersTestOverrideStore()
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import SettingsCore
 import XCTest
 @testable import LanguageAdapters
 
@@ -18,7 +19,7 @@ final class LanguageProfileStoreTests: XCTestCase {
     @MainActor
     func testSyntaxOnlyCustomProfilePersistsAndDeletes() throws {
         let defaults = makeDefaults()
-        let store = try LanguageProfileStore(defaults: defaults)
+        let store = try LanguageProfileStore(repository: defaults)
         let custom = makeCustomProfile(
             identifier: "justfile",
             extensionValue: ".JUST"
@@ -30,7 +31,7 @@ final class LanguageProfileStoreTests: XCTestCase {
         XCTAssertNil(created.languageServer)
         XCTAssertEqual(store.isCustomized(identifier: "justfile"), true)
 
-        let reloaded = try LanguageProfileStore(defaults: defaults)
+        let reloaded = try LanguageProfileStore(repository: defaults)
         XCTAssertEqual(reloaded.profile(identifier: "justfile"), created)
 
         try reloaded.deleteCustomProfile(identifier: "justfile")
@@ -45,7 +46,7 @@ final class LanguageProfileStoreTests: XCTestCase {
         swiftV1.defaultRevision = 1
         _ = try LanguageProfileStore(
             defaultProfiles: [swiftV1],
-            defaults: defaults
+            repository: defaults
         )
 
         var swiftV2 = swiftV1
@@ -53,7 +54,7 @@ final class LanguageProfileStoreTests: XCTestCase {
         swiftV2.defaultRevision = 2
         let upgraded = try LanguageProfileStore(
             defaultProfiles: [swiftV2, DefaultLanguageProfiles.markdown],
-            defaults: defaults
+            repository: defaults
         )
 
         XCTAssertEqual(
@@ -75,7 +76,7 @@ final class LanguageProfileStoreTests: XCTestCase {
         swiftV1.defaultRevision = 1
         let store = try LanguageProfileStore(
             defaultProfiles: [swiftV1],
-            defaults: defaults
+            repository: defaults
         )
         var customized = try XCTUnwrap(store.profile(identifier: "swift"))
         customized.displayName = "My Swift"
@@ -86,7 +87,7 @@ final class LanguageProfileStoreTests: XCTestCase {
         swiftV2.defaultRevision = 2
         let upgraded = try LanguageProfileStore(
             defaultProfiles: [swiftV2],
-            defaults: defaults
+            repository: defaults
         )
 
         XCTAssertEqual(
@@ -109,7 +110,7 @@ final class LanguageProfileStoreTests: XCTestCase {
         swiftV3.defaultRevision = 3
         let reloaded = try LanguageProfileStore(
             defaultProfiles: [swiftV3],
-            defaults: defaults
+            repository: defaults
         )
         XCTAssertEqual(
             reloaded.profile(identifier: "swift")?.displayName,
@@ -126,7 +127,7 @@ final class LanguageProfileStoreTests: XCTestCase {
         let defaults = makeDefaults()
         let store = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.markdown],
-            defaults: defaults
+            repository: defaults
         )
         var markdown = try XCTUnwrap(store.profile(identifier: "markdown"))
         markdown.displayName = "My Notes"
@@ -134,7 +135,7 @@ final class LanguageProfileStoreTests: XCTestCase {
 
         let upgraded = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.swift],
-            defaults: defaults
+            repository: defaults
         )
         let retired = try XCTUnwrap(
             upgraded.profile(identifier: "markdown")
@@ -148,8 +149,10 @@ final class LanguageProfileStoreTests: XCTestCase {
     @MainActor
     func testGlobalExecutableOverrideMigratesOnce() throws {
         let defaults = makeDefaults()
-        let overrideStore = LanguageServerOverrideStore(defaults: defaults)
-        overrideStore.setGlobalOverride(
+        let overrideStore = LanguageServerOverrideStore(
+            repository: defaults
+        )
+        try overrideStore.setGlobalOverride(
             url: URL(fileURLWithPath: "/usr/bin/env"),
             arguments: ["custom", "--stdio"],
             languageKey: "swift"
@@ -157,7 +160,7 @@ final class LanguageProfileStoreTests: XCTestCase {
 
         let store = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.swift],
-            defaults: defaults,
+            repository: defaults,
             overrideStore: overrideStore
         )
 
@@ -168,17 +171,20 @@ final class LanguageProfileStoreTests: XCTestCase {
         )
         XCTAssertEqual(selected.path, "/usr/bin/env")
         XCTAssertEqual(selected.arguments, ["custom", "--stdio"])
-        XCTAssertNil(overrideStore.globalOverride(languageKey: "swift"))
+        XCTAssertEqual(
+            try overrideStore.globalOverride(languageKey: "swift"),
+            .absent
+        )
         XCTAssertEqual(store.isCustomized(identifier: "swift"), true)
 
-        overrideStore.setGlobalOverride(
+        try overrideStore.setGlobalOverride(
             url: URL(fileURLWithPath: "/bin/echo"),
             arguments: [],
             languageKey: "swift"
         )
         let reloaded = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.swift],
-            defaults: defaults,
+            repository: defaults,
             overrideStore: overrideStore
         )
         XCTAssertEqual(
@@ -188,35 +194,39 @@ final class LanguageProfileStoreTests: XCTestCase {
                 .path,
             "/usr/bin/env"
         )
-        XCTAssertNotNil(overrideStore.globalOverride(languageKey: "swift"))
+        guard case .value = try overrideStore.globalOverride(
+            languageKey: "swift"
+        ) else {
+            return XCTFail("The post-migration override must remain")
+        }
     }
 
     @MainActor
     func testCorruptStateIsQuarantinedAndDefaultsAreRebuilt() throws {
         let defaults = makeDefaults()
-        defaults.set(
-            Data("not valid profile json".utf8),
+        try defaults.keyValueStore.setValue(
+            .data(Data("not valid profile json".utf8)),
             forKey: "kod.language-profiles"
         )
 
         let store = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.swift],
-            defaults: defaults
+            repository: defaults
         )
 
         guard case .rebuiltAfterQuarantine = store.loadStatus else {
             return XCTFail("Expected quarantined load status")
         }
         XCTAssertNotNil(store.profile(identifier: "swift"))
-        XCTAssertEqual(store.quarantine.ledger().count, 1)
+        XCTAssertEqual(try store.quarantine.records().count, 1)
         XCTAssertEqual(
-            store.quarantine.ledger()[0].key,
+            try store.quarantine.records()[0].key,
             "kod.language-profiles"
         )
 
         let reloaded = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.swift],
-            defaults: defaults
+            repository: defaults
         )
         XCTAssertEqual(reloaded.loadStatus, .restored)
     }
@@ -226,7 +236,7 @@ final class LanguageProfileStoreTests: XCTestCase {
         let defaults = makeDefaults()
         let store = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.swift],
-            defaults: defaults
+            repository: defaults
         )
         _ = try store.createCustomProfile(
             makeCustomProfile(identifier: "custom", extensionValue: "custom")
@@ -248,6 +258,26 @@ final class LanguageProfileStoreTests: XCTestCase {
                 .defaultProfileExpected("custom")
             )
         }
+    }
+
+    @MainActor
+    func testChangeObservationIsOwnedByCancellationToken() throws {
+        let repository = makeDefaults()
+        let store = try LanguageProfileStore(
+            defaultProfiles: [DefaultLanguageProfiles.swift],
+            repository: repository
+        )
+        let counter = LanguageProfileObserverCounter()
+        let observation = store.observeChanges {
+            counter.increment()
+        }
+
+        _ = try store.setEnabled(false, identifier: "swift")
+        XCTAssertEqual(counter.value, 1)
+
+        observation.cancel()
+        _ = try store.setEnabled(true, identifier: "swift")
+        XCTAssertEqual(counter.value, 1)
     }
 
     func testValidationRejectsUnsafeCustomConfiguration() {
@@ -273,6 +303,7 @@ final class LanguageProfileStoreTests: XCTestCase {
                 .unsafeCustomConfiguration
             )
         }
+
     }
 
     func testValidationRejectsInternalGrammarAndAmbiguousAssociations() {
@@ -307,14 +338,19 @@ final class LanguageProfileStoreTests: XCTestCase {
         }
     }
 
-    private func makeDefaults() -> UserDefaults {
-        let suiteName = "LanguageProfileStoreTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?
-                .removePersistentDomain(forName: suiteName)
+    @MainActor
+    private final class LanguageProfileObserverCounter {
+        private(set) var value = 0
+
+        func increment() {
+            value += 1
         }
-        return defaults
+    }
+
+    private func makeDefaults() -> CodableSettingsRepository {
+        CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
     }
 
     private func makeCustomProfile(

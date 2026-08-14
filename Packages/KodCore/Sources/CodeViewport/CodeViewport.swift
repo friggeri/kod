@@ -3,6 +3,7 @@ import CoreText
 import FontCore
 import SourceModel
 import SyntaxCore
+import TextDecorationModel
 import ThemeCore
 
 @MainActor
@@ -24,12 +25,6 @@ public final class CodeViewport: NSView {
     public var onGutterChangeClick: ((String) -> Void)?
     public var onCancelEmbeddedViewZone: (() -> Bool)?
     var onMinimapInvalidation: ((CodeMinimapInvalidation) -> Void)?
-
-    struct GutterLaneLayout {
-        let lineNumbers: NSRect
-        let gitStatus: NSRect
-        let folding: NSRect
-    }
 
     /// Off by default. When enabled for a file under the 10 MB safety-mode
     /// threshold, long lines wrap to the viewport width; safety-mode files
@@ -90,17 +85,16 @@ public final class CodeViewport: NSView {
     private var hoverTrackingArea: NSTrackingArea?
     private var lineCache: [Int: CTLine] = [:]
     private var minimumViewportWidth: CGFloat = 0
-    var gutterChanges: [CodeGutterChange] = []
-    private var lineGutterChanges: [CodeGutterChange] = []
-    private var deletionGutterChanges: [CodeGutterChange] = []
-    private var deletionGutterChangesByAnchor: [Int: [CodeGutterChange]] = [:]
-    private var gutterChangeLayerVersion = -1
+    private var gutterModel = GutterModel()
+    var gutterChanges: [CodeGutterChange] {
+        gutterModel.changes
+    }
     var embeddedViewZone: CodeEmbeddedViewZone?
 
     /// Accessibility-only annotation metadata (symbols, diagnostics,
     /// references, git changes) driving the custom VoiceOver rotors in
     /// `CodeViewportAccessibility.swift`. Deliberately kept separate from
-    /// `decorationCompositor`'s visual decoration layers (SPEC 7.1): one
+    /// `decorationState`'s visual decoration layers (SPEC 7.1): one
     /// pipeline paints pixels, this one narrates document structure to
     /// assistive technology, and conflating them would force every
     /// visual-only decoration update to also revalidate accessibility
@@ -124,72 +118,25 @@ public final class CodeViewport: NSView {
     /// only ever materialized lazily on demand.
     var activeRotorAnnotationElements: [AnyObject] = []
 
-    private let decorationCompositor: DecorationCompositor
-    private var lastLexicalCaptures: [SyntaxCapture] = []
+    private let decorationState: DecorationState
     private var syntaxTree: SyntaxTree?
-    private var foldRangesByHeaderLine: [Int: FoldRange] = [:]
-    private var foldedHeaderLines: Set<Int> = []
-    /// Header lines an external reload asked to be folded before this
-    /// viewport's first syntax tree (and thus its fold ranges) is known.
-    /// Re-applied every time `applySyntaxTree(_:)` recomputes fold ranges,
-    /// so a reload's requested folds "stick" once parsing catches up.
-    private var pendingFoldedHeaderLines: Set<Int> = []
-    private var foldStateVersion = 0
-    private var visualMetricsFoldVersion = -1
-    private var hiddenLines: [Bool] = []
+    private var foldState = FoldState()
 
     private static let indentUnitColumns = 4
     private static let indentBlankLineLookaround = 200
 
-    /// Prefix-sum table mapping each source line to its first visual row,
-    /// sized `lineCount + 1`. `nil` when word wrap is disabled, no folds
-    /// are active, and it has never been needed, in which case visual rows
-    /// and source lines are the same thing (the O(1) fast path).
-    private var visualRowStarts: [Int]?
-    private var wrapColumnsUsed = 0
-    private var wrappedSegmentCache: [Int: [Range<Int>]] = [:]
+    private var textLayoutEngine = TextLayoutEngine()
     private(set) var minimapMappingVisitCount = 0
 
     /// Wide enough for the line-number, Git-status, and folding lanes at the
     /// current font size without clipping into the code column.
     private var gutterWidth: CGFloat = 64
-    private static let minimumGutterWidth: CGFloat = 64
-    private static let gutterLeadingPadding: CGFloat = 8
-    private static let gutterLaneSpacing: CGFloat = 4
-    private static let diffGutterLaneWidth: CGFloat = 6
-    private static let foldGutterLaneWidth: CGFloat = 16
-    private static let gutterTrailingPadding: CGFloat = 4
-    private static let primaryGitMarkerWidth: CGFloat = 4
-    private static let secondaryGitMarkerWidth: CGFloat = 3
     private static let foldChevronLineWidth: CGFloat = 1.5
     private let rightPadding: CGFloat = 32
     private let stickyHeaderMaximumDepth = 3
 
     var gutterLaneLayout: GutterLaneLayout {
-        let folding = NSRect(
-            x: gutterWidth - Self.gutterTrailingPadding - Self.foldGutterLaneWidth,
-            y: 0,
-            width: Self.foldGutterLaneWidth,
-            height: bounds.height
-        )
-        let gitStatus = NSRect(
-            x: folding.minX - Self.gutterLaneSpacing - Self.diffGutterLaneWidth,
-            y: 0,
-            width: Self.diffGutterLaneWidth,
-            height: bounds.height
-        )
-        let lineNumberMaxX = gitStatus.minX - Self.gutterLaneSpacing
-        let lineNumbers = NSRect(
-            x: Self.gutterLeadingPadding,
-            y: 0,
-            width: max(0, lineNumberMaxX - Self.gutterLeadingPadding),
-            height: bounds.height
-        )
-        return GutterLaneLayout(
-            lineNumbers: lineNumbers,
-            gitStatus: gitStatus,
-            folding: folding
-        )
+        GutterModel.laneLayout(width: gutterWidth, height: bounds.height)
     }
 
     public convenience init(
@@ -216,7 +163,7 @@ public final class CodeViewport: NSView {
         self.theme = theme
         self.fontSettings = fontSettings
         self.resolvedFont = FontResolver.resolve(fontSettings)
-        self.decorationCompositor = DecorationCompositor(activeSnapshotVersion: snapshot.version)
+        self.decorationState = DecorationState(snapshotVersion: snapshot.version)
         super.init(frame: .zero)
         setAccessibilityElement(true)
         setAccessibilityIdentifier("code.viewport")
@@ -274,61 +221,22 @@ public final class CodeViewport: NSView {
         snapshotVersion: Int,
         layerVersion: Int
     ) -> Bool {
-        guard snapshotVersion == snapshot.version, layerVersion >= gutterChangeLayerVersion else {
+        guard gutterModel.apply(
+            changes,
+            snapshotVersion: snapshotVersion,
+            activeSnapshotVersion: snapshot.version,
+            layerVersion: layerVersion,
+            lineCount: snapshot.lineCount
+        ) else {
             return false
         }
-        let locationsAreValid = changes.allSatisfy { change in
-            switch change.location {
-            case .lines(let range):
-                return !range.isEmpty
-                    && range.lowerBound >= 0
-                    && range.upperBound <= snapshot.lineCount
-                    && change.kind != .deleted
-            case .deletion(let afterLine):
-                return change.kind == .deleted
-                    && afterLine >= -1
-                    && afterLine < snapshot.lineCount
-            }
-        }
-        guard locationsAreValid else {
-            return false
-        }
-
-        gutterChanges = changes
-        lineGutterChanges = changes
-            .filter {
-                if case .lines = $0.location {
-                    return true
-                }
-                return false
-            }
-            .sorted(by: Self.gutterChangeSort)
-        deletionGutterChanges = changes
-            .filter {
-                if case .deletion = $0.location {
-                    return true
-                }
-                return false
-            }
-            .sorted(by: Self.gutterChangeSort)
-        deletionGutterChangesByAnchor = Dictionary(grouping: deletionGutterChanges) { change in
-            if case .deletion(let afterLine) = change.location {
-                return afterLine
-            }
-            return -1
-        }
-        gutterChangeLayerVersion = layerVersion
         needsDisplay = true
         onMinimapInvalidation?(.markers)
         return true
     }
 
     public func clearGutterChanges() {
-        gutterChanges = []
-        lineGutterChanges = []
-        deletionGutterChanges = []
-        deletionGutterChangesByAnchor = [:]
-        gutterChangeLayerVersion = -1
+        gutterModel.clear()
         needsDisplay = true
         onMinimapInvalidation?(.markers)
     }
@@ -360,18 +268,18 @@ public final class CodeViewport: NSView {
             max(requestedRows.lowerBound, requestedRows.upperBound)
         )
         let cappedColumns = min(CodeMinimapLayout.maximumColumns, max(1, maxColumns))
-        var rows: [CodeMinimapVisualRow] = []
+        var rows: [MinimapPresentationSnapshotBuilder.Row] = []
         rows.reserveCapacity(safeRows.count)
 
         for visualRow in safeRows {
             if isEmbeddedViewZoneRow(visualRow) {
-                rows.append(CodeMinimapVisualRow(
+                rows.append(MinimapPresentationSnapshotBuilder.Row(
                     visualRow: visualRow,
                     sourceLine: nil,
                     segmentIndex: nil,
                     utf8Range: nil,
                     text: "",
-                    tokenSpans: [],
+                    decorationRuns: [],
                     isViewZone: true
                 ))
                 continue
@@ -384,47 +292,23 @@ public final class CodeViewport: NSView {
                 continue
             }
             let segmentRange = segments[identity.segmentIndex]
-            let capped = Self.minimapCappedText(segmentText, maxColumns: cappedColumns)
-            let tokenSpans = decorationCompositor
-                .composedRuns(inUTF8Range: segmentRange)
-                .compactMap { run -> CodeMinimapTokenSpan? in
-                    let lower = max(segmentRange.lowerBound, run.utf8Range.lowerBound)
-                    let upper = min(segmentRange.upperBound, run.utf8Range.upperBound)
-                    guard lower < upper else {
-                        return nil
-                    }
-                    let lowerColumn = Self.minimapDisplayColumn(
-                        in: segmentText,
-                        utf8Offset: lower - segmentRange.lowerBound,
-                        maximum: cappedColumns
-                    )
-                    let upperColumn = Self.minimapDisplayColumn(
-                        in: segmentText,
-                        utf8Offset: upper - segmentRange.lowerBound,
-                        maximum: cappedColumns
-                    )
-                    guard lowerColumn < upperColumn else {
-                        return nil
-                    }
-                    return CodeMinimapTokenSpan(
-                        columns: lowerColumn..<upperColumn,
-                        color: run.attributes.foreground ?? theme.editor.foreground
-                    )
-                }
-            rows.append(CodeMinimapVisualRow(
+            rows.append(MinimapPresentationSnapshotBuilder.Row(
                 visualRow: visualRow,
                 sourceLine: identity.line,
                 segmentIndex: identity.segmentIndex,
                 utf8Range: segmentRange,
-                text: capped,
-                tokenSpans: tokenSpans,
+                text: segmentText,
+                decorationRuns: decorationState.composedRuns(in: segmentRange),
                 isViewZone: false
             ))
         }
-        return CodeMinimapPresentation(
+        return MinimapPresentationSnapshotBuilder(
+            maximumColumns: cappedColumns,
+            defaultForeground: theme.editor.foreground
+        ).build(
             totalVisualRows: totalVisualRows,
-            rows: rows,
-            requestedRows: safeRows
+            requestedRows: safeRows,
+            rows: rows
         )
     }
 
@@ -474,8 +358,8 @@ public final class CodeViewport: NSView {
             )
             if !intersects,
                identity.segmentIndex == 0,
-               let fold = foldRangesByHeaderLine[identity.line],
-               foldedHeaderLines.contains(identity.line),
+               let fold = foldState.rangesByHeaderLine[identity.line],
+               foldState.isFolded(identity.line),
                fold.headerLine < fold.endLine,
                let hiddenStart = snapshot.utf8RangeForLine(fold.headerLine + 1)?.lowerBound,
                let hiddenEnd = snapshot.utf8RangeForLine(fold.endLine)?.upperBound {
@@ -521,8 +405,8 @@ public final class CodeViewport: NSView {
                 var intersects = lines.contains(identity.line)
                 if !intersects,
                    identity.segmentIndex == 0,
-                   let fold = foldRangesByHeaderLine[identity.line],
-                   foldedHeaderLines.contains(identity.line) {
+                   let fold = foldState.rangesByHeaderLine[identity.line],
+                   foldState.isFolded(identity.line) {
                     let hiddenLines = (fold.headerLine + 1)..<(fold.endLine + 1)
                     intersects = lines.overlaps(hiddenLines)
                 }
@@ -587,8 +471,8 @@ public final class CodeViewport: NSView {
             }
             if !intersects,
                identity.segmentIndex == 0,
-               let fold = foldRangesByHeaderLine[identity.line],
-               foldedHeaderLines.contains(identity.line) {
+               let fold = foldState.rangesByHeaderLine[identity.line],
+               foldState.isFolded(identity.line) {
                 let hiddenLines = (fold.headerLine + 1)..<(fold.endLine + 1)
                 intersects = Self.minimapSortedLineRanges(
                     markers.lineRanges,
@@ -694,59 +578,8 @@ public final class CodeViewport: NSView {
     }
 
     private func minimapVisibleFoldHeaderRow(containingLine line: Int) -> Int {
-        let header = foldedHeaderLines
-            .filter { header in
-                guard let fold = foldRangesByHeaderLine[header] else {
-                    return false
-                }
-                return line > fold.headerLine && line <= fold.endLine
-            }
-            .max() ?? line
+        let header = foldState.visibleHeader(containing: line) ?? line
         return visualRowRange(forLine: header).lowerBound
-    }
-
-    static func minimapCappedText(_ text: String, maxColumns: Int) -> String {
-        var result = ""
-        var column = 0
-        for character in text {
-            if character == "\t" {
-                let width = 4 - (column % 4)
-                guard column + width <= maxColumns else {
-                    break
-                }
-                result.append(character)
-                column += width
-                continue
-            }
-            let width = CodeMinimapGlyphAtlas.shared.glyph(for: character).columns
-            guard column + width <= maxColumns else {
-                break
-            }
-            result.append(character)
-            column += width
-        }
-        return result
-    }
-
-    private static func minimapDisplayColumn(
-        in text: String,
-        utf8Offset: Int,
-        maximum: Int
-    ) -> Int {
-        var consumedBytes = 0
-        var column = 0
-        for character in text {
-            guard consumedBytes < utf8Offset, column < maximum else {
-                break
-            }
-            consumedBytes += String(character).utf8.count
-            if character == "\t" {
-                column += 4 - (column % 4)
-            } else {
-                column += CodeMinimapGlyphAtlas.shared.glyph(for: character).columns
-            }
-        }
-        return min(maximum, column)
     }
 
     /// Installs one embedded view zone after `afterLine`; `-1` places it
@@ -1097,10 +930,7 @@ public final class CodeViewport: NSView {
             return
         }
         syntaxTree = tree
-        foldRangesByHeaderLine = Self.computeFoldRanges(from: tree)
-        foldedHeaderLines = foldedHeaderLines.union(pendingFoldedHeaderLines)
-            .filter { foldRangesByHeaderLine[$0] != nil }
-        foldStateVersion += 1
+        foldState.apply(tree)
         needsDisplay = true
         onMinimapInvalidation?(.layout)
     }
@@ -1111,45 +941,33 @@ public final class CodeViewport: NSView {
     /// have no visible effect, per SPEC 7.1's independent layer
     /// versioning.
     public func applyLexicalCaptures(_ captures: [SyntaxCapture], snapshotVersion: Int, layerVersion: Int) {
-        let layer = LexicalDecorationSource.layer(
-            fromCaptures: captures,
+        guard decorationState.applyLexical(
+            captures,
             theme: theme,
             snapshotVersion: snapshotVersion,
             layerVersion: layerVersion
-        )
-        guard decorationCompositor.apply(layer) else {
+        ) else {
             return
         }
-        lastLexicalCaptures = captures
         lineCache.removeAll(keepingCapacity: true)
         needsDisplay = true
         onMinimapInvalidation?(.tokens)
     }
 
     private func reapplyLexicalLayerForThemeChange() {
-        guard !lastLexicalCaptures.isEmpty,
-              let currentVersion = decorationCompositor.layerVersion(for: .lexical) else {
-            return
-        }
-        let layer = LexicalDecorationSource.layer(
-            fromCaptures: lastLexicalCaptures,
-            theme: theme,
-            snapshotVersion: decorationCompositor.activeSnapshotVersion,
-            layerVersion: currentVersion
-        )
-        decorationCompositor.apply(layer)
+        decorationState.reapplyLexical(theme: theme)
     }
 
-    /// Applies a decoration layer built outside `CodeViewport` (e.g. LSP
-    /// semantic tokens, converted into a `.semantic` layer by
-    /// `LanguageClient`'s `SemanticTokenDecorationSource`). Generic over
-    /// any `DecorationLayerKind` so `CodeViewport` never needs to depend
-    /// on the module that produced the layer; stale (wrong snapshot
+    /// Applies a decoration layer built outside `CodeViewport`'s own
+    /// lexical pass (e.g. LSP semantic tokens, converted into a
+    /// `.semantic` layer by `SemanticTokenDecorationSource`). Generic over
+    /// any `DecorationLayerKind` so `CodeViewport` never needs to know
+    /// which subsystem produced the layer; stale (wrong snapshot
     /// version) or superseded (older layer version) layers are rejected
     /// by the compositor exactly like `applyLexicalCaptures`.
     @discardableResult
     public func applyDecorationLayer(_ layer: DecorationLayerSnapshot) -> Bool {
-        guard decorationCompositor.apply(layer) else {
+        guard decorationState.apply(layer) else {
             return false
         }
         lineCache.removeAll(keepingCapacity: true)
@@ -1274,21 +1092,21 @@ public final class CodeViewport: NSView {
     // MARK: - Folding
 
     public func isFoldable(atLine line: Int) -> Bool {
-        foldRangesByHeaderLine[line] != nil
+        foldState.isFoldable(line)
     }
 
     public func isFolded(atLine line: Int) -> Bool {
-        foldedHeaderLines.contains(line)
+        foldState.isFolded(line)
     }
 
     public func foldableHeaderLines() -> Set<Int> {
-        Set(foldRangesByHeaderLine.keys)
+        foldState.foldableHeaderLines
     }
 
     /// The header lines currently folded, e.g. to preserve across an
     /// external-reload snapshot replacement (SPEC 5.6).
     public func foldedHeaderLinesSnapshot() -> Set<Int> {
-        foldedHeaderLines
+        foldState.foldedHeaderLines
     }
 
     /// Requests that `lines` be folded, applying immediately for any
@@ -1297,13 +1115,9 @@ public final class CodeViewport: NSView {
     /// constructing a viewport for a freshly reloaded snapshot, before its
     /// first parse completes).
     public func restoreFoldedHeaderLines(_ lines: Set<Int>) {
-        pendingFoldedHeaderLines = lines
-        let applicableNow = lines.filter { foldRangesByHeaderLine[$0] != nil }
-        guard !applicableNow.isEmpty else {
+        guard foldState.restore(lines) else {
             return
         }
-        foldedHeaderLines.formUnion(applicableNow)
-        foldStateVersion += 1
         updateDocumentSize()
         needsDisplay = true
         onMinimapInvalidation?(.layout)
@@ -1311,29 +1125,12 @@ public final class CodeViewport: NSView {
 
     /// Toggles the fold at `line` if it is a fold header. No-op otherwise.
     public func toggleFold(atLine line: Int) {
-        guard foldRangesByHeaderLine[line] != nil else {
+        guard foldState.toggle(line) else {
             return
         }
-        if foldedHeaderLines.contains(line) {
-            foldedHeaderLines.remove(line)
-        } else {
-            foldedHeaderLines.insert(line)
-        }
-        foldStateVersion += 1
         updateDocumentSize()
         needsDisplay = true
         onMinimapInvalidation?(.layout)
-    }
-
-    private static func computeFoldRanges(from tree: SyntaxTree) -> [Int: FoldRange] {
-        var byHeader: [Int: FoldRange] = [:]
-        for range in tree.foldRanges() {
-            if let existing = byHeader[range.headerLine], existing.endLine >= range.endLine {
-                continue
-            }
-            byHeader[range.headerLine] = range
-        }
-        return byHeader
     }
 
     // MARK: - Matching brackets
@@ -1345,9 +1142,7 @@ public final class CodeViewport: NSView {
         guard let anchor = selectedUTF8Range?.lowerBound ?? anchorUTF8Offset else {
             return nil
         }
-        let excluded = lastLexicalCaptures
-            .filter { $0.name.hasPrefix("string") || $0.name.hasPrefix("comment") }
-            .map(\.utf8Range)
+        let excluded = decorationState.bracketExclusionRanges
         return BracketMatcher.match(utf8: snapshot.utf8Data, utf8Offset: anchor, excluding: excluded)
     }
 
@@ -1405,30 +1200,29 @@ public final class CodeViewport: NSView {
         wordWrapEnabled && snapshot.safetyModeReason == nil
     }
 
-    private var foldingActive: Bool {
-        !foldedHeaderLines.isEmpty
-    }
-
-    private var baseTotalVisualRows: Int {
-        visualRowStarts?.last ?? snapshot.lineCount
-    }
-
     private var totalVisualRows: Int {
-        baseTotalVisualRows + (embeddedViewZone?.heightInLines ?? 0)
+        coordinateMapper.totalRows
+    }
+
+    private var coordinateMapper: ViewportCoordinateMapper {
+        ViewportCoordinateMapper(
+            visualRowStarts: textLayoutEngine.visualRowStarts,
+            lineCount: snapshot.lineCount,
+            viewZoneAfterLine: embeddedViewZone?.afterLine,
+            viewZoneHeight: embeddedViewZone?.heightInLines ?? 0
+        )
     }
 
     private var currentMetrics: ViewportMetrics {
         rebuildVisualMetricsIfNeeded()
-        let contentWidth: CGFloat
-        if wrapEligible, visualRowStarts != nil {
-            contentWidth = max(minimumViewportWidth, gutterWidth + rightPadding + characterWidth)
-        } else {
-            let estimatedLineWidth = CGFloat(snapshot.longestLineUTF8Length) * characterWidth
-            contentWidth = max(
-                minimumViewportWidth,
-                gutterWidth + estimatedLineWidth + rightPadding
-            )
-        }
+        let contentWidth = TextLayoutEngine.contentWidth(
+            viewportWidth: minimumViewportWidth,
+            gutterWidth: gutterWidth,
+            rightPadding: rightPadding,
+            characterWidth: characterWidth,
+            longestLineUTF8Length: snapshot.longestLineUTF8Length,
+            wraps: wrapEligible && textLayoutEngine.visualRowStarts != nil
+        )
         return ViewportMetrics(
             lineCount: totalVisualRows,
             lineHeight: lineHeight,
@@ -1472,14 +1266,7 @@ public final class CodeViewport: NSView {
         )
         let line = CTLineCreateWithAttributedString(sample)
         let lineNumberWidth = ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
-        let fixedLaneWidth =
-            Self.gutterLeadingPadding
-            + Self.gutterLaneSpacing
-            + Self.diffGutterLaneWidth
-            + Self.gutterLaneSpacing
-            + Self.foldGutterLaneWidth
-            + Self.gutterTrailingPadding
-        return max(Self.minimumGutterWidth, lineNumberWidth + fixedLaneWidth)
+        return GutterModel.requiredWidth(lineNumberWidth: lineNumberWidth)
     }
 
     private func updateDocumentSize() {
@@ -1488,9 +1275,7 @@ public final class CodeViewport: NSView {
     }
 
     private func invalidateWrapCache() {
-        visualRowStarts = nil
-        wrapColumnsUsed = 0
-        wrappedSegmentCache.removeAll(keepingCapacity: true)
+        textLayoutEngine.invalidate()
         lineCache.removeAll(keepingCapacity: true)
     }
 
@@ -1506,239 +1291,54 @@ public final class CodeViewport: NSView {
     /// reading `visualRowRange(forLine:)` so accessibility frame geometry
     /// is never stale relative to the last fold/wrap toggle.
     func rebuildVisualMetricsIfNeeded() {
-        guard wrapEligible || foldingActive else {
-            if visualRowStarts != nil {
-                visualRowStarts = nil
-                hiddenLines = []
-                wrappedSegmentCache.removeAll(keepingCapacity: true)
-                lineCache.removeAll(keepingCapacity: true)
-            }
-            return
+        let maxColumns = wrapEligible
+            ? TextLayoutEngine.maximumColumns(
+                viewportWidth: minimumViewportWidth,
+                gutterWidth: gutterWidth,
+                rightPadding: rightPadding,
+                characterWidth: characterWidth
+            )
+            : 0
+        if textLayoutEngine.rebuildIfNeeded(
+            snapshot: snapshot,
+            wrapEnabled: wrapEligible,
+            maximumColumns: maxColumns,
+            folds: foldState
+        ) {
+            lineCache.removeAll(keepingCapacity: true)
         }
-
-        let maxColumns = wrapEligible ? wrapMaxColumns() : 0
-        guard !wrapEligible || maxColumns > 0 else {
-            return
-        }
-
-        let needsRebuild = visualRowStarts == nil
-            || (wrapEligible && wrapColumnsUsed != maxColumns)
-            || foldStateVersion != visualMetricsFoldVersion
-        guard needsRebuild else {
-            return
-        }
-
-        let hidden = computeHiddenLines()
-        var starts = [Int](repeating: 0, count: snapshot.lineCount + 1)
-        for line in 0..<snapshot.lineCount {
-            let rowCount: Int
-            if hidden.indices.contains(line), hidden[line] {
-                rowCount = 0
-            } else if wrapEligible {
-                let text = snapshot.line(at: line) ?? ""
-                rowCount = wrapUnitRanges(text, maxColumns: maxColumns).count
-            } else {
-                rowCount = 1
-            }
-            starts[line + 1] = starts[line] + rowCount
-        }
-        visualRowStarts = starts
-        hiddenLines = hidden
-        wrapColumnsUsed = maxColumns
-        visualMetricsFoldVersion = foldStateVersion
-        wrappedSegmentCache.removeAll(keepingCapacity: true)
-        lineCache.removeAll(keepingCapacity: true)
-    }
-
-    private func computeHiddenLines() -> [Bool] {
-        guard foldingActive, snapshot.lineCount > 0 else {
-            return []
-        }
-        var hidden = [Bool](repeating: false, count: snapshot.lineCount)
-        for header in foldedHeaderLines {
-            guard let range = foldRangesByHeaderLine[header] else {
-                continue
-            }
-            let start = range.headerLine + 1
-            let end = min(range.endLine, snapshot.lineCount - 1)
-            guard start <= end else {
-                continue
-            }
-            for line in start...end {
-                hidden[line] = true
-            }
-        }
-        return hidden
-    }
-
-    private func wrapMaxColumns() -> Int {
-        let availableWidth = max(minimumViewportWidth, gutterWidth + rightPadding + characterWidth)
-        return max(1, Int(floor((availableWidth - gutterWidth - rightPadding) / characterWidth)))
-    }
-
-    /// Splits `text` into word-wrapped UTF-16 code-unit ranges of at most
-    /// `maxColumns` units, preferring to break at the nearest preceding
-    /// whitespace so words are not split unless a single token exceeds the
-    /// available width.
-    private func wrapUnitRanges(_ text: String, maxColumns: Int) -> [Range<Int>] {
-        let units = Array(text.utf16)
-        let unitCount = units.count
-        guard unitCount > maxColumns else {
-            return [0..<unitCount]
-        }
-
-        var ranges: [Range<Int>] = []
-        var start = 0
-        while start < unitCount {
-            let hardEnd = min(start + maxColumns, unitCount)
-            var breakUnit = hardEnd
-            if hardEnd < unitCount {
-                var candidate = hardEnd
-                while candidate > start, !isWrapWhitespace(units[candidate - 1]) {
-                    candidate -= 1
-                }
-                if candidate > start {
-                    breakUnit = candidate
-                }
-            }
-            ranges.append(start..<breakUnit)
-            start = breakUnit
-        }
-        return ranges.isEmpty ? [0..<unitCount] : ranges
-    }
-
-    private func isWrapWhitespace(_ unit: UInt16) -> Bool {
-        unit == 0x20 || unit == 0x09
     }
 
     /// The UTF-8 sub-ranges of `line` that each render on their own visual
     /// row. A single-element array when wrap is disabled or ineligible.
     private func wrapSegments(forLine line: Int) -> [Range<Int>] {
-        guard let lineRange = snapshot.utf8RangeForLine(line) else {
-            return []
-        }
-        guard wrapEligible, visualRowStarts != nil, wrapColumnsUsed > 0 else {
-            return [lineRange]
-        }
-        if let cached = wrappedSegmentCache[line] {
-            return cached
-        }
-
-        let text = snapshot.line(at: line) ?? ""
-        let unitRanges = wrapUnitRanges(text, maxColumns: wrapColumnsUsed)
-        var utf8Segments: [Range<Int>] = []
-        utf8Segments.reserveCapacity(unitRanges.count)
-
-        for (index, unitRange) in unitRanges.enumerated() {
-            let startOffset: Int
-            if unitRange.lowerBound == 0 {
-                startOffset = lineRange.lowerBound
-            } else {
-                startOffset = (try? snapshot.utf8Offset(
-                    for: SourcePosition(line: line, character: unitRange.lowerBound),
-                    encoding: .utf16
-                )) ?? lineRange.lowerBound
-            }
-            let endOffset: Int
-            if index == unitRanges.count - 1 {
-                endOffset = lineRange.upperBound
-            } else {
-                endOffset = (try? snapshot.utf8Offset(
-                    for: SourcePosition(line: line, character: unitRange.upperBound),
-                    encoding: .utf16
-                )) ?? lineRange.upperBound
-            }
-            utf8Segments.append(startOffset..<max(startOffset, endOffset))
-        }
-
-        let segments = utf8Segments.isEmpty ? [lineRange] : utf8Segments
-        wrappedSegmentCache[line] = segments
-        return segments
+        textLayoutEngine.segments(
+            forLine: line,
+            snapshot: snapshot,
+            wrapEnabled: wrapEligible
+        )
     }
 
     /// Not `private`: reused by `CodeViewportAccessibility.swift` to derive
     /// on-screen frames for per-line and per-annotation accessibility
     /// elements from the same visual-row bookkeeping the drawing path uses.
-    private func baseVisualRowRange(forLine line: Int) -> Range<Int> {
-        guard let starts = visualRowStarts, starts.indices.contains(line + 1) else {
-            return line..<(line + 1)
-        }
-        return starts[line]..<starts[line + 1]
-    }
-
     func visualRowRange(forLine line: Int) -> Range<Int> {
-        let baseRange = baseVisualRowRange(forLine: line)
-        guard let zoneStart = embeddedViewZoneStartBaseVisualRow,
-              let embeddedViewZone,
-              baseRange.lowerBound >= zoneStart else {
-            return baseRange
-        }
-        return (baseRange.lowerBound + embeddedViewZone.heightInLines)..<(baseRange.upperBound + embeddedViewZone.heightInLines)
+        coordinateMapper.displayRowRange(forLine: line)
     }
 
     /// Maps a visual row back to its source line and the segment index
     /// within that line, via binary search over the prefix-sum table.
     private func sourceLine(forVisualRow row: Int) -> (line: Int, segmentIndex: Int) {
-        guard let baseRow = baseVisualRow(forDisplayRow: row) else {
-            let anchor = embeddedViewZone?.afterLine ?? -1
-            return (max(0, min(anchor, max(0, snapshot.lineCount - 1))), 0)
-        }
-        return sourceLine(forBaseVisualRow: baseRow)
-    }
-
-    private func sourceLine(forBaseVisualRow row: Int) -> (line: Int, segmentIndex: Int) {
-        guard let starts = visualRowStarts, snapshot.lineCount > 0 else {
-            let line = max(0, min(row, max(0, snapshot.lineCount - 1)))
-            return (line, 0)
-        }
-
-        var lowerBound = 0
-        var upperBound = starts.count - 1
-        while lowerBound < upperBound {
-            let midpoint = (lowerBound + upperBound + 1) / 2
-            if starts[midpoint] <= row {
-                lowerBound = midpoint
-            } else {
-                upperBound = midpoint - 1
-            }
-        }
-
-        let line = max(0, min(lowerBound, snapshot.lineCount - 1))
-        return (line, max(0, row - starts[line]))
-    }
-
-    private var embeddedViewZoneStartBaseVisualRow: Int? {
-        guard let embeddedViewZone else {
-            return nil
-        }
-        guard embeddedViewZone.afterLine >= 0 else {
-            return 0
-        }
-        return baseVisualRowRange(forLine: embeddedViewZone.afterLine).upperBound
+        let identity = coordinateMapper.sourceIdentity(forDisplayRow: row)
+        return (identity.line, identity.segmentIndex)
     }
 
     private var embeddedViewZoneDisplayRowRange: Range<Int>? {
-        guard let start = embeddedViewZoneStartBaseVisualRow, let embeddedViewZone else {
-            return nil
-        }
-        return start..<(start + embeddedViewZone.heightInLines)
+        coordinateMapper.viewZoneDisplayRows
     }
 
     private func isEmbeddedViewZoneRow(_ displayRow: Int) -> Bool {
-        embeddedViewZoneDisplayRowRange?.contains(displayRow) == true
-    }
-
-    private func baseVisualRow(forDisplayRow displayRow: Int) -> Int? {
-        guard let zoneRange = embeddedViewZoneDisplayRowRange else {
-            return displayRow
-        }
-        if zoneRange.contains(displayRow) {
-            return nil
-        }
-        if displayRow >= zoneRange.upperBound {
-            return displayRow - zoneRange.count
-        }
-        return displayRow
+        coordinateMapper.isViewZoneRow(displayRow)
     }
 
     private func visualRow(forUTF8Offset offset: Int) -> Int {
@@ -1746,7 +1346,7 @@ public final class CodeViewport: NSView {
             return 0
         }
         let rowRange = visualRowRange(forLine: position.line)
-        guard wrapEligible, visualRowStarts != nil else {
+        guard wrapEligible, textLayoutEngine.visualRowStarts != nil else {
             return rowRange.lowerBound
         }
 
@@ -1797,7 +1397,7 @@ public final class CodeViewport: NSView {
             return result
         }
 
-        let runs = decorationCompositor.composedRuns(inUTF8Range: segmentRange)
+        let runs = decorationState.composedRuns(in: segmentRange)
         let textLength = (text as NSString).length
 
         for run in runs {
@@ -2199,71 +1799,6 @@ public final class CodeViewport: NSView {
         return 0
     }
 
-    private static func gutterChangeSort(_ lhs: CodeGutterChange, _ rhs: CodeGutterChange) -> Bool {
-        let lhsPosition = gutterChangePosition(lhs)
-        let rhsPosition = gutterChangePosition(rhs)
-        if lhsPosition != rhsPosition {
-            return lhsPosition < rhsPosition
-        }
-        if lhs.layer != rhs.layer {
-            return lhs.layer == .primary
-        }
-        return lhs.id < rhs.id
-    }
-
-    private static func gutterChangePosition(_ change: CodeGutterChange) -> Int {
-        switch change.location {
-        case .lines(let range):
-            return range.lowerBound
-        case .deletion(let afterLine):
-            return afterLine
-        }
-    }
-
-    private func lineGutterChange(at line: Int) -> CodeGutterChange? {
-        guard !lineGutterChanges.isEmpty else {
-            return nil
-        }
-
-        var lowerBound = 0
-        var upperBound = lineGutterChanges.count
-        while lowerBound < upperBound {
-            let midpoint = (lowerBound + upperBound) / 2
-            let position = Self.gutterChangePosition(lineGutterChanges[midpoint])
-            if position <= line {
-                lowerBound = midpoint + 1
-            } else {
-                upperBound = midpoint
-            }
-        }
-
-        var index = lowerBound - 1
-        var secondaryMatch: CodeGutterChange?
-        while index >= 0 {
-            let change = lineGutterChanges[index]
-            guard case .lines(let range) = change.location else {
-                index -= 1
-                continue
-            }
-            if range.upperBound <= line {
-                break
-            }
-            if range.contains(line) {
-                if change.layer == .primary {
-                    return change
-                }
-                secondaryMatch = secondaryMatch ?? change
-            }
-            index -= 1
-        }
-        return secondaryMatch
-    }
-
-    private func deletionGutterChange(afterLine: Int) -> CodeGutterChange? {
-        let changes = deletionGutterChangesByAnchor[afterLine] ?? []
-        return changes.first(where: { $0.layer == .primary }) ?? changes.first
-    }
-
     private func gutterColor(for change: CodeGutterChange) -> NSColor {
         switch (change.kind, change.layer) {
         case (.added, .primary):
@@ -2283,9 +1818,9 @@ public final class CodeViewport: NSView {
         guard !gutterChanges.isEmpty else {
             return
         }
-        if let change = lineGutterChange(at: line) {
+        if let change = gutterModel.lineChange(at: line) {
             gutterColor(for: change).setFill()
-            Self.gitMarkerRect(
+            GutterModel.markerRect(
                 in: gutterLaneLayout.gitStatus,
                 layer: change.layer,
                 y: CGFloat(visualRow) * lineHeight,
@@ -2293,39 +1828,15 @@ public final class CodeViewport: NSView {
             ).fill()
         }
 
-        if line == 0, segmentIndex == 0, let deletion = deletionGutterChange(afterLine: -1) {
+        if line == 0, segmentIndex == 0, let deletion = gutterModel.deletion(afterLine: -1) {
             drawDeletionTriangle(atY: 0, color: gutterColor(for: deletion))
         }
         let segments = wrapSegments(forLine: line)
         if segmentIndex == max(0, segments.count - 1),
-           let deletion = deletionGutterChange(afterLine: line) {
+           let deletion = gutterModel.deletion(afterLine: line) {
             drawDeletionTriangle(
                 atY: CGFloat(visualRow + 1) * lineHeight,
                 color: gutterColor(for: deletion)
-            )
-        }
-    }
-
-    static func gitMarkerRect(
-        in lane: NSRect,
-        layer: CodeGutterChange.Layer,
-        y: CGFloat,
-        height: CGFloat
-    ) -> NSRect {
-        switch layer {
-        case .primary:
-            return NSRect(
-                x: lane.minX + 1,
-                y: y,
-                width: Self.primaryGitMarkerWidth,
-                height: height
-            )
-        case .secondary:
-            return NSRect(
-                x: lane.minX + 2,
-                y: y,
-                width: Self.secondaryGitMarkerWidth,
-                height: height
             )
         }
     }
@@ -2351,7 +1862,7 @@ public final class CodeViewport: NSView {
             return nil
         }
 
-        if let deletion = deletionGutterChange(afterLine: -1),
+        if let deletion = gutterModel.deletion(afterLine: -1),
            abs(point.y) <= 6 {
             return deletion
         }
@@ -2363,7 +1874,7 @@ public final class CodeViewport: NSView {
         let (line, _) = sourceLine(forVisualRow: min(displayRow, max(0, totalVisualRows - 1)))
 
         for anchor in [line - 1, line] where anchor >= 0 {
-            guard let deletion = deletionGutterChange(afterLine: anchor) else {
+            guard let deletion = gutterModel.deletion(afterLine: anchor) else {
                 continue
             }
             let boundaryY = CGFloat(visualRowRange(forLine: anchor).upperBound) * lineHeight
@@ -2371,22 +1882,14 @@ public final class CodeViewport: NSView {
                 return deletion
             }
         }
-        return lineGutterChange(at: line)
+        return gutterModel.lineChange(at: line)
     }
 
     private func revealLineContainingViewZone(afterLine: Int) {
         let targetLine = max(0, min(afterLine, max(0, snapshot.lineCount - 1)))
-        let containingFoldHeaders = foldedHeaderLines.filter { header in
-            guard let range = foldRangesByHeaderLine[header] else {
-                return false
-            }
-            return targetLine > range.headerLine && targetLine <= range.endLine
-        }
-        guard !containingFoldHeaders.isEmpty else {
+        guard foldState.reveal(line: targetLine) else {
             return
         }
-        foldedHeaderLines.subtract(containingFoldHeaders)
-        foldStateVersion += 1
         rebuildVisualMetricsIfNeeded()
     }
 

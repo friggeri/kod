@@ -1,10 +1,18 @@
 import AppKit
 import CodeViewport
 import DiagnosticsCore
+import EditorUI
 import GitCore
+import GitUI
+import KodUIComponents
 import LanguageAdapters
 import LanguageClient
 import PreviewCore
+import PreviewUI
+import SearchCore
+import SearchUI
+import SettingsCore
+import SourceIO
 import SourceModel
 import ThemeCore
 import WorkspaceCore
@@ -230,7 +238,7 @@ private final class WorkspaceSplitControlsView: NSView {
 }
 
 @MainActor
-private final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
+final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
     weak var target: WorkspaceViewController?
 
     init(target: WorkspaceViewController) {
@@ -330,54 +338,77 @@ private final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
 
 @MainActor
 final class WorkspaceViewController: NSViewController {
-    private static let defaultSidebarWidth: CGFloat = 240
-    private static let minimumSidebarWidth: CGFloat = 180
-    private static let maximumSidebarWidth: CGFloat = 420
+    /// The headless owner of this workspace's non-view subsystems
+    /// (discovery, filename index, watcher, search, Git, language
+    /// services, layout persistence). The controller subscribes to its
+    /// events and delegates lifecycle to it; it owns none of that
+    /// lifetime itself.
+    let session: WorkspaceSession
 
-    let identity: WorkspaceIdentity
+    var identity: WorkspaceIdentity {
+        session.identity
+    }
 
-    let filenameIndex = FilenameIndex()
-    private let scanner = WorkspaceScanner()
-    private let trustStore: WorkspaceTrustStore
-    private let layoutStore: WorkspaceLayoutStore
-    /// Shared, app-lifetime bounded diagnostics log (SPEC 15), injected
-    /// from `AppDelegate` (or a caller-supplied default for tests/
-    /// standalone construction) and threaded into every subsystem
-    /// coordinator this controller owns that has a real, existing
-    /// failure/degraded path worth recording — never a per-workspace
-    /// instance, so a support bundle/Diagnostics viewer sees events from
-    /// every workspace opened in this app run.
-    let diagnosticsLog: BoundedEventLog
-    private let outlineView = NSOutlineView()
-    private let statusLabel = NSTextField(labelWithString: Localized.string("Discovering files...", comment: "Status label shown in the workspace Explorer while the initial file scan is in progress"))
-    private let showHiddenFilesButton = NSButton(
-        checkboxWithTitle: Localized.string("Hidden", comment: "Explorer checkbox that reveals hidden files"),
-        target: nil,
-        action: nil
+    var filenameIndex: FilenameIndex {
+        session.filenameIndex
+    }
+
+    private var scanner: WorkspaceScanner {
+        session.scanner
+    }
+
+    var trustStore: WorkspaceTrustStore {
+        session.dependencies.trustStore
+    }
+
+    var layoutStore: WorkspaceLayoutStore {
+        session.dependencies.layoutStore
+    }
+
+    /// Shared, app-lifetime bounded diagnostics log (SPEC 15), supplied by
+    /// `AppEnvironment` and threaded into every subsystem the session
+    /// owns — never a silently-created per-workspace instance.
+    var diagnosticsLog: BoundedEventLog {
+        session.dependencies.diagnosticsLog
+    }
+
+    private var appearanceCenter: AppearanceCenter {
+        session.dependencies.appearanceCenter
+    }
+
+    // MARK: - Collaborators
+    //
+    // This controller is composition plus the `NSResponder` action
+    // surface: every cohesive policy/presentation concern below owns its
+    // own state and views, and this class only wires their intents to the
+    // session and to each other.
+
+    /// Window/split geometry: frame validation, sidebar width, fullscreen
+    /// bookkeeping. Driven by `WorkspaceWindowController` for window-level
+    /// events and by this controller for the split it owns.
+    let geometry: WorkspaceGeometryController
+
+    /// The Explorer tree: outline view, node cache, filtering, decoration.
+    let explorer: WorkspaceExplorerController
+
+    /// Trust banner, status control and confirmation UI. Built lazily so
+    /// the one-time "show the banner on first open" claim is made when the
+    /// banner is actually built, exactly as before.
+    private lazy var trustPresenter = makeTrustPresenter()
+
+    /// Queueing/suppression state machine behind the language-support
+    /// banner. The banner itself is rendered here.
+    private let languagePrompts = LanguageSupportPromptQueue()
+
+    /// One request/projection/error policy for both Quick Diff consumers.
+    private lazy var quickDiff = GitQuickDiffCoordinator(
+        dependencies: makeQuickDiffDependencies()
     )
-    private let showIgnoredFilesButton = NSButton(
-        checkboxWithTitle: Localized.string("Ignored", comment: "Explorer checkbox that reveals Git-ignored files"),
-        target: nil,
-        action: nil
-    )
+
     private let workspaceBannerStack = NSStackView()
-    private let trustBanner = NSStackView()
-    private let trustBannerLabel = NSTextField(labelWithString: "")
-    private let trustActionButton = NSButton(title: "", target: nil, action: nil)
-    private let trustStatusButton = NSButton()
-    private let trustDismissButton = NSButton(
-        image: NSImage(
-            systemSymbolName: "xmark",
-            accessibilityDescription: Localized.string(
-                "Dismiss Workspace Trust Banner",
-                comment: "Accessibility description for the button that dismisses the workspace trust banner"
-            )
-        ) ?? NSImage(),
-        target: nil,
-        action: nil
-    )
     private let languageSupportBanner = NSStackView()
     private let languageSupportBannerLabel = NSTextField(labelWithString: "")
+
     private let languageSupportFindButton = NSButton(
         title: Localized.string(
             "Find a Server...",
@@ -412,11 +443,9 @@ final class WorkspaceViewController: NSViewController {
     )
     private var contentTopWithTrustBannerConstraint: NSLayoutConstraint?
     private var contentTopWithoutTrustBannerConstraint: NSLayoutConstraint?
-    private lazy var shouldShowInitialTrustBanner =
-        trustStore.claimInitialTrustBannerPresentation(for: identity)
-    private var isTrustBannerDismissed = false
-    private var currentMissingLanguageKey: String?
-    private var currentUnknownLanguageURL: URL?
+    private lazy var workspaceHealthPresenter = WorkspaceHealthPresenter(
+        session: session
+    )
     /// The official installation-documentation URL to open when the
     /// banner's "Find a Server.../Installation Help..." button is
     /// pressed for the *currently presented* missing-server prompt. Set
@@ -425,11 +454,6 @@ final class WorkspaceViewController: NSViewController {
     /// `nil` for unknown/custom profiles or default profiles without
     /// guidance, which fall back to the public LSP directory.
     private var currentMissingLanguageInstallationDocumentationURL: URL?
-    private var queuedMissingLanguageKeys: [String] = []
-    private var queuedUnknownLanguageURLs: [URL] = []
-    private var suppressedMissingLanguageKeys: Set<String> = []
-    private var isPreparingMissingLanguagePrompt = false
-    private var languageSupportPromptGeneration = 0
     private let sidebarModeControl = NSSegmentedControl(
         labels: [
             Localized.string("Explorer", comment: "Sidebar mode segment title for the file Explorer"),
@@ -443,7 +467,6 @@ final class WorkspaceViewController: NSViewController {
     )
     private let workspaceTitleLabel = NSTextField(labelWithString: "")
     private var workspaceSplitViewController: NSSplitViewController!
-    private var windowToolbarDelegate: WorkspaceToolbarDelegate?
     private var previewSourceControlView: WorkspacePreviewSourceControlView?
     private var explorerContainer: NSView!
     private var searchSidebarController: SearchSidebarViewController!
@@ -451,34 +474,32 @@ final class WorkspaceViewController: NSViewController {
     private var sourceControlSidebarController: SourceControlSidebarViewController!
     /// Read-only Git context for this workspace (SPEC 9): `nil` for
     /// non-Git folders, kept fresh from the same FSEvents pipeline that
-    /// drives Explorer/index live updates.
-    private var gitCoordinator: GitWorkspaceCoordinator!
-    private let workspaceDiagnosticsStore: WorkspaceDiagnosticsStore
-    private var gitDecorationColors = BundledThemes.dark.git
+    /// drives Explorer/index live updates. Owned by the session.
+    private var gitCoordinator: GitWorkspaceCoordinator {
+        session.gitCoordinator
+    }
+    var workspaceDiagnosticsStore: WorkspaceDiagnosticsStore {
+        session.dependencies.diagnosticsStore
+    }
     private var gitBlamePanelController: GitBlamePanelController?
-    let multiLanguageServicesCoordinator: MultiLanguageServicesCoordinator
+    var multiLanguageServicesCoordinator: MultiLanguageServicesCoordinator {
+        session.languageServices
+    }
     private let languageServerStateLabel = NSTextField(labelWithString: "")
     private let languageServerRestartButton = NSButton(
         title: Localized.string("Restart", comment: "Button title to restart the language server"),
         target: nil,
         action: nil
     )
-    var entriesByParent: [String: [WorkspaceFileEntry]] = [:]
-    private var nodeCache: [String: WorkspaceTreeNode] = [:]
-    private var discoveryTask: Task<Void, Never>?
-    private var discoveryOptions = WorkspaceDiscoveryOptions()
-    private var discoveryGeneration = 0
-    private var sourceLoadTask: Task<Void, Never>?
-    private var sourceControlQuickDiffTask: Task<Void, Never>?
-    private var visibleQuickDiffRefreshTask: Task<Void, Never>?
-    private var quickDiffGeneration = 0
-    private var visibleQuickDiffGeneration = 0
-    private var visibleQuickDiffControllers: [ObjectIdentifier: GitQuickDiffController] = [:]
-    private struct SourceControlQuickDiffState {
-        let selection: SourceControlSidebarViewController.FileSelection
-        let groupID: EditorGroupID
+    /// The Explorer's tree model, kept on the Explorer collaborator. Still
+    /// reachable here because the workspace's live-update pipeline (and its
+    /// tests) speak in terms of the workspace, not the sidebar widget.
+    var entriesByParent: [String: [WorkspaceFileEntry]] {
+        get { explorer.entriesByParent }
+        set { explorer.entriesByParent = newValue }
     }
-    private var sourceControlQuickDiffState: SourceControlQuickDiffState?
+    private var sourceLoadTask: Task<Void, Never>?
+    private var appearanceObservation: SettingsObservation?
     private var quickOpenController: QuickOpenPanelController?
     private var commandPaletteController: CommandPaletteController?
     private var goToLinePanelController: GoToLinePanelController?
@@ -505,80 +526,68 @@ final class WorkspaceViewController: NSViewController {
             )
         }
     )
-    private var hasStartedDiscovery = false
+    private var hasStartedSession = false
     private var lastLanguageServerStates: [String: LanguageServerState] = [:]
 
-    /// FSEvents-driven live updates (SPEC 5.6): incremental Explorer/index
-    /// updates, automatic reload of externally modified open files into a
-    /// new immutable snapshot version, and tombstone tabs for files that
-    /// disappear out from under Kod.
-    private var fileWatcher: WorkspaceFileWatcher?
     /// Every loaded/reloaded snapshot gets a strictly increasing version so
     /// stale in-flight syntax/navigation work for a superseded snapshot is
     /// rejected rather than shown (SPEC 5.6).
     private var nextSnapshotVersion = 1
-    private var externalReloadTask: Task<Void, Never>?
-    private let languageSupportService: LanguageSupportService
-    private var hasRestoredWorkspaceGeometry = false
-    private var lastExpandedSidebarWidth = WorkspaceViewController.defaultSidebarWidth
-    private var lastNormalWindowFrame: NSRect?
-    private var pendingNormalWindowFrame: NSRect?
-    private var isApplyingSidebarGeometry = false
-    private var pendingExpandedSidebarWidth: CGFloat?
+    var languageSupportService: LanguageSupportService {
+        session.dependencies.languageSupportService
+    }
+    var onShowLanguageSupportSettings: ((String?) -> Void)?
 
     var layoutState: WorkspaceLayoutState
     var splitContainer: SplitContainerViewController!
 
-    init(
-        identity: WorkspaceIdentity,
-        trustStore: WorkspaceTrustStore = WorkspaceTrustStore(),
-        layoutStore: WorkspaceLayoutStore = WorkspaceLayoutStore(),
-        diagnosticsLog: BoundedEventLog = BoundedEventLog(),
-        languageSupportService: LanguageSupportService = LanguageSupportService()
-    ) {
-        self.identity = identity
-        self.trustStore = trustStore
-        self.layoutStore = layoutStore
-        self.diagnosticsLog = diagnosticsLog
-        self.languageSupportService = languageSupportService
-        let workspaceDiagnosticsStore = WorkspaceDiagnosticsStore()
-        self.workspaceDiagnosticsStore = workspaceDiagnosticsStore
-        let restoredLayout = layoutStore.load(for: identity) ?? .singleGroup()
+    init(session: WorkspaceSession) {
+        self.session = session
+        let restoredLayout = session.loadLayoutState()
         self.layoutState = restoredLayout
-        self.lastExpandedSidebarWidth = Self.clampedSidebarWidth(
-            restoredLayout.geometry?.sidebarWidth
+        self.geometry = WorkspaceGeometryController(
+            restoredSidebarWidth: restoredLayout.geometry?.sidebarWidth
         )
-        self.multiLanguageServicesCoordinator = MultiLanguageServicesCoordinator(
-            identity: identity,
-            trustStore: trustStore,
-            profileRegistry: languageSupportService.profileRegistry,
-            overrideStore: languageSupportService.overrideStore,
-            diagnosticsLog: diagnosticsLog,
-            diagnosticsStore: workspaceDiagnosticsStore
+        self.explorer = WorkspaceExplorerController(
+            discoveryOptions: { session.discoveryOptions },
+            gitDecoration: { relativePath, isDirectory in
+                session.gitCoordinator.explorerDecoration(
+                    forRelativePath: relativePath,
+                    isDirectory: isDirectory
+                )
+            }
         )
         super.init(nibName: nil, bundle: nil)
-        gitDecorationColors = AppearanceSettings.currentTheme().git
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(languageProfilesDidChange(_:)),
-            name: .kodLanguageProfilesDidChange,
-            object: languageSupportService.profileStore
-        )
+        geometry.windowProvider = { [weak self] in
+            self?.viewIfLoaded?.window
+        }
+        explorer.setDecorationColors(appearanceCenter.snapshot.theme.git)
+        explorer.onIntent = { [weak self] intent in
+            self?.handleExplorerIntent(intent)
+        }
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleLanguageSupportChanged(_:)),
             name: .kodLanguageSupportChanged,
-            object: languageSupportService
+            object: session.dependencies.languageSupportService
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appearanceSettingsDidChange),
-            name: .kodAppearanceSettingsChanged,
-            object: nil
-        )
-        self.gitCoordinator = GitWorkspaceCoordinator(root: identity.root, diagnosticsLog: diagnosticsLog) { [weak self] snapshot in
-            self?.gitStatusDidChange(snapshot)
+        appearanceObservation = appearanceCenter.observe {
+            [weak self] snapshot in
+            self?.refreshGitDecorationAppearance(snapshot)
         }
+        configureSessionEventHandlers()
+    }
+
+    /// Convenience composition path used by the app's single-window
+    /// construction and by tests: builds the workspace's session from
+    /// explicit dependencies, then wires this controller to it.
+    convenience init(
+        identity: WorkspaceIdentity,
+        dependencies: WorkspaceDependencies
+    ) {
+        self.init(
+            session: dependencies.makeWorkspaceSession(identity: identity)
+        )
     }
 
     @available(*, unavailable)
@@ -587,20 +596,108 @@ final class WorkspaceViewController: NSViewController {
     }
 
     deinit {
-        discoveryTask?.cancel()
         sourceLoadTask?.cancel()
-        sourceControlQuickDiffTask?.cancel()
-        visibleQuickDiffRefreshTask?.cancel()
-        externalReloadTask?.cancel()
-        fileWatcher?.stop()
         NotificationCenter.default.removeObserver(self)
     }
 
-    @objc
-    private func languageProfilesDidChange(_ notification: Notification) {
-        languageSupportPromptGeneration &+= 1
-        languageSupportService.profileRegistry.reload()
-        reloadChangedSyntaxDefinitions()
+    private func makeTrustPresenter() -> WorkspaceTrustPresenter {
+        let isBannerEligible: Bool
+        do {
+            isBannerEligible = try trustStore
+                .claimInitialTrustBannerPresentation(for: identity)
+        } catch {
+            isBannerEligible = true
+            recordTrustPersistenceFailure(
+                message: Localized.string(
+                    "Workspace trust state could not be saved",
+                    comment: "Workspace health summary when trust banner persistence fails"
+                ),
+                error: error
+            )
+        }
+        let presenter = WorkspaceTrustPresenter(
+            isBannerEligible: isBannerEligible
+        )
+        presenter.presentingWindow = { [weak self] in
+            self?.viewIfLoaded?.window
+        }
+        presenter.onIntent = { [weak self] intent in
+            self?.handleTrustIntent(intent)
+        }
+        presenter.render(isTrusted: trustStore.isTrusted(identity))
+        // Assigned only after the initial render so the workspace's banner
+        // stack is never asked about a presenter that is still being
+        // constructed.
+        presenter.onBannerVisibilityChanged = { [weak self] in
+            self?.updateWorkspaceBannerVisibility()
+        }
+        return presenter
+    }
+
+    private func makeQuickDiffDependencies() -> GitQuickDiffCoordinator.Dependencies {
+        GitQuickDiffCoordinator.Dependencies(
+            workspaceRoot: identity.root,
+            diagnosticsLog: diagnosticsLog,
+            gitContext: { [weak self] in self?.gitCoordinator.context },
+            latestStatus: { [weak self] in self?.gitCoordinator.latestStatus },
+            loadSnapshot: { [weak self] relativePath in
+                guard let self else {
+                    throw CancellationError()
+                }
+                return try await self.loadSnapshot(
+                    relativePath: relativePath,
+                    bumpingVersion: true
+                )
+            },
+            nextSnapshotVersion: { [weak self] in
+                self?.nextVersion() ?? 1
+            },
+            groupController: { [weak self] groupID in
+                self?.splitContainer?.controller(for: groupID)
+            },
+            allGroupControllers: { [weak self] in
+                self?.splitContainer?.allGroupControllers ?? []
+            }
+        )
+    }
+
+    /// Subscribes to the session's narrow event surface. Every subsystem
+    /// lifetime stays with the session; this controller only reacts.
+    private func configureSessionEventHandlers() {
+        session.onDiscoveryStatus = { [weak self] status in
+            self?.discoveryStatusDidChange(status)
+        }
+        session.onDiscoveryBatch = { [weak self] batch in
+            self?.apply(batch)
+        }
+        session.onFileChangeBatch = { [weak self] batch in
+            self?.handleWorkspaceChangeBatch(batch)
+        }
+        session.onGitStatusChanged = { [weak self] snapshot in
+            self?.gitStatusDidChange(snapshot)
+        }
+        session.onLanguageStateChanged = { [weak self] in
+            self?.languageServerStateDidChange()
+        }
+        session.onHealthChanged = { [weak self] health in
+            self?.workspaceHealthDidChange(health)
+        }
+        // Problems is driven by the raw workspace diagnostics store; only
+        // snapshot-normalized diagnostics reach the open editors.
+        session.onLanguageDiagnostics = { [weak self] url, diagnostics in
+            self?.splitContainer?.allGroupControllers.forEach {
+                $0.applyDiagnostics(url: url, diagnostics: diagnostics)
+            }
+        }
+        session.onLanguageMissingServer = { [weak self] profile in
+            self?.enqueueMissingLanguageServer(profile)
+        }
+        session.onLanguageUnknownFileType = { [weak self] url in
+            self?.enqueueUnknownLanguageProfile(for: url)
+        }
+        session.persistState = { [weak self] in
+            self?.persistRestorableState()
+        }
     }
 
     @objc
@@ -616,31 +713,27 @@ final class WorkspaceViewController: NSViewController {
         }
     }
 
-    @objc
-    private func appearanceSettingsDidChange() {
-        gitDecorationColors = AppearanceSettings.currentTheme().git
-        reloadVisibleExplorerDecorations()
-    }
-
     /// A profile's configuration changed (edited, enabled/disabled,
-    /// reset, deleted, or given an explicit executable). Reloads the
-    /// profile registry and, if this affects the currently displayed
-    /// missing-server/unknown-type prompt, re-resolves it — resolving a
-    /// configuration change may require re-running discovery, so this is
-    /// the one path allowed to call `languageSupportService.refresh()`.
+    /// reset, deleted, or given an explicit executable). The registry has
+    /// already reloaded itself from its own store observation, so this
+    /// reads the current snapshot and, if the change affects the
+    /// currently displayed missing-server/unknown-type prompt, re-resolves
+    /// it — resolving a configuration change may require re-running
+    /// discovery, so this is the one path allowed to call
+    /// `languageSupportService.refresh()`.
     private func handleLanguageProfileConfigurationChanged(
         languageKey: String
     ) {
-        languageSupportPromptGeneration &+= 1
-        languageSupportService.profileRegistry.reload()
-        queuedMissingLanguageKeys.removeAll { $0 == languageKey }
-        if currentMissingLanguageKey == languageKey {
+        languagePrompts.bumpGeneration()
+        reloadChangedSyntaxDefinitions()
+        languagePrompts.removeQueuedMissingServer(languageKey: languageKey)
+        if languagePrompts.currentMissingServerKey == languageKey {
             Task { [weak self] in
                 guard let self else {
                     return
                 }
                 await self.languageSupportService.refresh()
-                guard self.currentMissingLanguageKey == languageKey else {
+                guard self.languagePrompts.currentMissingServerKey == languageKey else {
                     return
                 }
                 guard let item = self.languageSupportService.items.first(
@@ -660,7 +753,7 @@ final class WorkspaceViewController: NSViewController {
                     break
                 }
             }
-        } else if let currentUnknownLanguageURL,
+        } else if let currentUnknownLanguageURL = languagePrompts.currentUnknownFileTypeURL,
                   languageSupportService.profileRegistry.resolve(
                       url: currentUnknownLanguageURL
                   ) != nil {
@@ -673,17 +766,17 @@ final class WorkspaceViewController: NSViewController {
 
     /// `LanguageSupportService.refresh()` discovered that `languageKey`'s
     /// executable, previously unavailable, is now available. Nothing
-    /// about the profile's configuration changed, so this never reloads
-    /// the profile registry or calls `refresh()` again (which would risk
-    /// a notify → refresh → notify loop) — it only clears the now-stale
-    /// missing-server queue/banner for this key and asks the coordinator
-    /// to retry/restart the affected service. An unrelated unknown-type
-    /// or different-profile prompt currently on screen is left alone.
+    /// about the profile's configuration changed, so this never calls
+    /// `refresh()` again (which would risk a notify → refresh → notify
+    /// loop) — it only clears the now-stale missing-server queue/banner
+    /// for this key and asks the coordinator to retry/restart the
+    /// affected service. An unrelated unknown-type or different-profile
+    /// prompt currently on screen is left alone.
     private func handleLanguageServerExecutableDiscovered(
         languageKey: String
     ) {
-        queuedMissingLanguageKeys.removeAll { $0 == languageKey }
-        if currentMissingLanguageKey == languageKey,
+        languagePrompts.removeQueuedMissingServer(languageKey: languageKey)
+        if languagePrompts.currentMissingServerKey == languageKey,
            let item = languageSupportService.items.first(
                where: { $0.id == languageKey }
            ),
@@ -695,22 +788,43 @@ final class WorkspaceViewController: NSViewController {
         )
     }
 
+    // MARK: - Collaborator intents
+
+    private func handleExplorerIntent(_ intent: WorkspaceExplorerController.Intent) {
+        switch intent {
+        case .openFile(let entry):
+            open(entry)
+        case .changeVisibility(let options):
+            startDiscovery(options: options)
+        }
+    }
+
+    private func handleTrustIntent(_ intent: WorkspaceTrustPresenter.Intent) {
+        switch intent {
+        case .grantTrust:
+            trustWorkspace(nil)
+        case .revokeTrust:
+            revokeTrust(nil)
+        case .dismissBanner:
+            break
+        }
+    }
 
 
     override func loadView() {
         let container = WorkspaceRootView()
         container.onEffectiveAppearanceChanged = { [weak self] in
-            self?.refreshGitDecorationAppearance()
+            self?.appearanceCenter.refresh()
         }
         collapseEmptyGroupsKeepingOne()
 
-        configureTrustBanner()
         configureLanguageSupportBanner()
         configureWorkspaceBannerStack()
-        trustBanner.translatesAutoresizingMaskIntoConstraints = false
+        trustPresenter.bannerView.translatesAutoresizingMaskIntoConstraints = false
 
         let outerSplit = NSSplitViewController()
         workspaceSplitViewController = outerSplit
+        geometry.attach(splitViewController: outerSplit)
         addChild(outerSplit)
         NotificationCenter.default.addObserver(
             self,
@@ -742,11 +856,16 @@ final class WorkspaceViewController: NSViewController {
         sidebarItem.titlebarSeparatorStyle = .none
         outerSplit.addSplitViewItem(sidebarItem)
 
+        let groupAppearanceCenter = appearanceCenter
         splitContainer = SplitContainerViewController(
             root: layoutState.root,
-            makeGroupController: { [weak self] id in
+            makeGroupController: { [weak self, groupAppearanceCenter] id in
                 self?.makeGroupController(for: id)
-                    ?? EditorGroupViewController(groupID: id, state: EditorGroupState(id: id))
+                    ?? EditorGroupViewController(
+                        groupID: id,
+                        state: EditorGroupState(id: id),
+                        appearanceCenter: groupAppearanceCenter
+                    )
             }
         )
         splitContainer.view.translatesAutoresizingMaskIntoConstraints = false
@@ -782,7 +901,10 @@ final class WorkspaceViewController: NSViewController {
             ),
             workspaceBannerStack.leadingAnchor.constraint(equalTo: editorContainer.leadingAnchor, constant: 8),
             workspaceBannerStack.trailingAnchor.constraint(equalTo: editorContainer.trailingAnchor, constant: -8),
-            trustBanner.heightAnchor.constraint(equalTo: trustActionButton.heightAnchor, constant: 12),
+            trustPresenter.bannerView.heightAnchor.constraint(
+                equalTo: trustPresenter.bannerHeightReferenceView.heightAnchor,
+                constant: 12
+            ),
             splitContainer.view.leadingAnchor.constraint(equalTo: editorContainer.leadingAnchor),
             splitContainer.view.trailingAnchor.constraint(equalTo: editorContainer.trailingAnchor),
             splitContainer.view.bottomAnchor.constraint(equalTo: editorContainer.bottomAnchor),
@@ -801,7 +923,7 @@ final class WorkspaceViewController: NSViewController {
             workspaceTitleLabel.centerXAnchor.constraint(equalTo: titleOverlay.centerXAnchor),
             workspaceTitleLabel.centerYAnchor.constraint(equalTo: titleOverlay.centerYAnchor)
         ])
-        updateTrustBannerVisibility()
+        updateWorkspaceBannerVisibility()
 
         view = container
         refreshActiveGroupHighlighting()
@@ -810,39 +932,19 @@ final class WorkspaceViewController: NSViewController {
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        configureWindowChrome()
-        view.window?.delegate = self
-        restoreWorkspaceGeometryIfNeeded()
-        guard !hasStartedDiscovery else {
+        guard !hasStartedSession else {
             return
         }
-        hasStartedDiscovery = true
-        startDiscovery()
-        configureLanguageServicesCoordinator()
-        startGitCoordinator()
+        hasStartedSession = true
+        session.begin()
+        refreshLanguageServerStateUI()
     }
 
+    /// Sidebar visibility is a window-geometry concern; the geometry
+    /// controller owns the width bookkeeping that survives a collapse.
     @objc
     func toggleSidebar(_ sender: Any?) {
-        let sidebarItem = workspaceSplitViewController.splitViewItems.first
-        let wasCollapsed = sidebarItem?.isCollapsed == true
-        let widthToRestore = lastExpandedSidebarWidth
-        if !wasCollapsed {
-            pendingExpandedSidebarWidth = nil
-            isApplyingSidebarGeometry = false
-            captureExpandedSidebarWidth()
-        }
-        if wasCollapsed {
-            isApplyingSidebarGeometry = true
-            pendingExpandedSidebarWidth = widthToRestore
-            prepareSidebarWidth(widthToRestore)
-        }
-        workspaceSplitViewController.toggleSidebar(sender)
-        if wasCollapsed {
-            DispatchQueue.main.async { [weak self] in
-                self?.applyPendingExpandedSidebarWidthIfPossible()
-            }
-        }
+        geometry.toggleSidebar(sender)
     }
 
     fileprivate func makePreviewSourceControlView(toolbarItem: NSToolbarItem) -> NSView {
@@ -858,325 +960,71 @@ final class WorkspaceViewController: NSViewController {
         )
     }
 
-    private func configureWindowChrome() {
-        guard let window = view.window else {
-            return
-        }
-
-        window.styleMask.insert(.fullSizeContentView)
-        window.title = identity.root.lastPathComponent
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.titlebarSeparatorStyle = .none
-        window.toolbarStyle = .unified
-
-        let delegate = WorkspaceToolbarDelegate(target: self)
-        let toolbar = NSToolbar(identifier: NSToolbar.Identifier("workspace.toolbar"))
-        toolbar.delegate = delegate
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        toolbar.autosavesConfiguration = false
-        windowToolbarDelegate = delegate
-        window.toolbar = toolbar
-        window.layoutIfNeeded()
-        refreshPreviewSourceToolbar()
-    }
-
     func restoreWorkspaceGeometryIfNeeded() {
-        guard !hasRestoredWorkspaceGeometry, let window = view.window else {
-            return
-        }
-        hasRestoredWorkspaceGeometry = true
-
-        guard let geometry = layoutState.geometry else {
-            if !window.styleMask.contains(.fullScreen) {
-                lastNormalWindowFrame = window.frame
-            }
-            return
-        }
-
-        let restoredFrame = Self.constrainedWindowFrame(
-            geometry.windowFrame,
-            minimumSize: window.minSize,
-            visibleScreenFrames: NSScreen.screens.map(\.visibleFrame),
-            fallbackVisibleFrame: window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
-        )
-        if let restoredFrame {
-            if window.styleMask.contains(.fullScreen) {
-                pendingNormalWindowFrame = restoredFrame
-            } else {
-                window.setFrame(restoredFrame, display: true)
-            }
-            lastNormalWindowFrame = restoredFrame
-        }
-
-        window.layoutIfNeeded()
-        DispatchQueue.main.async { [weak self, weak window] in
-            guard let self, let window, self.view.window === window else {
-                return
-            }
-            window.layoutIfNeeded()
-            self.restoreSidebarGeometry(geometry)
-        }
-    }
-
-    private func restoreSidebarGeometry(_ geometry: WorkspaceGeometryState) {
-        guard let sidebarItem = workspaceSplitViewController.splitViewItems.first else {
-            return
-        }
-
-        let width = Self.clampedSidebarWidth(geometry.sidebarWidth)
-        isApplyingSidebarGeometry = true
-        defer {
-            isApplyingSidebarGeometry = false
-        }
-        lastExpandedSidebarWidth = width
-        sidebarItem.isCollapsed = false
-        applySidebarWidth(width)
-        sidebarItem.isCollapsed = geometry.isSidebarCollapsed
-        lastExpandedSidebarWidth = width
-    }
-
-    private func applySidebarWidth(_ width: CGFloat) {
-        prepareSidebarWidth(width)
-        guard let sidebarItem = workspaceSplitViewController.splitViewItems.first else {
-            return
-        }
-        guard !sidebarItem.isCollapsed else {
-            return
-        }
-        let splitView = workspaceSplitViewController.splitView
-        workspaceSplitViewController.view.layoutSubtreeIfNeeded()
-        splitView.adjustSubviews()
-        if splitView.arrangedSubviews.count >= 2 {
-            splitView.setPosition(width, ofDividerAt: 0)
-        }
-        lastExpandedSidebarWidth = width
-    }
-
-    private func prepareSidebarWidth(_ width: CGFloat) {
-        lastExpandedSidebarWidth = width
-        let splitView = workspaceSplitViewController.splitView
-        guard splitView.bounds.width > 0 else {
-            return
-        }
-        workspaceSplitViewController.splitViewItems.first?.preferredThicknessFraction =
-            min(max(width / splitView.bounds.width, 0), 1)
-    }
-
-    private func applyPendingExpandedSidebarWidthIfPossible() {
-        guard let width = pendingExpandedSidebarWidth,
-              workspaceSplitViewController.splitViewItems.first?.isCollapsed == false else {
-            return
-        }
-        pendingExpandedSidebarWidth = nil
-        applySidebarWidth(width)
-        isApplyingSidebarGeometry = false
+        geometry.restoreIfNeeded(geometry: layoutState.geometry)
     }
 
     @objc
     private func workspaceSplitViewDidResize(_ notification: Notification) {
-        if pendingExpandedSidebarWidth != nil {
-            applyPendingExpandedSidebarWidthIfPossible()
-            return
-        }
-        guard !isApplyingSidebarGeometry else {
-            return
-        }
-        captureExpandedSidebarWidth()
-    }
-
-    private func captureExpandedSidebarWidth() {
-        guard let sidebarItem = workspaceSplitViewController?.splitViewItems.first,
-              !sidebarItem.isCollapsed else {
-            return
-        }
-        let width = sidebarPaneWidth(for: sidebarItem)
-        guard width.isFinite, width > 0 else {
-            return
-        }
-        lastExpandedSidebarWidth = Self.clampedSidebarWidth(Double(width))
-        let totalWidth = workspaceSplitViewController.splitView.bounds.width
-        if totalWidth > 0 {
-            sidebarItem.preferredThicknessFraction = min(
-                max(lastExpandedSidebarWidth / totalWidth, 0),
-                1
-            )
-        }
-    }
-
-    private func sidebarPaneWidth(for sidebarItem: NSSplitViewItem) -> CGFloat {
-        let splitView = workspaceSplitViewController.splitView
-        return splitView.arrangedSubviews.first?.frame.width
-            ?? sidebarItem.viewController.view.frame.width
+        geometry.splitViewDidResize()
     }
 
     private func captureWorkspaceGeometry() {
-        guard isViewLoaded, let window = view.window else {
+        guard isViewLoaded else {
             return
         }
-
-        let isFullScreen = window.styleMask.contains(.fullScreen)
-        let normalFrame = Self.normalWindowFrame(
-            currentFrame: window.frame,
-            isFullScreen: isFullScreen,
-            lastNormalFrame: lastNormalWindowFrame,
+        guard let captured = geometry.captureGeometry(
             persistedFrame: layoutState.geometry?.windowFrame
-        )
-        if !isFullScreen {
-            lastNormalWindowFrame = window.frame
-        }
-        guard let normalFrame else {
+        ) else {
             return
         }
-
-        captureExpandedSidebarWidth()
-        let isSidebarCollapsed = workspaceSplitViewController.splitViewItems.first?.isCollapsed ?? false
-        layoutState.geometry = WorkspaceGeometryState(
-            windowFrame: WorkspaceWindowFrame(
-                x: Double(normalFrame.origin.x),
-                y: Double(normalFrame.origin.y),
-                width: Double(normalFrame.width),
-                height: Double(normalFrame.height)
-            ),
-            sidebarWidth: Double(lastExpandedSidebarWidth),
-            isSidebarCollapsed: isSidebarCollapsed
-        )
+        layoutState.geometry = captured
     }
 
-    static func normalWindowFrame(
-        currentFrame: NSRect,
-        isFullScreen: Bool,
-        lastNormalFrame: NSRect?,
-        persistedFrame: WorkspaceWindowFrame?
-    ) -> NSRect? {
-        if !isFullScreen {
-            return currentFrame
-        }
-        return lastNormalFrame ?? persistedFrame.flatMap(rect(from:))
-    }
-
-    static func constrainedWindowFrame(
-        _ savedFrame: WorkspaceWindowFrame,
-        minimumSize: NSSize,
-        visibleScreenFrames: [NSRect],
-        fallbackVisibleFrame: NSRect?
-    ) -> NSRect? {
-        guard let candidate = rect(from: savedFrame) else {
-            return nil
-        }
-        let screens = visibleScreenFrames.filter(isValidScreenFrame)
-        guard !screens.isEmpty else {
-            return nil
-        }
-
-        let bestIntersectingScreen = screens.max {
-            intersectionArea(candidate, $0) < intersectionArea(candidate, $1)
-        }
-        let targetScreen: NSRect
-        if let bestIntersectingScreen,
-           intersectionArea(candidate, bestIntersectingScreen) > 0 {
-            targetScreen = bestIntersectingScreen
-        } else if let fallbackVisibleFrame,
-                  isValidScreenFrame(fallbackVisibleFrame) {
-            targetScreen = fallbackVisibleFrame
-        } else {
-            targetScreen = screens[0]
-        }
-
-        let width = min(max(candidate.width, minimumSize.width), targetScreen.width)
-        let height = min(max(candidate.height, minimumSize.height), targetScreen.height)
-        let x = min(
-            max(candidate.minX, targetScreen.minX),
-            targetScreen.maxX - width
-        )
-        let y = min(
-            max(candidate.minY, targetScreen.minY),
-            targetScreen.maxY - height
-        )
-        return NSRect(x: x, y: y, width: width, height: height)
-    }
-
-    private static func rect(from frame: WorkspaceWindowFrame) -> NSRect? {
-        let values = [frame.x, frame.y, frame.width, frame.height]
-        guard values.allSatisfy(\.isFinite), frame.width > 0, frame.height > 0 else {
-            return nil
-        }
-        return NSRect(
-            x: frame.x,
-            y: frame.y,
-            width: frame.width,
-            height: frame.height
-        )
-    }
-
-    private static func isValidScreenFrame(_ frame: NSRect) -> Bool {
-        let values = [
-            frame.origin.x,
-            frame.origin.y,
-            frame.width,
-            frame.height
-        ]
-        return values.allSatisfy(\.isFinite) && frame.width > 0 && frame.height > 0
-    }
-
-    private static func intersectionArea(_ first: NSRect, _ second: NSRect) -> CGFloat {
-        let intersection = first.intersection(second)
-        guard !intersection.isNull else {
-            return 0
-        }
-        return max(0, intersection.width) * max(0, intersection.height)
-    }
-
-    private static func clampedSidebarWidth(_ width: Double?) -> CGFloat {
-        guard let width, width.isFinite else {
-            return defaultSidebarWidth
-        }
-        return min(max(CGFloat(width), minimumSidebarWidth), maximumSidebarWidth)
-    }
 
     // MARK: - Git (SPEC 9)
 
-    private func startGitCoordinator() {
-        Task { [weak self] in
-            await self?.gitCoordinator.start()
-        }
-    }
-
     private func gitStatusDidChange(_ snapshot: GitStatusSnapshot?) {
+        guard isViewLoaded else {
+            return
+        }
         sourceControlSidebarController.update(
             snapshot: snapshot,
             presentationIndex: gitCoordinator.presentationIndex
         )
         reloadVisibleExplorerDecorations()
         refreshVisibleQuickDiff(snapshot: snapshot)
-        refreshSourceControlQuickDiff(snapshot: snapshot)
+        quickDiff.refreshSelection(snapshot: snapshot)
     }
 
     private func reloadVisibleExplorerDecorations() {
-        guard isViewLoaded, outlineView.numberOfRows > 0 else {
+        guard isViewLoaded else {
             return
         }
-        let visibleRows = outlineView.rows(in: outlineView.visibleRect)
-        guard visibleRows.location != NSNotFound, visibleRows.length > 0 else {
-            return
-        }
-        outlineView.reloadData(
-            forRowIndexes: IndexSet(
-                integersIn: visibleRows.location..<(visibleRows.location + visibleRows.length)
-            ),
-            columnIndexes: IndexSet(integer: 0)
-        )
+        explorer.reloadVisibleDecorations()
     }
 
-    private func refreshGitDecorationAppearance() {
-        let theme = AppearanceSettings.currentTheme()
-        gitDecorationColors = theme.git
+    private func refreshGitDecorationAppearance(
+        _ snapshot: AppearanceCenter.Snapshot? = nil
+    ) {
+        let appearance = snapshot ?? appearanceCenter.snapshot
+        explorer.setDecorationColors(appearance.theme.git)
         splitContainer?.allGroupControllers.compactMap(\.currentDocumentController).forEach {
-            $0.theme = theme
+            $0.theme = appearance.theme
+            $0.fontSettings = appearance.fontSettings
         }
-        visibleQuickDiffControllers.values.forEach { $0.refreshTheme() }
+        quickDiff.refreshTheme()
         reloadVisibleExplorerDecorations()
+    }
+
+    /// Refreshes the gutter decorations of every visible editor. Guarded
+    /// here (not in the coordinator) because the split container only
+    /// exists once this controller's view is loaded.
+    private func refreshVisibleQuickDiff(snapshot: GitStatusSnapshot?) {
+        guard isViewLoaded, splitContainer != nil else {
+            return
+        }
+        quickDiff.refreshVisibleEditors(snapshot: snapshot)
     }
 
     /// Reveals the Source Control sidebar (mirrors `searchWorkspace(_:)`).
@@ -1213,6 +1061,9 @@ final class WorkspaceViewController: NSViewController {
         activeGitQuickDiffController?.showNextHunk()
     }
 
+    /// The Quick Diff controller the next/previous-change commands act
+    /// on: an open Quick Diff tab first, otherwise the gutter decoration
+    /// of the visible document.
     private var activeGitQuickDiffController: GitQuickDiffController? {
         guard let groupController = activeGroupController else {
             return nil
@@ -1223,476 +1074,25 @@ final class WorkspaceViewController: NSViewController {
         guard let documentController = groupController.currentVisibleDocumentController else {
             return nil
         }
-        return visibleQuickDiffControllers[ObjectIdentifier(documentController)]
+        return quickDiff.visibleController(for: documentController)
     }
 
     private func openQuickDiff(for selection: SourceControlSidebarViewController.FileSelection) {
         guard let groupController = activeGroupController else {
             return
         }
-        sourceControlQuickDiffState = SourceControlQuickDiffState(
-            selection: selection,
-            groupID: groupController.groupID
-        )
-        loadSourceControlQuickDiff(selection, in: groupController)
-    }
-
-    private func loadSourceControlQuickDiff(
-        _ selection: SourceControlSidebarViewController.FileSelection,
-        in groupController: EditorGroupViewController
-    ) {
-        guard let context = gitCoordinator.context else {
-            return
-        }
-        sourceControlQuickDiffTask?.cancel()
-        quickDiffGeneration += 1
-        let generation = quickDiffGeneration
-        let groupID = groupController.groupID
-        sourceControlQuickDiffTask = Task { [weak self, weak groupController] in
-            guard let self, let groupController else {
-                return
-            }
-            do {
-                if self.gitCoordinator.latestStatus?.entry(forPath: selection.path)?.isConflicted == true {
-                    let snapshot = try await self.loadSnapshot(
-                        relativePath: selection.path,
-                        bumpingVersion: true
-                    )
-                    try Task.checkCancellation()
-                    guard generation == self.quickDiffGeneration,
-                          self.splitContainer.controller(for: groupID) === groupController else {
-                        return
-                    }
-                    groupController.openQuickDiffTab(
-                        relativePath: selection.path,
-                        snapshot: snapshot,
-                        sources: [],
-                        revealFirstHunk: false,
-                        unavailableMessage: Localized.string(
-                            "Inline Git changes are unavailable while this file has unresolved conflicts.",
-                            comment: "Message shown instead of Quick Diff for a merge-conflicted file"
-                        )
-                    )
-                    return
-                }
-                let diff = try await context.diff(
-                    path: selection.path,
-                    target: selection.target,
-                    isUntracked: selection.isUntracked,
-                    knownOldPath: selection.originalPath
-                )
-                try Task.checkCancellation()
-                let snapshot: SourceSnapshot
-                let isGitlink = diff.change.oldMode == "160000" || diff.change.newMode == "160000"
-                if diff.content == .binary || isGitlink {
-                    snapshot = SourceSnapshot(
-                        text: "",
-                        url: self.identity.root.appendingPathComponent(selection.path),
-                        version: self.nextVersion()
-                    )
-                } else {
-                    snapshot = try await self.quickDiffSnapshot(
-                        for: diff,
-                        target: selection.target,
-                        relativePath: selection.path,
-                        context: context
-                    )
-                }
-                try Task.checkCancellation()
-                guard generation == self.quickDiffGeneration,
-                      self.splitContainer.controller(for: groupID) === groupController else {
-                    return
-                }
-
-                if case .binary = diff.content {
-                    groupController.openQuickDiffTab(
-                        relativePath: selection.path,
-                        snapshot: snapshot,
-                        sources: [],
-                        revealFirstHunk: false,
-                        unavailableMessage: Localized.string(
-                            "Binary files do not have an inline text diff.",
-                            comment: "Message shown when Quick Diff cannot render a binary file"
-                        ),
-                        fallbackDiff: diff
-                    )
-                    return
-                }
-                if diff.hunks.isEmpty {
-                    groupController.openQuickDiffTab(
-                        relativePath: selection.path,
-                        snapshot: snapshot,
-                        sources: [],
-                        revealFirstHunk: false,
-                        unavailableMessage: Localized.string(
-                            "This change has no inline line differences.",
-                            comment: "Message shown when a Git change has metadata but no textual hunks"
-                        ),
-                        fallbackDiff: diff
-                    )
-                    return
-                }
-
-                let provider: GitQuickDiffProvider
-                let label: String
-                switch selection.target {
-                case .indexVsHead:
-                    provider = .staged
-                    label = Localized.string(
-                        "Index",
-                        comment: "Quick Diff provider label for staged index changes"
-                    )
-                case .workingTreeVsIndex:
-                    provider = .workingTree
-                    label = Localized.string(
-                        "Working Tree",
-                        comment: "Quick Diff provider label for unstaged working-tree changes"
-                    )
-                case .workingTreeVsHead:
-                    provider = GitQuickDiffProvider(id: "working-tree-head", source: .head)
-                    label = Localized.string(
-                        "Working Tree",
-                        comment: "Quick Diff provider label for working-tree changes against HEAD"
-                    )
-                }
-                let projection = GitQuickDiffProjection.project(diff, provider: provider)
-                let source = GitQuickDiffSource(
-                    label: label,
-                    diff: diff,
-                    projection: projection,
-                    layer: .primary
-                )
-                groupController.openQuickDiffTab(
-                    relativePath: selection.path,
-                    snapshot: snapshot,
-                    sources: [source],
-                    revealFirstHunk: true
-                )
-            } catch is CancellationError {
-                return
-            } catch {
-                guard generation == self.quickDiffGeneration,
-                      self.splitContainer.controller(for: groupID) === groupController else {
-                    return
-                }
-                let snapshot = SourceSnapshot(
-                    text: "",
-                    url: self.identity.root.appendingPathComponent(selection.path),
-                    version: self.nextVersion()
-                )
-                groupController.openQuickDiffTab(
-                    relativePath: selection.path,
-                    snapshot: snapshot,
-                    sources: [],
-                    revealFirstHunk: false,
-                    unavailableMessage: Localized.string(
-                        "Git diff could not be loaded.",
-                        comment: "Message shown when an inline Git diff fails to load"
-                    )
-                )
-                await diagnosticsLog.record(
-                    subsystem: .git,
-                    level: .warning,
-                    message: Localized.string(
-                        "Git diff loading failed",
-                        comment: "Diagnostics log message recorded when loading a Git diff fails"
-                    ),
-                    context: [
-                        DiagnosticContextField(name: "workspaceRoot", category: .fullPath, value: identity.root.path),
-                        DiagnosticContextField(
-                            name: "path",
-                            category: .fullPath,
-                            value: identity.root.appendingPathComponent(selection.path).path
-                        ),
-                        DiagnosticContextField(name: "reason", category: .diagnosticMessage, value: String(describing: error))
-                    ]
-                )
-            }
-        }
-    }
-
-    private func refreshSourceControlQuickDiff(snapshot: GitStatusSnapshot?) {
-        guard let state = sourceControlQuickDiffState,
-              let groupController = splitContainer?.controller(for: state.groupID) else {
-            return
-        }
-        guard let entry = snapshot?.entry(forPath: state.selection.path),
-              sourceControlSelection(state.selection, stillAppliesTo: entry) else {
-            sourceControlQuickDiffTask?.cancel()
-            quickDiffGeneration += 1
-            groupController.currentQuickDiffController?.clear()
-            sourceControlQuickDiffState = nil
-            return
-        }
-        loadSourceControlQuickDiff(state.selection, in: groupController)
-    }
-
-    private func sourceControlSelection(
-        _ selection: SourceControlSidebarViewController.FileSelection,
-        stillAppliesTo entry: GitStatusEntry
-    ) -> Bool {
-        switch selection.target {
-        case .indexVsHead:
-            return entry.isStaged
-        case .workingTreeVsIndex:
-            return entry.isUnstaged || entry.isUntracked || entry.isConflicted
-        case .workingTreeVsHead:
-            return entry.isStaged || entry.isUnstaged || entry.isUntracked || entry.isConflicted
-        }
-    }
-
-    private func quickDiffSnapshot(
-        for diff: GitFileDiff,
-        target: GitDiffTarget,
-        relativePath: String,
-        context: GitContext
-    ) async throws -> SourceSnapshot {
-        let url = identity.root.appendingPathComponent(relativePath)
-        let version = nextVersion()
-        if case .binary = diff.content {
-            return SourceSnapshot(text: "", url: url, version: version)
-        }
-        if diff.change.kind == .deleted {
-            return SourceSnapshot(text: "", url: url, version: version)
-        }
-
-        switch target {
-        case .indexVsHead:
-            let content = try await context.revisionContent(
-                source: .index,
-                target: target,
-                diff: diff
-            )
-            guard let bytes = content.bytes else {
-                throw GitRevisionContentError.contentUnavailable(source: .index, path: relativePath)
-            }
-            return try await Task.detached(priority: .userInitiated) {
-                try SourceSnapshotLoader().load(data: bytes, url: url, version: version)
-            }.value
-        case .workingTreeVsIndex, .workingTreeVsHead:
-            return try await Task.detached(priority: .userInitiated) {
-                try SourceSnapshotLoader().load(url: url, version: version)
-            }.value
-        }
-    }
-
-    private enum VisibleQuickDiffResult {
-        case sources([GitQuickDiffSource])
-        case unavailable(message: String, diff: GitFileDiff?)
-    }
-
-    private struct VisibleQuickDiffDocument {
-        let groupController: EditorGroupViewController
-        let documentController: CodeDocumentViewController
-        let relativePath: String
-        let snapshotVersion: Int
-    }
-
-    private func refreshVisibleQuickDiff(snapshot: GitStatusSnapshot?) {
-        guard isViewLoaded, splitContainer != nil else {
-            return
-        }
-        visibleQuickDiffRefreshTask?.cancel()
-        visibleQuickDiffGeneration += 1
-        let generation = visibleQuickDiffGeneration
-
-        let visibleDocuments: [VisibleQuickDiffDocument] = splitContainer.allGroupControllers.compactMap { groupController in
-            guard let documentController = groupController.currentVisibleDocumentController,
-                  let relativePath = groupController.currentTabRelativePath else {
-                return nil
-            }
-            return VisibleQuickDiffDocument(
-                groupController: groupController,
-                documentController: documentController,
-                relativePath: relativePath,
-                snapshotVersion: documentController.snapshot.version
-            )
-        }
-        let visibleIDs = Set(visibleDocuments.map { ObjectIdentifier($0.documentController) })
-        let staleIDs = visibleQuickDiffControllers.keys.filter { !visibleIDs.contains($0) }
-        for identifier in staleIDs {
-            visibleQuickDiffControllers.removeValue(forKey: identifier)?.clear()
-        }
-
-        guard let context = gitCoordinator.context, let snapshot else {
-            for item in visibleDocuments {
-                visibleQuickDiffControllers
-                    .removeValue(forKey: ObjectIdentifier(item.documentController))?
-                    .clear()
-            }
-            return
-        }
-
-        visibleQuickDiffRefreshTask = Task { [weak self] in
-            guard let self else {
-                return
-            }
-            for item in visibleDocuments {
-                guard !Task.isCancelled, generation == self.visibleQuickDiffGeneration else {
-                    return
-                }
-                let identifier = ObjectIdentifier(item.documentController)
-                guard let entry = snapshot.entry(forPath: item.relativePath), !entry.isIgnored else {
-                    self.visibleQuickDiffControllers.removeValue(forKey: identifier)?.clear()
-                    item.documentController.viewport.clearGutterChanges()
-                    continue
-                }
-
-                let controller = self.visibleQuickDiffControllers[identifier]
-                    ?? GitQuickDiffController(documentController: item.documentController)
-                controller.onOpenFullDiff = { [weak groupController = item.groupController] diff in
-                    groupController?.openDiffTab(relativePath: item.relativePath, diff: diff)
-                }
-                self.visibleQuickDiffControllers[identifier] = controller
-
-                do {
-                    let result = try await self.visibleQuickDiffResult(
-                        entry: entry,
-                        relativePath: item.relativePath,
-                        context: context
-                    )
-                    guard !Task.isCancelled,
-                          generation == self.visibleQuickDiffGeneration,
-                          item.groupController.currentVisibleDocumentController === item.documentController,
-                          item.groupController.currentTabRelativePath == item.relativePath,
-                          item.documentController.snapshot.version == item.snapshotVersion else {
-                        return
-                    }
-                    switch result {
-                    case .sources(let sources):
-                        controller.update(sources: sources)
-                    case .unavailable(let message, let diff):
-                        controller.showUnavailable(message: message, diff: diff)
-                    }
-                } catch is CancellationError {
-                    return
-                } catch {
-                    guard generation == self.visibleQuickDiffGeneration,
-                          item.groupController.currentVisibleDocumentController === item.documentController else {
-                        return
-                    }
-                    controller.showUnavailable(
-                        message: Localized.string(
-                            "Git diff could not be loaded.",
-                            comment: "Message shown in a source editor when Quick Diff fails to load"
-                        )
-                    )
-                    await self.diagnosticsLog.record(
-                        subsystem: .git,
-                        level: .warning,
-                        message: Localized.string(
-                            "Git Quick Diff refresh failed",
-                            comment: "Diagnostics log message when editor gutter Git changes fail to refresh"
-                        ),
-                        context: [
-                            DiagnosticContextField(
-                                name: "path",
-                                category: .fullPath,
-                                value: self.identity.root.appendingPathComponent(item.relativePath).path
-                            ),
-                            DiagnosticContextField(
-                                name: "reason",
-                                category: .diagnosticMessage,
-                                value: String(describing: error)
-                            )
-                        ]
-                    )
-                }
-            }
-        }
-    }
-
-    private func visibleQuickDiffResult(
-        entry: GitStatusEntry,
-        relativePath: String,
-        context: GitContext
-    ) async throws -> VisibleQuickDiffResult {
-        if entry.isConflicted {
-            return .unavailable(
-                message: Localized.string(
-                    "Inline Git changes are unavailable while this file has unresolved conflicts.",
-                    comment: "Message shown instead of Quick Diff for a merge-conflicted file"
-                ),
-                diff: nil
-            )
-        }
-
-        var primarySource: GitQuickDiffSource?
-        if entry.isUnstaged || entry.isUntracked {
-            let diff = try await context.diff(
-                path: relativePath,
-                target: .workingTreeVsIndex,
-                isUntracked: entry.isUntracked,
-                knownOldPath: entry.originalPath
-            )
-            if case .binary = diff.content {
-                return .unavailable(
-                    message: Localized.string(
-                        "Binary files do not have an inline text diff.",
-                        comment: "Message shown when Quick Diff cannot render a binary file"
-                    ),
-                    diff: diff
-                )
-            }
-            primarySource = GitQuickDiffSource(
-                label: Localized.string(
-                    "Working Tree",
-                    comment: "Quick Diff provider label for unstaged working-tree changes"
-                ),
-                diff: diff,
-                projection: GitQuickDiffProjection.project(diff, provider: .workingTree),
-                layer: .primary
-            )
-        }
-
-        var sources = primarySource.map { [$0] } ?? []
-        if entry.isStaged {
-            let hasHead = try await context.headExists()
-            let diff = try await context.diff(
-                path: relativePath,
-                target: hasHead ? .workingTreeVsHead : .workingTreeVsIndex,
-                isUntracked: !hasHead,
-                knownOldPath: entry.originalPath
-            )
-            if case .binary = diff.content {
-                return .unavailable(
-                    message: Localized.string(
-                        "Binary files do not have an inline text diff.",
-                        comment: "Message shown when Quick Diff cannot render a binary file"
-                    ),
-                    diff: diff
-                )
-            }
-            var projection = GitQuickDiffProjection.project(diff, provider: .staged)
-            if let primarySource {
-                projection = projection.suppressingMarks(overlapping: primarySource.projection)
-            }
-            sources.append(
-                GitQuickDiffSource(
-                    label: Localized.string(
-                        "Index",
-                        comment: "Quick Diff provider label for staged index changes"
-                    ),
-                    diff: diff,
-                    projection: projection,
-                    layer: primarySource == nil ? .primary : .secondary
-                )
-            )
-        }
-        return .sources(sources)
+        quickDiff.openSelection(selection, in: groupController)
     }
 
     /// Shows blame for the currently selected Explorer file (wired to the
     /// Explorer outline's contextual menu).
     @objc
     func showGitBlameForSelectedFile(_ sender: Any?) {
-        guard let node = outlineView.item(atRow: outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow) as? WorkspaceTreeNode,
-              node.entry.kind == .file,
+        guard let relativePath = explorer.actionTargetFileRelativePath,
               let context = gitCoordinator.context,
               let window = view.window else {
             return
         }
-        let relativePath = node.entry.relativePath
         Task {
             guard let result = try? await context.blame(path: relativePath) else {
                 return
@@ -1703,83 +1103,55 @@ final class WorkspaceViewController: NSViewController {
         }
     }
 
+
     // MARK: - Language services (LSP)
 
-    private func configureLanguageServicesCoordinator() {
-        multiLanguageServicesCoordinator.onStateChange = { [weak self] in
-            self?.languageServerStateDidChange()
-        }
-        // Problems is driven by the raw workspace diagnostics store; only
-        // snapshot-normalized diagnostics reach the open editors.
-        multiLanguageServicesCoordinator.onNormalizedDiagnostics = { [weak self] url, diagnostics in
-            self?.splitContainer.allGroupControllers.forEach {
-                $0.applyDiagnostics(url: url, diagnostics: diagnostics)
-            }
-        }
-        multiLanguageServicesCoordinator.onMissingServer = { [weak self] profile in
-            self?.enqueueMissingLanguageServer(profile)
-        }
-        multiLanguageServicesCoordinator.onUnknownFileType = { [weak self] url in
-            self?.enqueueUnknownLanguageProfile(for: url)
-        }
-        refreshLanguageServerStateUI()
-    }
-
+    /// Queues a missing-server prompt. Trust is the gate; the queue owns
+    /// de-duplication and per-session suppression.
     private func enqueueMissingLanguageServer(
         _ profile: LanguageProfile
     ) {
-        let languageKey = profile.identifier
         guard trustStore.isTrusted(identity),
-              !suppressedMissingLanguageKeys.contains(languageKey),
-              currentMissingLanguageKey != languageKey,
-              !queuedMissingLanguageKeys.contains(languageKey) else {
+              languagePrompts.enqueueMissingServer(languageKey: profile.identifier) else {
             return
         }
-        queuedMissingLanguageKeys.append(languageKey)
         Task {
             await presentNextMissingLanguageServerIfNeeded()
         }
     }
 
     private func enqueueUnknownLanguageProfile(for url: URL) {
-        let key = unknownLanguageKey(for: url)
         guard trustStore.isTrusted(identity),
-              !url.pathExtension.isEmpty,
-              !suppressedMissingLanguageKeys.contains(key),
-              currentMissingLanguageKey != key,
-              !queuedUnknownLanguageURLs.contains(url) else {
+              languagePrompts.enqueueUnknownFileType(url: url) else {
             return
         }
-        queuedUnknownLanguageURLs.append(url)
         Task {
             await presentNextMissingLanguageServerIfNeeded()
         }
     }
 
+    /// Drains the prompt queue until something is actually worth showing,
+    /// re-running discovery for each candidate. Queueing, suppression and
+    /// generation rules live in `LanguageSupportPromptQueue`; this method
+    /// only performs the awaits it cannot, and renders the result.
     private func presentNextMissingLanguageServerIfNeeded() async {
-        guard currentMissingLanguageKey == nil,
-              !isPreparingMissingLanguagePrompt else {
+        guard languagePrompts.beginPreparing() else {
             return
         }
-        isPreparingMissingLanguagePrompt = true
-        defer { isPreparingMissingLanguagePrompt = false }
+        defer { languagePrompts.endPreparing() }
 
-        while trustStore.isTrusted(identity),
-              !queuedMissingLanguageKeys.isEmpty {
-            let languageKey = queuedMissingLanguageKeys.removeFirst()
-            guard !suppressedMissingLanguageKeys.contains(languageKey) else {
-                continue
+        while trustStore.isTrusted(identity) {
+            guard let languageKey = languagePrompts.dequeueMissingServerCandidate() else {
+                break
             }
 
-            let promptGeneration = languageSupportPromptGeneration
+            let promptGeneration = languagePrompts.generation
             await languageSupportService.refresh()
             guard !Task.isCancelled, trustStore.isTrusted(identity) else {
                 return
             }
-            guard promptGeneration == languageSupportPromptGeneration else {
-                if !queuedMissingLanguageKeys.contains(languageKey) {
-                    queuedMissingLanguageKeys.insert(languageKey, at: 0)
-                }
+            guard promptGeneration == languagePrompts.generation else {
+                languagePrompts.requeueMissingServerCandidate(languageKey)
                 continue
             }
             guard let item = languageSupportService.items.first(where: {
@@ -1791,74 +1163,51 @@ final class WorkspaceViewController: NSViewController {
                 continue
             }
 
-            currentMissingLanguageKey = languageKey
-            currentUnknownLanguageURL = nil
-            languageSupportChooseButton.title = Localized.string(
-                "Choose Executable...",
-                comment: "Button title selecting a local executable from the missing language-server banner"
-            )
-            languageSupportBannerLabel.stringValue = Localized.string(
-                "No \(item.profile.displayName) server was found. Syntax highlighting remains available.",
-                comment: "Missing language-server banner message"
-            )
-            languageSupportBannerLabel.toolTip = languageSupportBannerLabel.stringValue
-            if let guide = item.profile.origin == .default
-                ? DefaultLanguageServerInstallationGuides.guide(
-                    for: item.profile
-                )
-                : nil {
-                currentMissingLanguageInstallationDocumentationURL =
-                    guide.documentationURL
-                languageSupportFindButton.title = Localized.string(
-                    "Installation Help...",
-                    comment: "Button title opening a known language server's official installation documentation from the missing-server banner"
-                )
-                languageSupportFindButton.toolTip = Localized.string(
-                    "Opens \(item.profile.displayName)'s official installation documentation.",
-                    comment: "Tooltip for the missing language-server Installation Help button"
-                )
-            } else {
-                currentMissingLanguageInstallationDocumentationURL = nil
-                languageSupportFindButton.title = Localized.string(
-                    "Find a Server...",
-                    comment: "Button title opening the public language-server directory from the missing-server banner"
-                )
-                languageSupportFindButton.toolTip = Localized.string(
-                    "Open the public LSP server directory.",
-                    comment: "Tooltip for the missing language-server Find a Server button"
-                )
-            }
-            languageSupportBanner.setAccessibilityLabel(
-                languageSupportBannerLabel.stringValue
-            )
-            languageSupportBanner.isHidden = false
-            updateWorkspaceBannerVisibility()
+            languagePrompts.activate(.missingServer(languageKey: languageKey))
+            renderMissingServerPrompt(item: item)
             return
         }
 
-        while trustStore.isTrusted(identity),
-              !queuedUnknownLanguageURLs.isEmpty {
-            let url = queuedUnknownLanguageURLs.removeFirst()
-            let key = unknownLanguageKey(for: url)
-            guard !suppressedMissingLanguageKeys.contains(key) else {
-                continue
+        while trustStore.isTrusted(identity) {
+            guard let url = languagePrompts.dequeueUnknownFileTypeCandidate() else {
+                break
             }
             guard languageSupportService.profileRegistry.resolve(url: url) == nil else {
                 continue
             }
-            currentMissingLanguageKey = key
-            currentUnknownLanguageURL = url
+            languagePrompts.activate(.unknownFileType(url: url))
+            renderUnknownFileTypePrompt(url: url)
+            return
+        }
+    }
+
+    private func renderMissingServerPrompt(item: LanguageSupportItem) {
+        languageSupportChooseButton.title = Localized.string(
+            "Choose Executable...",
+            comment: "Button title selecting a local executable from the missing language-server banner"
+        )
+        languageSupportBannerLabel.stringValue = Localized.string(
+            "No \(item.profile.displayName) server was found. Syntax highlighting remains available.",
+            comment: "Missing language-server banner message"
+        )
+        languageSupportBannerLabel.toolTip = languageSupportBannerLabel.stringValue
+        if let guide = item.profile.origin == .default
+            ? DefaultLanguageServerInstallationGuides.guide(
+                for: item.profile
+            )
+            : nil {
+            currentMissingLanguageInstallationDocumentationURL =
+                guide.documentationURL
+            languageSupportFindButton.title = Localized.string(
+                "Installation Help...",
+                comment: "Button title opening a known language server's official installation documentation from the missing-server banner"
+            )
+            languageSupportFindButton.toolTip = Localized.string(
+                "Opens \(item.profile.displayName)'s official installation documentation.",
+                comment: "Tooltip for the missing language-server Installation Help button"
+            )
+        } else {
             currentMissingLanguageInstallationDocumentationURL = nil
-            languageSupportChooseButton.title = Localized.string(
-                "Add Profile...",
-                comment: "Button title creating a language profile for an unknown file type"
-            )
-            languageSupportBannerLabel.stringValue = Localized.string(
-                "No language profile matches *.\(url.pathExtension.lowercased()). Plain Text remains available.",
-                comment: "Unknown file type banner message"
-            )
-            languageSupportBannerLabel.toolTip =
-                languageSupportBannerLabel.stringValue
             languageSupportFindButton.title = Localized.string(
                 "Find a Server...",
                 comment: "Button title opening the public language-server directory from the missing-server banner"
@@ -1867,23 +1216,45 @@ final class WorkspaceViewController: NSViewController {
                 "Open the public LSP server directory.",
                 comment: "Tooltip for the missing language-server Find a Server button"
             )
-            languageSupportBanner.setAccessibilityLabel(
-                languageSupportBannerLabel.stringValue
-            )
-            languageSupportBanner.isHidden = false
-            updateWorkspaceBannerVisibility()
-            return
         }
+        languageSupportBanner.setAccessibilityLabel(
+            languageSupportBannerLabel.stringValue
+        )
+        languageSupportBanner.isHidden = false
+        updateWorkspaceBannerVisibility()
+    }
+
+    private func renderUnknownFileTypePrompt(url: URL) {
+        currentMissingLanguageInstallationDocumentationURL = nil
+        languageSupportChooseButton.title = Localized.string(
+            "Add Profile...",
+            comment: "Button title creating a language profile for an unknown file type"
+        )
+        languageSupportBannerLabel.stringValue = Localized.string(
+            "No language profile matches *.\(url.pathExtension.lowercased()). Plain Text remains available.",
+            comment: "Unknown file type banner message"
+        )
+        languageSupportBannerLabel.toolTip =
+            languageSupportBannerLabel.stringValue
+        languageSupportFindButton.title = Localized.string(
+            "Find a Server...",
+            comment: "Button title opening the public language-server directory from the missing-server banner"
+        )
+        languageSupportFindButton.toolTip = Localized.string(
+            "Open the public LSP server directory.",
+            comment: "Tooltip for the missing language-server Find a Server button"
+        )
+        languageSupportBanner.setAccessibilityLabel(
+            languageSupportBannerLabel.stringValue
+        )
+        languageSupportBanner.isHidden = false
+        updateWorkspaceBannerVisibility()
     }
 
     private func finishMissingLanguagePrompt(
         suppressForSession: Bool
     ) {
-        if suppressForSession, let currentMissingLanguageKey {
-            suppressedMissingLanguageKeys.insert(currentMissingLanguageKey)
-        }
-        currentMissingLanguageKey = nil
-        currentUnknownLanguageURL = nil
+        languagePrompts.finishCurrent(suppressForSession: suppressForSession)
         currentMissingLanguageInstallationDocumentationURL = nil
         languageSupportBanner.isHidden = true
         updateWorkspaceBannerVisibility()
@@ -1899,29 +1270,25 @@ final class WorkspaceViewController: NSViewController {
 
     @objc
     private func openLanguageSupportSettings(_ sender: Any?) {
-        if let currentUnknownLanguageURL {
+        let profileIdentifier: String?
+        if let unknownFileTypeURL = languagePrompts.currentUnknownFileTypeURL {
             languageSupportService.beginAddingProfile(
-                prefilling: currentUnknownLanguageURL
+                prefilling: unknownFileTypeURL
             )
+            profileIdentifier = nil
         } else {
-            languageSupportService.focusProfile(
-                identifier: currentMissingLanguageKey
-            )
+            profileIdentifier = languagePrompts.currentMissingServerKey
         }
-        NSApp.sendAction(
-            #selector(AppDelegate.showLanguageSupportSettings(_:)),
-            to: nil,
-            from: self
-        )
+        onShowLanguageSupportSettings?(profileIdentifier)
     }
 
     @objc
     private func chooseMissingLanguageServer(_ sender: Any?) {
-        if currentUnknownLanguageURL != nil {
+        if languagePrompts.currentUnknownFileTypeURL != nil {
             openLanguageSupportSettings(sender)
             return
         }
-        guard let languageKey = currentMissingLanguageKey,
+        guard let languageKey = languagePrompts.currentMissingServerKey,
               let window = view.window else {
             return
         }
@@ -1954,10 +1321,6 @@ final class WorkspaceViewController: NSViewController {
             currentMissingLanguageInstallationDocumentationURL
                 ?? LanguageSupportService.serverDirectoryURL
         )
-    }
-
-    private func unknownLanguageKey(for url: URL) -> String {
-        "unknown:\(url.pathExtension.lowercased())"
     }
 
     private func languageServerStateDidChange() {
@@ -2126,7 +1489,7 @@ final class WorkspaceViewController: NSViewController {
             guard let target = targets.first else {
                 return
             }
-            navigateToLSPLocation(url: target.url, range: target.range)
+            navigate(to: target.location)
             return
         case .missing:
             break
@@ -2150,7 +1513,7 @@ final class WorkspaceViewController: NSViewController {
                   let target = targets.first else {
                 return
             }
-            self.navigateToLSPLocation(url: target.url, range: target.range)
+            self.navigate(to: target.location)
         }
     }
 
@@ -2159,13 +1522,41 @@ final class WorkspaceViewController: NSViewController {
             ?? url.pathExtension.lowercased()
     }
 
-    /// Opens `relativePath` in the active editor group and selects the
-    /// UTF-8 range corresponding to `range`, used by both the Problems and
-    /// Symbols sidebars to navigate to a server-reported location without
-    /// changing the originating list (SPEC 6.4). The wire range is
-    /// converted through the owning language service's negotiated position
-    /// encoding rather than an assumed UTF-16.
-    private func navigateToLSPLocation(url: URL, range: LSPRange) {
+    /// Opens a provider-bound cross-file location (a definition, a Peek
+    /// result, a workspace symbol, a hierarchy item) in the active editor
+    /// group and selects it, converting its wire range through the
+    /// position encoding negotiated by the provider that produced it —
+    /// never one inferred from the target file, which can belong to a
+    /// different language profile entirely.
+    private func navigate(to location: ProviderBoundLocation) {
+        openLSPLocation(url: location.url) { snapshot in
+            location.utf8Range(in: snapshot)
+        }
+    }
+
+    /// Navigates to a published diagnostic from the Problems list. A
+    /// diagnostic is always reported for the file it belongs to, by that
+    /// file's own provider, so its wire range is converted through the
+    /// service that owns the file (SPEC 6.4).
+    private func navigateToDiagnostic(url: URL, range: LSPRange) {
+        openLSPLocation(url: url) { [weak self] snapshot in
+            guard let self else {
+                return nil
+            }
+            return await self.multiLanguageServicesCoordinator.utf8Range(
+                for: range,
+                in: snapshot
+            )
+        }
+    }
+
+    /// Opens `url`'s relative path in the active editor group and selects
+    /// whatever UTF-8 range `resolveUTF8Range` produces for the loaded
+    /// snapshot, without changing the originating list (SPEC 6.4).
+    private func openLSPLocation(
+        url: URL,
+        resolveUTF8Range: @escaping @MainActor (SourceSnapshot) async -> Range<Int>?
+    ) {
         guard let relativePath = relativePath(of: url) else {
             return
         }
@@ -2179,10 +1570,7 @@ final class WorkspaceViewController: NSViewController {
                 guard !Task.isCancelled else {
                     return
                 }
-                let utf8Range = await self.multiLanguageServicesCoordinator.utf8Range(
-                    for: range,
-                    in: snapshot
-                )
+                let utf8Range = await resolveUTF8Range(snapshot)
                 guard !Task.isCancelled,
                       let groupController = self.splitContainer.controller(
                         for: self.layoutState.activeGroupID
@@ -2262,7 +1650,7 @@ final class WorkspaceViewController: NSViewController {
                 title: Localized.string("Peek Definition", comment: "Title of the Peek Definition panel"),
                 results: results,
                 onSelect: { [weak self] result in
-                    self?.navigateToLSPLocation(url: result.url, range: result.range)
+                    self?.navigate(to: result.location)
                 }
             )
             self.peekPanelController = panel
@@ -2301,7 +1689,7 @@ final class WorkspaceViewController: NSViewController {
                 root: root,
                 modes: modes,
                 onSelectItem: { [weak self] item in
-                    self?.navigateToLSPLocation(url: item.url, range: item.selectionRange)
+                    self?.navigate(to: item.selectionLocation)
                 }
             )
             self.hierarchyPanelController = panel
@@ -2413,53 +1801,29 @@ final class WorkspaceViewController: NSViewController {
     }
 
     private func buildPaletteCommands() -> [PaletteCommand] {
-        [
-            PaletteCommand(id: "command.quickOpen", title: Localized.string("Quick Open...", comment: "Command palette entry that opens Quick Open")) { [weak self] in
-                self?.showQuickOpen(nil)
-            },
-            PaletteCommand(id: "command.findInFile", title: Localized.string("Find in File", comment: "Command palette entry that opens in-file find")) { [weak self] in
-                self?.findInFile(nil)
-            },
-            PaletteCommand(id: "command.searchWorkspace", title: Localized.string("Search Workspace", comment: "Command palette entry that opens workspace-wide search")) { [weak self] in
-                self?.searchWorkspace(nil)
-            },
-            PaletteCommand(id: "command.goToLine", title: Localized.string("Go to Line...", comment: "Command palette entry that opens the Go to Line panel")) { [weak self] in
-                self?.showGoToLinePanel(nil)
-            },
-            PaletteCommand(id: "command.toggleWordWrap", title: Localized.string("Toggle Word Wrap", comment: "Command palette entry that toggles word wrap")) { [weak self] in
-                self?.toggleWordWrap(nil)
-            },
-            PaletteCommand(id: "command.toggleMinimap", title: Localized.string("Toggle Minimap", comment: "Command palette entry that toggles the source minimap")) { [weak self] in
-                self?.toggleMinimap(nil)
-            },
-            PaletteCommand(id: "command.splitRight", title: Localized.string("Split Editor Right", comment: "Command palette entry that splits the active editor group to the right")) { [weak self] in
-                self?.splitActiveGroupRight(nil)
-            },
-            PaletteCommand(id: "command.splitDown", title: Localized.string("Split Editor Down", comment: "Command palette entry that splits the active editor group downward")) { [weak self] in
-                self?.splitActiveGroupDown(nil)
-            },
-            PaletteCommand(id: "command.closeGroup", title: Localized.string("Close Editor Group", comment: "Command palette entry that closes the active editor group")) { [weak self] in
-                self?.closeActiveGroup(nil)
-            },
-            PaletteCommand(id: "command.closeTab", title: Localized.string("Close Tab", comment: "Command palette entry that closes the active tab")) { [weak self] in
-                self?.closeActiveTab(nil)
-            },
-            PaletteCommand(id: "command.navigateBack", title: Localized.string("Navigate Back", comment: "Command palette entry that navigates back in history")) { [weak self] in
-                self?.navigateBack(nil)
-            },
-            PaletteCommand(id: "command.navigateForward", title: Localized.string("Navigate Forward", comment: "Command palette entry that navigates forward in history")) { [weak self] in
-                self?.navigateForward(nil)
-            },
-            PaletteCommand(id: "command.goToDefinition", title: Localized.string("Go to Definition", comment: "Command palette entry that navigates to the selected symbol's definition")) { [weak self] in
-                self?.goToDefinition(nil)
-            },
-            PaletteCommand(id: "command.peekDefinition", title: Localized.string("Peek Definition", comment: "Command palette entry that shows Peek Definition")) { [weak self] in
-                self?.showPeekDefinition(nil)
-            },
-            PaletteCommand(id: "command.showCallHierarchy", title: Localized.string("Show Call Hierarchy", comment: "Command palette entry that shows the Call Hierarchy panel")) { [weak self] in
-                self?.showCallHierarchy(nil)
+        var commands: [PaletteCommand] = []
+        let catalog = WorkspaceCommandCatalog.shared
+        for id in catalog.paletteOrder {
+            guard let metadata = catalog.metadata(for: id) else {
+                continue
             }
-        ]
+            switch metadata.surface {
+            case .menuAndPalette, .paletteOnly:
+                let command = PaletteCommand(
+                    id: metadata.id.rawValue,
+                    title: metadata.paletteTitle
+                ) { [weak self] in
+                    guard let self else {
+                        return
+                    }
+                    NSApp.sendAction(metadata.action, to: self, from: nil)
+                }
+                commands.append(command)
+            case .menuOnly:
+                break
+            }
+        }
+        return commands
     }
 
     private var activeGroupController: EditorGroupViewController? {
@@ -2495,9 +1859,23 @@ final class WorkspaceViewController: NSViewController {
 
     private func handleCloseGroup(groupID: EditorGroupID) {
         layoutState.closeGroup(groupID)
+        reportDocumentsClosedForGroupsRemovedFromLayout()
         splitContainer.rebuild(root: layoutState.root)
         refreshActiveGroupHighlighting()
         persistLayout()
+    }
+
+    /// Reports every document still held by a group that `layoutState` no
+    /// longer contains, before `SplitContainerViewController.rebuild`
+    /// releases its controller. Without this the language services
+    /// coordinator would only learn about those panes whenever a later
+    /// registration change swept the released weak entries.
+    private func reportDocumentsClosedForGroupsRemovedFromLayout() {
+        let survivingGroupIDs = Set(layoutState.root.groupIDs)
+        for controller in splitContainer.allGroupControllers
+        where !survivingGroupIDs.contains(controller.groupID) {
+            controller.prepareForRemovalFromWorkspace()
+        }
     }
 
     private func collapseEmptyGroupsKeepingOne() {
@@ -2572,7 +1950,11 @@ final class WorkspaceViewController: NSViewController {
 
     private func makeGroupController(for id: EditorGroupID) -> EditorGroupViewController {
         let state = layoutState.groups[id] ?? EditorGroupState(id: id)
-        let controller = EditorGroupViewController(groupID: id, state: state)
+        let controller = EditorGroupViewController(
+            groupID: id,
+            state: state,
+            appearanceCenter: appearanceCenter
+        )
         controller.wordWrapEnabled = layoutState.wordWrapEnabled
         controller.minimapEnabled = layoutState.minimapEnabled
         controller.syntaxLanguageForSnapshot = { [weak self] snapshot in
@@ -2629,13 +2011,10 @@ final class WorkspaceViewController: NSViewController {
             } else {
                 self.persistLayout()
             }
-            if self.sourceControlQuickDiffState?.groupID == groupID,
-               (controller.currentQuickDiffController == nil
-                   || controller.currentTabRelativePath != self.sourceControlQuickDiffState?.selection.path) {
-                self.sourceControlQuickDiffTask?.cancel()
-                self.quickDiffGeneration += 1
-                self.sourceControlQuickDiffState = nil
-            }
+            self.quickDiff.handleGroupStateChange(
+                groupID: groupID,
+                controller: controller
+            )
             self.refreshVisibleQuickDiff(snapshot: self.gitCoordinator.latestStatus)
         }
         controller.onActivate = { [weak self] groupID in
@@ -2676,13 +2055,11 @@ final class WorkspaceViewController: NSViewController {
             guard let self else {
                 return
             }
-            if controller.currentQuickDiffController == nil,
-               self.sourceControlQuickDiffState?.groupID == id,
-               self.sourceControlQuickDiffState?.selection.path == relativePath {
-                self.sourceControlQuickDiffTask?.cancel()
-                self.quickDiffGeneration += 1
-                self.sourceControlQuickDiffState = nil
-            }
+            self.quickDiff.handleDocumentReady(
+                groupID: id,
+                relativePath: relativePath,
+                controller: controller
+            )
             self.configureLanguageInteractions(for: documentController)
             self.multiLanguageServicesCoordinator.handleDocumentReady(
                 relativePath: relativePath,
@@ -2695,6 +2072,12 @@ final class WorkspaceViewController: NSViewController {
             self?.cancelHover()
             self?.refreshLanguageServerStateUI()
         }
+        controller.onDocumentClosed = { [weak self] relativePath, documentController in
+            self?.multiLanguageServicesCoordinator.handleDocumentClosed(
+                relativePath: relativePath,
+                controller: documentController
+            )
+        }
         return controller
     }
 
@@ -2702,6 +2085,22 @@ final class WorkspaceViewController: NSViewController {
         splitContainer?.allGroupControllers.forEach {
             $0.reloadChangedSyntaxDefinitions()
         }
+    }
+
+    /// Starts (once) the explicit shutdown of this workspace's session —
+    /// including its language services. Never blocks the close: no alert,
+    /// no modal wait. The returned task retains the session, so every
+    /// subsystem's teardown runs to completion after the window is gone,
+    /// regardless of when ARC releases this controller.
+    @discardableResult
+    func beginLanguageServicesShutdown() -> Task<Void, Never> {
+        session.beginShutdown()
+    }
+
+    /// Headless seam: awaits the shutdown `windowWillClose` starts, so
+    /// tests can assert it actually completes rather than sleeping.
+    func shutdownLanguageServices() async {
+        await session.shutdown()
     }
 
     func persistRestorableState() {
@@ -2716,8 +2115,22 @@ final class WorkspaceViewController: NSViewController {
         persistLayout()
     }
 
+    func prepareForWindowClose() {
+        cancelHover()
+        definitionNavigationTask?.cancel()
+        definitionNavigationTask = nil
+        if isViewLoaded {
+            quickDiff.cancelAll()
+        }
+        persistRestorableState()
+    }
+
+    /// Layout persistence is best effort from the UI's point of view: a
+    /// state that fails validation or encoding must not interrupt
+    /// editing. The session owns the persistence boundary, including
+    /// recording the failure into health/diagnostics.
     private func persistLayout() {
-        layoutStore.save(layoutState, for: identity)
+        session.persistLayout(layoutState)
     }
 
     /// Reads a workspace-relative path's raw bytes, independent of
@@ -2751,8 +2164,8 @@ final class WorkspaceViewController: NSViewController {
         return await PreviewViewController.make(
             kind: kind,
             data: data,
-            theme: AppearanceSettings.currentTheme(),
-            fontSettings: AppearanceSettings.currentFontSettings(),
+            theme: appearanceCenter.snapshot.theme,
+            fontSettings: appearanceCenter.snapshot.fontSettings,
             isWorkspaceTrusted: { [weak self] in
                 guard let self else {
                     return false
@@ -2765,7 +2178,9 @@ final class WorkspaceViewController: NSViewController {
     private func loadSnapshot(relativePath: String) async throws -> SourceSnapshot {
         let url = identity.root.appendingPathComponent(relativePath)
         return try await Task.detached(priority: .userInitiated) {
-            try SourceSnapshotLoader().load(url: url)
+            try SourceSnapshotLoader(
+                renderingSafetyPolicy: .codeViewportDefault
+            ).load(url: url)
         }.value
     }
 
@@ -2775,52 +2190,13 @@ final class WorkspaceViewController: NSViewController {
         workspaceBannerStack.orientation = .vertical
         workspaceBannerStack.alignment = .width
         workspaceBannerStack.spacing = 6
-        workspaceBannerStack.addArrangedSubview(trustBanner)
+        workspaceBannerStack.addArrangedSubview(trustPresenter.bannerView)
         workspaceBannerStack.addArrangedSubview(languageSupportBanner)
+        workspaceBannerStack.addArrangedSubview(workspaceHealthPresenter.view)
+        workspaceHealthPresenter.update(session.health)
         workspaceBannerStack.isHidden = true
     }
 
-    private func configureTrustBanner() {
-        trustBanner.identifier = NSUserInterfaceItemIdentifier("workspace.trustBanner")
-        trustBanner.orientation = .horizontal
-        trustBanner.alignment = .centerY
-        trustBanner.spacing = 8
-        trustBanner.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 6)
-        trustBanner.wantsLayer = true
-        trustBanner.layer?.cornerRadius = 6
-        trustBanner.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
-
-        let icon = NSImageView(
-            image: NSImage(
-                systemSymbolName: "lock.shield",
-                accessibilityDescription: Localized.string("Restricted mode", comment: "Accessibility description for the lock icon shown when a workspace is untrusted")
-            ) ?? NSImage()
-        )
-
-        trustBannerLabel.lineBreakMode = .byTruncatingTail
-        trustBannerLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        trustBannerLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        trustActionButton.identifier = NSUserInterfaceItemIdentifier("workspace.trust")
-        trustActionButton.setContentHuggingPriority(.required, for: .horizontal)
-        trustDismissButton.identifier = NSUserInterfaceItemIdentifier("workspace.trustDismiss")
-        trustDismissButton.bezelStyle = .inline
-        trustDismissButton.isBordered = false
-        trustDismissButton.target = self
-        trustDismissButton.action = #selector(dismissTrustBanner(_:))
-        trustDismissButton.setAccessibilityLabel(
-            Localized.string(
-                "Dismiss Workspace Trust Banner",
-                comment: "Accessibility label for the button that dismisses the workspace trust banner"
-            )
-        )
-        trustDismissButton.setContentHuggingPriority(.required, for: .horizontal)
-
-        trustBanner.addArrangedSubview(icon)
-        trustBanner.addArrangedSubview(trustBannerLabel)
-        trustBanner.addArrangedSubview(trustActionButton)
-        trustBanner.addArrangedSubview(trustDismissButton)
-        refreshTrustBanner()
-    }
 
     private func configureLanguageSupportBanner() {
         languageSupportBanner.identifier = NSUserInterfaceItemIdentifier(
@@ -2903,104 +2279,27 @@ final class WorkspaceViewController: NSViewController {
         }
     }
 
-    /// Updates the trust banner's copy, button label/action, and
-    /// visibility from the trust store's current, live state (SPEC
-    /// 13.1: trusting/revoking a workspace must be immediately
-    /// reflected). Called on load and again after both `trustWorkspace`
-    /// and `revokeTrust` so the banner never shows a stale state.
-    private func refreshTrustBanner() {
-        let trusted = trustStore.isTrusted(identity)
-        if trusted {
-            trustBannerLabel.stringValue = Localized.string(
-                "This workspace is trusted: language servers and repository tools are enabled.",
-                comment: "Trust banner message shown when the current workspace is trusted"
-            )
-            trustBannerLabel.textColor = .secondaryLabelColor
-            trustActionButton.title = Localized.string("Revoke Trust", comment: "Trust banner button title to revoke trust for the current workspace")
-            trustActionButton.target = self
-            trustActionButton.action = #selector(revokeTrust(_:))
-            trustActionButton.setAccessibilityLabel(
-                Localized.string("Revoke trust for this workspace, disabling language servers", comment: "Accessibility label for the trust banner's revoke-trust button")
-            )
-        } else {
-            trustBannerLabel.stringValue = Localized.string(
-                "Restricted mode: language servers and repository tools are disabled.",
-                comment: "Trust banner message shown when the current workspace is untrusted"
-            )
-            trustBannerLabel.textColor = .secondaryLabelColor
-            trustActionButton.title = Localized.string("Trust Workspace", comment: "Trust banner button title to trust the current workspace")
-            trustActionButton.target = self
-            trustActionButton.action = #selector(trustWorkspace(_:))
-            trustActionButton.setAccessibilityLabel(
-                Localized.string("Trust this workspace, enabling language servers and repository tools", comment: "Accessibility label for the trust banner's trust-workspace button")
-            )
-        }
-        updateTrustBannerVisibility()
-    }
-
-    private func refreshTrustStatusButton() {
-        let trusted = trustStore.isTrusted(identity)
-        let stateDescription: String
-        let actionDescription: String
-        let symbolName: String
-
-        if trusted {
-            stateDescription = Localized.string(
-                "This workspace is trusted: language servers and repository tools are enabled.",
-                comment: "Trust status description shown for a trusted workspace"
-            )
-            actionDescription = Localized.string(
-                "Revoke trust for this workspace, disabling language servers",
-                comment: "Accessibility help for the status-bar workspace trust control"
-            )
-            symbolName = "checkmark.shield.fill"
-            trustStatusButton.contentTintColor = .systemGreen
-        } else {
-            stateDescription = Localized.string(
-                "Restricted mode: language servers and repository tools are disabled.",
-                comment: "Trust status description shown for an untrusted workspace"
-            )
-            actionDescription = Localized.string(
-                "Trust this workspace, enabling language servers and repository tools",
-                comment: "Accessibility help for the status-bar workspace trust control"
-            )
-            symbolName = "exclamationmark.shield.fill"
-            trustStatusButton.contentTintColor = .systemOrange
-        }
-
-        trustStatusButton.image = NSImage(
-            systemSymbolName: symbolName,
-            accessibilityDescription: stateDescription
-        )
-        trustStatusButton.toolTip = stateDescription
-        trustStatusButton.setAccessibilityLabel(stateDescription)
-        trustStatusButton.setAccessibilityHelp(actionDescription)
-    }
-
+    /// Re-renders both trust surfaces from the store's current, live
+    /// state (SPEC 13.1: trusting/revoking a workspace must be
+    /// immediately reflected). Called after both `trustWorkspace` and
+    /// `revokeTrust` so neither control shows a stale state.
     private func refreshWorkspaceTrustUI() {
-        refreshTrustBanner()
-        refreshTrustStatusButton()
-    }
-
-    private func updateTrustBannerVisibility() {
-        let isVisible = shouldShowInitialTrustBanner && !isTrustBannerDismissed
-        trustBanner.isHidden = !isVisible
-        updateWorkspaceBannerVisibility()
+        trustPresenter.render(isTrusted: trustStore.isTrusted(identity))
     }
 
     private func updateWorkspaceBannerVisibility() {
-        let isVisible = !trustBanner.isHidden || !languageSupportBanner.isHidden
+        let isVisible = !trustPresenter.isBannerHidden
+            || !languageSupportBanner.isHidden
+            || !workspaceHealthPresenter.view.isHidden
         workspaceBannerStack.isHidden = !isVisible
         contentTopWithTrustBannerConstraint?.isActive = isVisible
         contentTopWithoutTrustBannerConstraint?.isActive = !isVisible
     }
 
-    @objc
-    func dismissTrustBanner(_ sender: Any?) {
-        isTrustBannerDismissed = true
-        updateTrustBannerVisibility()
+    private func workspaceHealthDidChange(_ health: WorkspaceHealth) {
+        workspaceHealthPresenter.update(health)
+        updateWorkspaceBannerVisibility()
     }
-
 
     private func makeSidebar() -> NSView {
         let container = NSView()
@@ -3017,12 +2316,24 @@ final class WorkspaceViewController: NSViewController {
         )
         sidebarModeControl.translatesAutoresizingMaskIntoConstraints = false
 
-        explorerContainer = makeExplorerView()
+        explorerContainer = explorer.makeView()
         explorerContainer.translatesAutoresizingMaskIntoConstraints = false
 
+        let workspaceSession = session
         let searchController = SearchSidebarViewController(
             root: identity.root,
             diagnosticsLog: diagnosticsLog,
+            makeSearcher: { try workspaceSession.textSearcher() },
+            runSearchTask: { operation in
+                workspaceSession.runSearch(operation)
+            },
+            reportSearchHealth: { reason in
+                if let reason {
+                    workspaceSession.reportSearchFailure(reason: reason)
+                } else {
+                    workspaceSession.reportSearchSuccess()
+                }
+            },
             onSelectMatch: { [weak self] selection in
                 self?.openMatch(relativePath: selection.relativePath, utf8Range: selection.utf8Range)
             }
@@ -3036,7 +2347,7 @@ final class WorkspaceViewController: NSViewController {
             root: identity.root,
             diagnosticsStore: workspaceDiagnosticsStore,
             onSelectDiagnostic: { [weak self] selection in
-                self?.navigateToLSPLocation(url: selection.url, range: selection.range)
+                self?.navigateToDiagnostic(url: selection.url, range: selection.range)
             }
         )
         problemsViewController = problemsController
@@ -3045,6 +2356,7 @@ final class WorkspaceViewController: NSViewController {
         problemsController.view.isHidden = true
 
         let sourceControlController = SourceControlSidebarViewController(
+            appearanceCenter: appearanceCenter,
             onSelectFile: { [weak self] selection in
                 self?.openQuickDiff(for: selection)
             }
@@ -3116,14 +2428,7 @@ final class WorkspaceViewController: NSViewController {
         languageServerRestartButton.isEnabled = false
         languageServerRestartButton.translatesAutoresizingMaskIntoConstraints = false
 
-        trustStatusButton.identifier = NSUserInterfaceItemIdentifier("workspace.trustStatus")
-        trustStatusButton.bezelStyle = .inline
-        trustStatusButton.isBordered = false
-        trustStatusButton.imagePosition = .imageOnly
-        trustStatusButton.target = self
-        trustStatusButton.action = #selector(promptToToggleWorkspaceTrust(_:))
-        trustStatusButton.translatesAutoresizingMaskIntoConstraints = false
-        refreshTrustStatusButton()
+        let trustStatusButton = trustPresenter.statusButton
 
         container.addSubview(separator)
         container.addSubview(languageServerStateLabel)
@@ -3145,79 +2450,6 @@ final class WorkspaceViewController: NSViewController {
             trustStatusButton.heightAnchor.constraint(equalToConstant: 24)
         ])
         return container
-    }
-
-    private func makeExplorerView() -> NSView {
-        let container = NSView()
-
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("workspace.name"))
-        column.title = Localized.string("Files", comment: "Column title for the workspace Explorer's file tree (header is hidden but title remains accessible)")
-        outlineView.addTableColumn(column)
-        outlineView.outlineTableColumn = column
-        outlineView.headerView = nil
-        outlineView.rowSizeStyle = .medium
-        outlineView.indentationPerLevel = 14
-        outlineView.dataSource = self
-        outlineView.delegate = self
-        outlineView.target = self
-        outlineView.action = #selector(handleOutlineClick(_:))
-        outlineView.identifier = NSUserInterfaceItemIdentifier("workspace.explorer")
-        outlineView.menu = makeExplorerContextMenu()
-        outlineView.backgroundColor = .clear
-
-        let scrollView = NSScrollView()
-        scrollView.documentView = outlineView
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        statusLabel.identifier = NSUserInterfaceItemIdentifier("workspace.discoveryStatus")
-        statusLabel.font = .systemFont(ofSize: 10)
-        statusLabel.textColor = .secondaryLabelColor
-        statusLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        showHiddenFilesButton.identifier = NSUserInterfaceItemIdentifier("workspace.showHiddenFiles")
-        showHiddenFilesButton.target = self
-        showHiddenFilesButton.action = #selector(explorerVisibilityChanged(_:))
-        showHiddenFilesButton.state = discoveryOptions.includeHidden ? .on : .off
-        showHiddenFilesButton.controlSize = .small
-
-        showIgnoredFilesButton.identifier = NSUserInterfaceItemIdentifier("workspace.showIgnoredFiles")
-        showIgnoredFilesButton.target = self
-        showIgnoredFilesButton.action = #selector(explorerVisibilityChanged(_:))
-        showIgnoredFilesButton.state = discoveryOptions.includeIgnored ? .on : .off
-        showIgnoredFilesButton.controlSize = .small
-
-        let footer = NSStackView(views: [statusLabel, showHiddenFilesButton, showIgnoredFilesButton])
-        footer.orientation = .horizontal
-        footer.alignment = .centerY
-        footer.spacing = 8
-        footer.translatesAutoresizingMaskIntoConstraints = false
-
-        container.addSubview(scrollView)
-        container.addSubview(footer)
-        NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -4),
-            footer.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            footer.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            footer.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -5)
-        ])
-        return container
-    }
-
-    private func makeExplorerContextMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.addItem(
-            withTitle: Localized.string("Show Git Blame", comment: "Explorer context menu item that shows Git blame for the selected file"),
-            action: #selector(showGitBlameForSelectedFile(_:)),
-            keyEquivalent: ""
-        )
-        return menu
     }
 
     @objc
@@ -3278,81 +2510,28 @@ final class WorkspaceViewController: NSViewController {
         }
     }
 
-    private func startDiscovery() {
-        discoveryTask?.cancel()
-        discoveryGeneration += 1
-        let generation = discoveryGeneration
-        entriesByParent.removeAll()
-        nodeCache.removeAll()
-        outlineView.reloadData()
-        statusLabel.stringValue = Localized.string("Discovering files...", comment: "Status label shown in the workspace Explorer while a file scan is in progress")
-        let options = discoveryOptions
-        discoveryTask = Task { [weak self] in
-            guard let self else {
-                return
-            }
+    private func startDiscovery(
+        options: WorkspaceDiscoveryOptions? = nil
+    ) {
+        session.startDiscovery(options: options)
+    }
 
-            do {
-                await filenameIndex.removeAll()
-                guard self.discoveryGeneration == generation else {
-                    return
-                }
-                for try await batch in scanner.scan(root: identity.root, options: options) {
-                    try Task.checkCancellation()
-                    guard self.discoveryGeneration == generation else {
-                        return
-                    }
-                    await filenameIndex.append(batch.entries)
-                    guard self.discoveryGeneration == generation else {
-                        return
-                    }
-                    apply(batch)
-                }
-                guard self.discoveryGeneration == generation else {
-                    return
-                }
-                let fileCount = await filenameIndex.count
-                statusLabel.stringValue = Localized.string("\(fileCount) files", comment: "Status label reporting the total number of discovered files in the workspace Explorer")
-                startWatchingForExternalChanges()
-            } catch is CancellationError {
-                return
-            } catch {
-                statusLabel.stringValue = Localized.string(
-                    "Discovery failed: \(error.localizedDescription)",
-                    comment: "Status label shown in the workspace Explorer when the initial file scan fails"
-                )
-            }
-        }
+    /// Reflects the session's discovery lifecycle in the Explorer. The
+    /// Explorer holds only the presentation state (tree + status text);
+    /// the scan, its generation, and the filename index live in the
+    /// session.
+    private func discoveryStatusDidChange(_ status: WorkspaceDiscoveryStatus) {
+        explorer.applyDiscoveryStatus(status)
     }
 
     private func apply(_ batch: WorkspaceDiscoveryBatch) {
-        for entry in batch.entries {
-            let parent = (entry.relativePath as NSString).deletingLastPathComponent
-            let key = parent == "." ? "" : parent
-            entriesByParent[key, default: []].append(entry)
-            nodeCache.removeValue(forKey: entry.relativePath)
-        }
-        statusLabel.stringValue = "\(batch.discoveredCount) items discovered"
-        outlineView.reloadData()
+        explorer.apply(batch)
     }
 
     // MARK: - Live filesystem updates (FSEvents)
 
-    private func startWatchingForExternalChanges() {
-        guard fileWatcher == nil else {
-            return
-        }
-        let watcher = WorkspaceFileWatcher(root: identity.root) { [weak self] batch in
-            Task { @MainActor in
-                self?.handleWorkspaceChangeBatch(batch)
-            }
-        }
-        fileWatcher = watcher
-        watcher.start()
-    }
-
     func handleWorkspaceChangeBatch(_ batch: WorkspaceChangeBatch) {
-        Task { await gitCoordinator.handle(batch) }
+        session.handleFileSystemChanges(batch)
 
         if batch.mayHaveChangedIgnoreRules {
             for changed in batch.paths {
@@ -3384,17 +2563,40 @@ final class WorkspaceViewController: NSViewController {
         invalidateLanguageHoverCache(forChangedURL: url)
 
         if exists {
-            guard let entry = scanner.classify(path: url, root: identity.root) else {
+            let outcome: WorkspaceClassificationOutcome
+            do {
+                outcome = try scanner.classify(path: url, root: identity.root)
+            } catch {
+                session.recordHealthIssue(
+                    .discovery,
+                    severity: .degraded,
+                    message: Localized.string(
+                        "A changed workspace path could not be classified",
+                        comment: "Workspace health summary for an incremental file classification failure"
+                    ),
+                    reason: String(describing: error)
+                )
                 return
             }
-            guard shouldIncludeInExplorer(entry) else {
-                removeEntry(relativePath: relativePath)
-                Task { await filenameIndex.remove(relativePaths: [relativePath]) }
+            guard case .entry(let entry) = outcome else {
+                explorer.removeEntry(relativePath: relativePath)
+                session.updateFilenameIndex(removing: [relativePath])
+                if outcome == .absent {
+                    workspaceDiagnosticsStore.clear(resource: url)
+                    tombstoneOpenTabsIfNeeded(relativePath: relativePath)
+                }
                 return
             }
-            addOrUpdateEntry(entry)
-            Task { await filenameIndex.remove(relativePaths: [relativePath]) }
-            Task { await filenameIndex.append([entry]) }
+            guard explorer.shouldInclude(entry) else {
+                explorer.removeEntry(relativePath: relativePath)
+                session.updateFilenameIndex(removing: [relativePath])
+                return
+            }
+            explorer.addOrUpdate(entry)
+            session.updateFilenameIndex(
+                removing: [relativePath],
+                appending: [entry]
+            )
 
             guard entry.kind != .directory else {
                 return
@@ -3402,8 +2604,8 @@ final class WorkspaceViewController: NSViewController {
             reloadOpenTabsIfNeeded(relativePath: relativePath)
         } else {
             workspaceDiagnosticsStore.clear(resource: url)
-            removeEntry(relativePath: relativePath)
-            Task { await filenameIndex.remove(relativePaths: [relativePath]) }
+            explorer.removeEntry(relativePath: relativePath)
+            session.updateFilenameIndex(removing: [relativePath])
             tombstoneOpenTabsIfNeeded(relativePath: relativePath)
         }
     }
@@ -3439,20 +2641,6 @@ final class WorkspaceViewController: NSViewController {
         languageHoverController.invalidateCache(forProvider: providerIdentifier)
     }
 
-    private func shouldIncludeInExplorer(_ entry: WorkspaceFileEntry) -> Bool {
-        (!entry.isHidden || discoveryOptions.includeHidden)
-            && (!entry.isIgnored || discoveryOptions.includeIgnored)
-    }
-
-    @objc
-    private func explorerVisibilityChanged(_ sender: Any?) {
-        discoveryOptions = WorkspaceDiscoveryOptions(
-            includeHidden: showHiddenFilesButton.state == .on,
-            includeIgnored: showIgnoredFilesButton.state == .on
-        )
-        startDiscovery()
-    }
-
     private func relativePath(of url: URL) -> String? {
         let rootPath = identity.root.standardizedFileURL.path
         let targetPath = url.standardizedFileURL.path
@@ -3461,23 +2649,6 @@ final class WorkspaceViewController: NSViewController {
             return nil
         }
         return String(targetPath.dropFirst(prefix.count))
-    }
-
-    private func addOrUpdateEntry(_ entry: WorkspaceFileEntry) {
-        let parent = (entry.relativePath as NSString).deletingLastPathComponent
-        let key = parent == "." ? "" : parent
-        entriesByParent[key, default: []].removeAll { $0.relativePath == entry.relativePath }
-        entriesByParent[key, default: []].append(entry)
-        nodeCache.removeValue(forKey: entry.relativePath)
-        outlineView.reloadData()
-    }
-
-    private func removeEntry(relativePath: String) {
-        let parent = (relativePath as NSString).deletingLastPathComponent
-        let key = parent == "." ? "" : parent
-        entriesByParent[key]?.removeAll { $0.relativePath == relativePath }
-        nodeCache.removeValue(forKey: relativePath)
-        outlineView.reloadData()
     }
 
     /// Reloads every open tab for `relativePath` into a freshly loaded,
@@ -3491,8 +2662,7 @@ final class WorkspaceViewController: NSViewController {
             return
         }
 
-        externalReloadTask?.cancel()
-        externalReloadTask = Task { [weak self] in
+        session.beginExternalReload { [weak self] in
             guard let self else {
                 return
             }
@@ -3535,7 +2705,9 @@ final class WorkspaceViewController: NSViewController {
         let url = identity.root.appendingPathComponent(relativePath)
         let version = bumpingVersion ? nextVersion() : 1
         return try await Task.detached(priority: .userInitiated) {
-            try SourceSnapshotLoader().load(url: url, version: version)
+            try SourceSnapshotLoader(
+                renderingSafetyPolicy: .codeViewportDefault
+            ).load(url: url, version: version)
         }.value
     }
 
@@ -3545,24 +2717,7 @@ final class WorkspaceViewController: NSViewController {
     }
 
     func children(of relativePath: String) -> [WorkspaceTreeNode] {
-        (entriesByParent[relativePath] ?? [])
-            .sorted {
-                if $0.kind == .directory, $1.kind != .directory {
-                    return true
-                }
-                if $0.kind != .directory, $1.kind == .directory {
-                    return false
-                }
-                return $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending
-            }
-            .map { entry in
-                if let cached = nodeCache[entry.relativePath] {
-                    return cached
-                }
-                let node = WorkspaceTreeNode(entry: entry)
-                nodeCache[entry.relativePath] = node
-                return node
-            }
+        explorer.children(of: relativePath)
     }
 
     /// Opens `entry` as a persistent tab in the currently active editor group.
@@ -3615,18 +2770,21 @@ final class WorkspaceViewController: NSViewController {
     }
 
     @objc
-    private func handleOutlineClick(_ sender: Any?) {
-        guard outlineView.clickedRow >= 0,
-              let node = outlineView.item(atRow: outlineView.clickedRow) as? WorkspaceTreeNode,
-              node.entry.kind != .directory else {
+    func trustWorkspace(_ sender: Any?) {
+        do {
+            try trustStore.trust(identity)
+            session.clearHealthIssue(.trust)
+        } catch {
+            recordTrustPersistenceFailure(
+                message: Localized.string(
+                    "Workspace trust could not be granted",
+                    comment: "Workspace health summary when granting trust cannot be persisted"
+                ),
+                error: error
+            )
+            refreshWorkspaceTrustUI()
             return
         }
-        open(node.entry)
-    }
-
-    @objc
-    func trustWorkspace(_ sender: Any?) {
-        trustStore.trust(identity)
         refreshWorkspaceTrustUI()
         multiLanguageServicesCoordinator.handleTrustGranted()
         refreshLanguageServerStateUI()
@@ -3650,12 +2808,19 @@ final class WorkspaceViewController: NSViewController {
     /// than waiting for the next document open.
     @objc
     func revokeTrust(_ sender: Any?) {
-        trustStore.revoke(identity)
-        languageSupportPromptGeneration &+= 1
-        queuedMissingLanguageKeys.removeAll()
-        queuedUnknownLanguageURLs.removeAll()
-        currentMissingLanguageKey = nil
-        currentUnknownLanguageURL = nil
+        do {
+            try trustStore.revoke(identity)
+            session.clearHealthIssue(.trust)
+        } catch {
+            recordTrustPersistenceFailure(
+                message: Localized.string(
+                    "Workspace trust revocation could not be saved",
+                    comment: "Workspace health summary when revoking trust cannot be persisted"
+                ),
+                error: error
+            )
+        }
+        languagePrompts.cancelAll()
         currentMissingLanguageInstallationDocumentationURL = nil
         languageSupportBanner.isHidden = true
         updateWorkspaceBannerVisibility()
@@ -3675,274 +2840,45 @@ final class WorkspaceViewController: NSViewController {
         }
     }
 
-    @objc
-    private func promptToToggleWorkspaceTrust(_ sender: Any?) {
-        guard let window = view.window else {
-            return
-        }
-
-        let shouldTrust = !trustStore.isTrusted(identity)
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        if shouldTrust {
-            alert.messageText = Localized.string(
-                "Trust Workspace",
-                comment: "Title of the confirmation alert for trusting a workspace"
-            )
-            alert.informativeText = Localized.string(
-                "Trusting this workspace enables language servers and repository tools, which may execute code from this directory.",
-                comment: "Explanation in the confirmation alert for trusting a workspace"
-            )
-            alert.addButton(
-                withTitle: Localized.string(
-                    "Trust Workspace",
-                    comment: "Confirmation button title for trusting a workspace"
-                )
-            )
-        } else {
-            alert.messageText = Localized.string(
-                "Revoke Trust",
-                comment: "Title of the confirmation alert for revoking workspace trust"
-            )
-            alert.informativeText = Localized.string(
-                "Revoking trust disables repository tools and stops running language servers for this workspace.",
-                comment: "Explanation in the confirmation alert for revoking workspace trust"
-            )
-            alert.addButton(
-                withTitle: Localized.string(
-                    "Revoke Trust",
-                    comment: "Confirmation button title for revoking workspace trust"
-                )
-            )
-        }
-        alert.addButton(
-            withTitle: Localized.string(
-                "Cancel",
-                comment: "Button title canceling a workspace trust change"
-            )
+    private func recordTrustPersistenceFailure(
+        message: String,
+        error: any Error
+    ) {
+        session.recordHealthIssue(
+            scope: .subsystem(.trust),
+            severity: .degraded,
+            message: message,
+            reason: String(describing: error),
+            recoveryActionIDs: []
         )
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn, let self else {
-                return
-            }
-            if shouldTrust {
-                self.trustWorkspace(nil)
-            } else {
-                self.revokeTrust(nil)
-            }
-        }
-    }
-}
-
-extension WorkspaceViewController: NSWindowDelegate {
-    func windowWillClose(_ notification: Notification) {
-        cancelHover()
-        definitionNavigationTask?.cancel()
-        definitionNavigationTask = nil
-        persistRestorableState()
     }
 
-    func windowWillEnterFullScreen(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else {
-            return
-        }
-        lastNormalWindowFrame = window.frame
-    }
-
-    func windowDidExitFullScreen(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else {
-            return
-        }
-        if let pendingNormalWindowFrame {
-            window.setFrame(pendingNormalWindowFrame, display: true)
-            lastNormalWindowFrame = pendingNormalWindowFrame
-            self.pendingNormalWindowFrame = nil
-        } else {
-            lastNormalWindowFrame = window.frame
-        }
-    }
 }
 
 extension WorkspaceViewController: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        switch menuItem.action {
-        case #selector(toggleWordWrap(_:)):
+        guard let action = menuItem.action,
+              let metadata = WorkspaceCommandCatalog.shared.metadata(for: action) else {
+            return true
+        }
+
+        switch metadata.validation {
+        case .stateWordWrap:
             menuItem.state = layoutState.wordWrapEnabled ? .on : .off
             return true
-        case #selector(toggleMinimap(_:)):
+        case .stateMinimap:
             menuItem.state = layoutState.minimapEnabled ? .on : .off
             return true
-        case #selector(navigateBack(_:)):
+        case .requiresCanGoBack:
             return activeGroupController?.canGoBack ?? false
-        case #selector(navigateForward(_:)):
+        case .requiresCanGoForward:
             return activeGroupController?.canGoForward ?? false
-        case #selector(showPreviousGitChange(_:)), #selector(showNextGitChange(_:)):
+        case .requiresActiveGitQuickDiffController:
             return activeGitQuickDiffController != nil
-        case #selector(closeActiveGroup(_:)):
+        case .requiresActiveGroupCountGreaterThanOne:
             return layoutState.groups.count > 1
-        default:
+        case .alwaysEnabled, .systemStandard:
             return true
         }
-    }
-}
-
-extension WorkspaceViewController: NSOutlineViewDataSource, NSOutlineViewDelegate {
-    func outlineView(
-        _ outlineView: NSOutlineView,
-        numberOfChildrenOfItem item: Any?
-    ) -> Int {
-        let relativePath = (item as? WorkspaceTreeNode)?.entry.relativePath ?? ""
-        return children(of: relativePath).count
-    }
-
-    func outlineView(
-        _ outlineView: NSOutlineView,
-        child index: Int,
-        ofItem item: Any?
-    ) -> Any {
-        let relativePath = (item as? WorkspaceTreeNode)?.entry.relativePath ?? ""
-        return children(of: relativePath)[index]
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-        (item as? WorkspaceTreeNode)?.entry.kind == .directory
-    }
-
-    func outlineView(
-        _ outlineView: NSOutlineView,
-        viewFor tableColumn: NSTableColumn?,
-        item: Any
-    ) -> NSView? {
-        guard let node = item as? WorkspaceTreeNode else {
-            return nil
-        }
-
-        let identifier = NSUserInterfaceItemIdentifier("workspace.fileCell")
-        let cell: WorkspaceExplorerCellView
-        if let reused = outlineView.makeView(
-            withIdentifier: identifier,
-            owner: self
-        ) as? WorkspaceExplorerCellView {
-            cell = reused
-        } else {
-            cell = WorkspaceExplorerCellView(frame: .zero)
-            cell.identifier = identifier
-        }
-
-        let displayName = node.entry.url.lastPathComponent
-        cell.textField?.stringValue = displayName
-        cell.textField?.toolTip = node.entry.relativePath
-        cell.textField?.textColor = .labelColor
-        cell.statusBadge.stringValue = ""
-        cell.statusBadge.isHidden = true
-
-        let gitDecoration = gitCoordinator.explorerDecoration(
-            forRelativePath: node.entry.relativePath,
-            isDirectory: node.entry.kind == .directory
-        ) ?? (node.entry.isIgnored ? .ignored : nil)
-        if let gitDecoration {
-            let color = gitDecorationColors
-                .color(for: gitDecoration.presentation.colorRole)
-                .nsColor
-            cell.textField?.textColor = color
-            if let badgeText = gitDecoration.badgeText {
-                cell.statusBadge.stringValue = badgeText
-                cell.statusBadge.textColor = gitDecoration.indicator == .descendant
-                    ? color.withAlphaComponent(color.alphaComponent * 0.65)
-                    : color
-                cell.statusBadge.isHidden = false
-            }
-        }
-        let materialIconView = cell.imageView as? MaterialFileIconView
-        var symbolName: String?
-        let kindDescription: String
-        switch node.entry.kind {
-        case .directory:
-            materialIconView?.fileName = nil
-            symbolName = "folder"
-            kindDescription = Localized.string("folder", comment: "Accessibility kind description for a directory row in the workspace Explorer")
-        case .file:
-            materialIconView?.fileName = node.entry.relativePath
-            if materialIconView == nil {
-                cell.imageView?.image = MaterialFileIconProvider.shared.image(
-                    forFileName: node.entry.relativePath,
-                    appearance: outlineView.effectiveAppearance
-                )
-            }
-            symbolName = nil
-            kindDescription = Localized.string("file", comment: "Accessibility kind description for a file row in the workspace Explorer")
-        case .symbolicLink:
-            materialIconView?.fileName = nil
-            symbolName = "link"
-            kindDescription = Localized.string("symbolic link", comment: "Accessibility kind description for a symbolic-link row in the workspace Explorer")
-        }
-        if let symbolName {
-            cell.imageView?.image = NSImage(
-                systemSymbolName: symbolName,
-                accessibilityDescription: nil
-            )
-        }
-        cell.textField?.setAccessibilityLabel(
-            [displayName, kindDescription, gitDecoration?.accessibilityDescription]
-                .compactMap { $0 }
-                .joined(separator: ", ")
-        )
-        return cell
-    }
-}
-
-@MainActor
-private final class WorkspaceExplorerCellView: NSTableCellView {
-    let statusBadge = NSTextField(labelWithString: "")
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-
-        let imageView = MaterialFileIconView()
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.setAccessibilityElement(false)
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        self.imageView = imageView
-
-        let textField = NSTextField(labelWithString: "")
-        textField.lineBreakMode = .byTruncatingMiddle
-        textField.font = .systemFont(ofSize: NSFont.systemFontSize + 3, weight: .medium)
-        textField.translatesAutoresizingMaskIntoConstraints = false
-        self.textField = textField
-
-        statusBadge.identifier = NSUserInterfaceItemIdentifier("workspace.gitStatusBadge")
-        statusBadge.alignment = .right
-        statusBadge.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
-        statusBadge.setAccessibilityElement(false)
-        statusBadge.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(imageView)
-        addSubview(textField)
-        addSubview(statusBadge)
-        NSLayoutConstraint.activate([
-            imageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: 16),
-            imageView.heightAnchor.constraint(equalToConstant: 16),
-            textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 5),
-            textField.trailingAnchor.constraint(lessThanOrEqualTo: statusBadge.leadingAnchor, constant: -5),
-            textField.centerYAnchor.constraint(equalTo: centerYAnchor),
-            statusBadge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            statusBadge.centerYAnchor.constraint(equalTo: centerYAnchor),
-            statusBadge.widthAnchor.constraint(equalToConstant: 16)
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        nil
-    }
-}
-
-final class WorkspaceTreeNode: NSObject {
-    let entry: WorkspaceFileEntry
-
-    init(entry: WorkspaceFileEntry) {
-        self.entry = entry
     }
 }

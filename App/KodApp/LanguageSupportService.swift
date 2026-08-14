@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import LanguageAdapters
+import SettingsCore
 import SourceModel
 import SyntaxCore
 
@@ -282,28 +283,11 @@ final class LanguageSupportService: ObservableObject {
     let overrideStore: LanguageServerOverrideStore
 
     private let discovery: Discovery
-    private var profileObserver: UUID?
+    private var profileObserver: SettingsObservation?
     /// Strictly increases on every `refresh()` call so a slower,
     /// superseded refresh can detect it finished after a newer one and
     /// avoid overwriting/notifying with its now-stale results.
     private var refreshGeneration = 0
-
-    convenience init() {
-        let overrideStore = LanguageServerOverrideStore()
-        do {
-            let profileStore = try LanguageProfileStore(
-                overrideStore: overrideStore
-            )
-            self.init(
-                profileStore: profileStore,
-                overrideStore: overrideStore
-            )
-        } catch {
-            preconditionFailure(
-                "Could not initialize language profiles: \(error)"
-            )
-        }
-    }
 
     init(
         profileStore: LanguageProfileStore,
@@ -325,7 +309,6 @@ final class LanguageSupportService: ObservableObject {
             guard let self else {
                 return
             }
-            self.profileRegistry.reload()
             self.rebuildItems()
             Task {
                 await self.refresh()

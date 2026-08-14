@@ -5,6 +5,7 @@ import Foundation
 import GitCore
 import KodFixtureSupport
 import SearchCore
+import SettingsCore
 import SourceModel
 import SyntaxCore
 import ThemeCore
@@ -19,11 +20,9 @@ extension PerformanceSuiteTests {
     // MARK: - Launch model (proxy; never launches real AppKit UI)
 
     func testLaunchModelProxy() throws {
-        let suiteName = "com.kod.performance-suite.launch-model.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            throw XCTSkip("failed to create an isolated UserDefaults suite")
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let repository = CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
 
         measure(
             name: "launch-model-proxy",
@@ -38,10 +37,10 @@ extension PerformanceSuiteTests {
                 "cold / 300ms warm SPEC targets, which require a real, " +
                 "never-run-here Kod.app launch to measure honestly."
         ) {
-            _ = WorkspaceTrustStore(defaults: defaults)
-            _ = RecentWorkspaceStore(defaults: defaults)
-            _ = ThemeStore(defaults: defaults)
-            _ = FontSettingsStore(defaults: defaults)
+            _ = WorkspaceTrustStore(repository: repository)
+            _ = RecentWorkspaceStore(repository: repository)
+            _ = ThemeStore(repository: repository)
+            _ = FontSettingsStore(repository: repository)
             _ = BoundedEventLog(capacity: 2_000)
             _ = BundledThemes.all
         }
@@ -269,13 +268,11 @@ extension PerformanceSuiteTests {
     // MARK: - Back/Forward restore
 
     func testBackForwardRestoreOfAlreadyOpenLocation() throws {
-        let suiteName = "com.kod.performance-suite.layout-store.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            throw XCTSkip("failed to create an isolated UserDefaults suite")
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let store = WorkspaceLayoutStore(defaults: defaults)
+        let store = WorkspaceLayoutStore(
+            repository: CodableSettingsRepository(
+                store: InMemorySettingsKeyValueStore()
+            )
+        )
         let identity = try WorkspaceIdentity(root: FileManager.default.temporaryDirectory)
 
         var group = EditorGroupState()
@@ -288,9 +285,9 @@ extension PerformanceSuiteTests {
             viewportAnchorLine: 42
         )
         let state = WorkspaceLayoutState(root: .leaf(group.id), groups: [group.id: group], activeGroupID: group.id)
-        store.save(state, for: identity)
+        try store.save(state, for: identity)
 
-        measure(
+        try measure(
             name: "back-forward-restore",
             specBudget: "12.2 Back/Forward restore of an already open location",
             budgetMilliseconds: 50,
@@ -298,8 +295,9 @@ extension PerformanceSuiteTests {
                 "layout with navigation history — the model-restore portion of " +
                 "a Back/Forward jump to an already-open location."
         ) {
-            let restored = store.load(for: identity)
-            XCTAssertNotNil(restored)
+            guard case .value = try store.load(for: identity) else {
+                return XCTFail("Expected persisted layout")
+            }
         }
     }
 

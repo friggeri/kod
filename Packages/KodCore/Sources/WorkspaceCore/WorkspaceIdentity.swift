@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import SettingsCore
 
 public enum WorkspaceIdentityError: Error, Equatable {
     case notDirectory(URL)
@@ -39,63 +40,185 @@ public struct WorkspaceIdentity: Hashable, Sendable {
 
 @MainActor
 public final class WorkspaceTrustStore {
-    private let defaults: UserDefaults
     private let keyPrefix = "trusted-workspace."
     private let trustBannerShownKeyPrefix = "workspace-trust-banner-shown."
+    private let repository: CodableSettingsRepository
+    private var sessionRevocations: Set<String> = []
+    public private(set) var lastPersistenceError: SettingsRepositoryError?
 
-    public init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+    public init(repository: CodableSettingsRepository) {
+        self.repository = repository
     }
 
+    /// Compatibility with `WorkspaceTrustAuthorizing`'s nonthrowing security
+    /// gate. Persistence-backed callers that need to handle storage failure
+    /// should call `trustState(_:)`; the gate itself cannot safely authorize
+    /// when its persistence contract failed. Such a failure is exposed in
+    /// `lastPersistenceError` and fails closed.
     public func isTrusted(_ identity: WorkspaceIdentity) -> Bool {
-        defaults.bool(forKey: keyPrefix + identity.persistenceKey)
+        do {
+            switch try trustState(identity) {
+            case .trusted:
+                lastPersistenceError = nil
+                return true
+            case .untrusted, .resetAfterQuarantine:
+                lastPersistenceError = nil
+                return false
+            }
+        } catch {
+            lastPersistenceError = error
+            return false
+        }
     }
 
-    public func trust(_ identity: WorkspaceIdentity) {
-        defaults.set(true, forKey: keyPrefix + identity.persistenceKey)
+    public func trustState(
+        _ identity: WorkspaceIdentity
+    ) throws(SettingsRepositoryError) -> WorkspaceTrustState {
+        guard !sessionRevocations.contains(identity.persistenceKey) else {
+            return .untrusted
+        }
+        switch try repository.read(trustSetting(for: identity)) {
+        case .absent:
+            return .untrusted
+        case .value(let trusted, _):
+            return trusted ? .trusted : .untrusted
+        case .quarantined(let record):
+            return .resetAfterQuarantine(record)
+        }
     }
 
-    public func revoke(_ identity: WorkspaceIdentity) {
-        defaults.removeObject(forKey: keyPrefix + identity.persistenceKey)
+    public func trust(
+        _ identity: WorkspaceIdentity
+    ) throws(SettingsRepositoryError) {
+        try repository.write(true, to: trustSetting(for: identity))
+        sessionRevocations.remove(identity.persistenceKey)
+    }
+
+    public func revoke(
+        _ identity: WorkspaceIdentity
+    ) throws(SettingsRepositoryError) {
+        sessionRevocations.insert(identity.persistenceKey)
+        try repository.remove(trustSetting(for: identity))
     }
 
     /// Returns `true` once for each persisted workspace identity, then
     /// records that the initial trust banner has been presented.
-    public func claimInitialTrustBannerPresentation(for identity: WorkspaceIdentity) -> Bool {
-        let key = trustBannerShownKeyPrefix + identity.persistenceKey
-        guard !defaults.bool(forKey: key) else {
+    public func claimInitialTrustBannerPresentation(
+        for identity: WorkspaceIdentity
+    ) throws(SettingsRepositoryError) -> Bool {
+        let setting = trustBannerSetting(for: identity)
+        if case .value(true, _) = try repository.read(setting) {
             return false
         }
-        defaults.set(true, forKey: key)
+        try repository.write(true, to: setting)
         return true
     }
+
+    private func trustSetting(
+        for identity: WorkspaceIdentity
+    ) -> CodableSetting<Bool> {
+        booleanSetting(key: keyPrefix + identity.persistenceKey)
+    }
+
+    private func trustBannerSetting(
+        for identity: WorkspaceIdentity
+    ) -> CodableSetting<Bool> {
+        booleanSetting(
+            key: trustBannerShownKeyPrefix + identity.persistenceKey
+        )
+    }
+
+    private func booleanSetting(key: String) -> CodableSetting<Bool> {
+        CodableSetting(
+            key: key,
+            currentVersion: 1,
+            migrations: [
+                .unversionedStoredValue { value in
+                    guard case .boolean(let boolean) = value else {
+                        return .failure(
+                            SettingsMigrationFailure(
+                                reason: "Expected a legacy Boolean."
+                            )
+                        )
+                    }
+                    return .success(boolean)
+                }
+            ]
+        )
+    }
+}
+
+public enum WorkspaceTrustState: Sendable, Equatable {
+    case untrusted
+    case trusted
+    case resetAfterQuarantine(SettingsQuarantineRecord)
 }
 
 @MainActor
 public final class RecentWorkspaceStore {
-    private let defaults: UserDefaults
-    private let key = "recent-workspaces"
+    private static let setting = CodableSetting<[String]>(
+        key: "recent-workspaces",
+        currentVersion: 1,
+        migrations: [
+            .unversionedStoredValue { value in
+                guard case .stringArray(let paths) = value else {
+                    return .failure(
+                        SettingsMigrationFailure(
+                            reason: "Expected a legacy string array."
+                        )
+                    )
+                }
+                return .success(paths)
+            }
+        ]
+    )
+    private let repository: CodableSettingsRepository
     private let limit: Int
 
-    public init(defaults: UserDefaults = .standard, limit: Int = 10) {
-        self.defaults = defaults
+    public init(
+        repository: CodableSettingsRepository,
+        limit: Int = 10
+    ) {
+        self.repository = repository
         self.limit = max(1, limit)
     }
 
-    public var roots: [URL] {
-        (defaults.stringArray(forKey: key) ?? [])
-            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+    public func roots(
+    ) throws(SettingsRepositoryError) -> SettingsLoadOutcome<[URL]> {
+        switch try repository.read(Self.setting) {
+        case .absent:
+            return .absent
+        case .value(let paths, let provenance):
+            return .value(
+                paths.map { URL(fileURLWithPath: $0, isDirectory: true) },
+                provenance: provenance
+            )
+        case .quarantined(let record):
+            return .quarantined(record)
+        }
     }
 
-    public func record(_ root: URL) {
+    public func record(
+        _ root: URL
+    ) throws(SettingsRepositoryError) {
         let path = root.standardizedFileURL.path
-        var paths = roots.map(\.path)
+        let existingPaths: [String]
+        switch try repository.read(Self.setting) {
+        case .value(let paths, _):
+            existingPaths = paths
+        case .absent, .quarantined:
+            existingPaths = []
+        }
+        var paths = existingPaths
         paths.removeAll { $0 == path }
         paths.insert(path, at: 0)
-        defaults.set(Array(paths.prefix(limit)), forKey: key)
+        try repository.write(
+            Array(paths.prefix(limit)),
+            to: Self.setting
+        )
     }
 
-    public func removeAll() {
-        defaults.removeObject(forKey: key)
+    public func removeAll() throws(SettingsRepositoryError) {
+        try repository.remove(Self.setting)
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import FontCore
+import SourceIO
 import SourceModel
 import SyntaxCore
 import ThemeCore
@@ -20,8 +21,7 @@ public final class CodeDocumentViewController: NSViewController {
     private let regexButton = NSButton(checkboxWithTitle: "Regex", target: nil, action: nil)
     private let matchCountLabel = NSTextField(labelWithString: "")
 
-    private var matches: [FindMatch] = []
-    private var currentMatchIndex: Int?
+    private var findState = FindStateModel()
     private var isFindBarVisible = false
     private var hoverPopover: NSPopover?
     private var diagnosticMarkers: [CodeMinimapDiagnosticMarker] = []
@@ -187,7 +187,11 @@ public final class CodeDocumentViewController: NSViewController {
         headerStack.translatesAutoresizingMaskIntoConstraints = false
 
         if let safetyModeReason = snapshot.safetyModeReason {
-            let safetyLabel = NSTextField(labelWithString: safetyModeReason.message)
+            let safetyLabel = NSTextField(
+                labelWithString: SourceRenderingSafetyPolicy
+                    .codeViewportDefault
+                    .message(for: safetyModeReason)
+            )
             safetyLabel.identifier = NSUserInterfaceItemIdentifier("document.safetyMode")
             safetyLabel.textColor = .systemOrange
             headerStack.addArrangedSubview(safetyLabel)
@@ -342,7 +346,7 @@ public final class CodeDocumentViewController: NSViewController {
             return
         }
         minimapView.updateMarkerCollections(
-            findMatches: isFindBarVisible ? matches.map(\.utf8Range) : [],
+            findMatches: isFindBarVisible ? findState.matches.map(\.utf8Range) : [],
             diagnostics: diagnosticMarkers,
             gitChanges: viewport.activeGutterChanges
         )
@@ -403,14 +407,6 @@ public final class CodeDocumentViewController: NSViewController {
 
     // MARK: - Find in File
 
-    public struct FindState: Equatable, Sendable {
-        public let query: String
-        public let options: FindOptions
-        public let currentMatchIndex: Int?
-        public let isVisible: Bool
-        fileprivate let hadKeyboardFocus: Bool
-    }
-
     public var isFindBarShown: Bool {
         isFindBarVisible
     }
@@ -419,7 +415,7 @@ public final class CodeDocumentViewController: NSViewController {
         FindState(
             query: findField.stringValue,
             options: currentFindOptions(),
-            currentMatchIndex: currentMatchIndex,
+            currentMatchIndex: findState.currentMatchIndex,
             isVisible: isFindBarVisible,
             hadKeyboardFocus: isViewLoaded
                 && view.window?.firstResponder === findField
@@ -436,8 +432,7 @@ public final class CodeDocumentViewController: NSViewController {
         findBar.isHidden = !state.isVisible
         runFind()
         if let currentMatchIndex = state.currentMatchIndex,
-           matches.indices.contains(currentMatchIndex) {
-            self.currentMatchIndex = currentMatchIndex
+           findState.select(index: currentMatchIndex) != nil {
             applyCurrentMatch()
         }
         if state.hadKeyboardFocus {
@@ -601,54 +596,49 @@ public final class CodeDocumentViewController: NSViewController {
 
     private func runFind() {
         let query = findField.stringValue
-        guard !query.isEmpty else {
-            matches = []
-            currentMatchIndex = nil
+        let outcome = findState.search(
+            snapshot: snapshot,
+            query: query,
+            options: currentFindOptions(),
+            anchorUTF8Offset: viewport.selectedUTF8Range?.lowerBound ?? 0
+        )
+        switch outcome {
+        case .empty:
             matchCountLabel.stringValue = ""
             findField.backgroundColor = .textBackgroundColor
             refreshMinimapMarkers()
             return
-        }
-
-        do {
-            matches = try TextFinder.find(in: snapshot, query: query, options: currentFindOptions())
-            findField.backgroundColor = .textBackgroundColor
-        } catch {
-            matches = []
+        case .invalid:
             findField.backgroundColor = .systemRed.withAlphaComponent(0.15)
-        }
-
-        guard !matches.isEmpty else {
-            currentMatchIndex = nil
             matchCountLabel.stringValue = "No Results"
             refreshMinimapMarkers()
             return
+        case .noResults:
+            findField.backgroundColor = .textBackgroundColor
+            matchCountLabel.stringValue = "No Results"
+            refreshMinimapMarkers()
+            return
+        case .matches:
+            findField.backgroundColor = .textBackgroundColor
         }
-
-        let anchor = viewport.selectedUTF8Range?.lowerBound ?? 0
-        currentMatchIndex = matches.firstIndex { $0.utf8Range.lowerBound >= anchor } ?? 0
         refreshMinimapMarkers()
         applyCurrentMatch()
     }
 
     private func selectMatch(offsetBy delta: Int) {
-        guard !matches.isEmpty else {
+        guard findState.select(offsetBy: delta) != nil else {
             return
         }
-        let count = matches.count
-        let base = currentMatchIndex ?? 0
-        currentMatchIndex = ((base + delta) % count + count) % count
         applyCurrentMatch()
     }
 
     private func applyCurrentMatch() {
-        guard let currentMatchIndex, matches.indices.contains(currentMatchIndex) else {
+        guard let match = findState.currentMatch else {
             return
         }
-        let match = matches[currentMatchIndex]
         try? viewport.selectUTF8Range(match.utf8Range)
         viewport.revealUTF8Offset(match.utf8Range.lowerBound)
-        matchCountLabel.stringValue = "\(currentMatchIndex + 1) of \(matches.count)"
+        matchCountLabel.stringValue = findState.statusText
     }
 }
 

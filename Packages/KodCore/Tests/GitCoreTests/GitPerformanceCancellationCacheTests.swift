@@ -1,5 +1,4 @@
 import Foundation
-import WorkspaceCore
 import XCTest
 @testable import GitCore
 
@@ -154,7 +153,7 @@ final class GitPerformanceCancellationCacheTests: XCTestCase {
 
     // MARK: Cache
 
-    func testGitContextCachesStatusUntilInvalidated() async throws {
+    func testGitContextCachesStatusAcrossEmptyInvalidationUntilChangedPathsArrive() async throws {
         let fixture = try GitFixtureBuilder.makeEmptyRepository()
         defer { try? fixture.removeAll() }
         try fixture.write("a.txt", text: "hi\n")
@@ -173,7 +172,18 @@ final class GitPerformanceCancellationCacheTests: XCTestCase {
         let cachedSnapshot = try await context.status()
         XCTAssertTrue(cachedSnapshot.entries.isEmpty, "expected the cached snapshot before invalidation")
 
-        await context.invalidate(for: WorkspaceChangeBatch(paths: [WorkspaceChangePath(path: fixture.rootURL.appendingPathComponent("a.txt").path, flags: .modified)]))
+        await context.invalidate(GitRepositoryInvalidation(changedPaths: []))
+        let snapshotAfterEmptyInvalidation = try await context.status()
+        XCTAssertTrue(
+            snapshotAfterEmptyInvalidation.entries.isEmpty,
+            "an empty change signal must leave cached values intact"
+        )
+
+        await context.invalidate(
+            GitRepositoryInvalidation(
+                changedPaths: [fixture.rootURL.appendingPathComponent("a.txt").path]
+            )
+        )
 
         let refreshedSnapshot = try await context.status()
         XCTAssertFalse(refreshedSnapshot.entries.isEmpty, "expected a fresh snapshot after invalidation")
@@ -200,7 +210,7 @@ final class GitPerformanceCancellationCacheTests: XCTestCase {
         // `GitContext`'s identity incorporates `HEAD`, which is captured
         // once at `open(at:)` time via `GitRepositoryLocation` — a real
         // branch move needs a fresh `GitContext` (as `GitContextTests`
-        // documents) or an explicit `invalidate(for:)` call; this test
+        // documents) or an explicit `invalidate(_:)` call; this test
         // instead exercises the same-HEAD cache-hit path directly
         // against `GitBlameService` to show the identity-scoped cache
         // never serves a value computed for a different revision.

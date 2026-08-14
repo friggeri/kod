@@ -104,6 +104,17 @@ struct DiagnosticsView: View {
                     )
                 )
 
+            if let persistenceError = model.persistenceErrorDescription {
+                Text(
+                    Localized.string(
+                        "Crash-reporting preference could not be saved: \(persistenceError)",
+                        comment: "Error shown when persisting the crash-reporting preference fails"
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.red)
+            }
+
             Text(
                 Localized.string(
                     """

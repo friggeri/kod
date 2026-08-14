@@ -26,17 +26,11 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let suiteName = "WorkspaceViewControllerLiveUpdateTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
-        }
-
+        let appFixture = try KodAppTestEnvironment.make(in: self)
         let identity = try WorkspaceIdentity(root: root)
         let controller = WorkspaceViewController(
             identity: identity,
-            trustStore: WorkspaceTrustStore(defaults: defaults),
-            layoutStore: WorkspaceLayoutStore(defaults: defaults)
+            dependencies: appFixture.environment.makeWorkspaceDependencies()
         )
         _ = controller.view // triggers loadView(), building splitContainer etc.
         return Fixture(root: root, controller: controller)

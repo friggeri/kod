@@ -174,10 +174,13 @@ final class CodeMinimapPresentationTests: XCTestCase {
     }
 
     func testCappedTextHandlesTabsFullWidthAndMaximumColumns() {
-        XCTAssertEqual(CodeViewport.minimapCappedText("\tAB", maxColumns: 5), "\tA")
-        XCTAssertEqual(CodeViewport.minimapCappedText("A界B", maxColumns: 3), "A界")
+        XCTAssertEqual(MinimapPresentationSnapshotBuilder.cappedText("\tAB", maxColumns: 5), "\tA")
+        XCTAssertEqual(MinimapPresentationSnapshotBuilder.cappedText("A界B", maxColumns: 3), "A界")
         XCTAssertEqual(
-            CodeViewport.minimapCappedText(String(repeating: "x", count: 200), maxColumns: 120).count,
+            MinimapPresentationSnapshotBuilder.cappedText(
+                String(repeating: "x", count: 200),
+                maxColumns: 120
+            ).count,
             120
         )
     }

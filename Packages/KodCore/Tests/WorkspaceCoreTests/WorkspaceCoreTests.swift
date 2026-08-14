@@ -1,5 +1,6 @@
 import Foundation
 import KodFixtureSupport
+import SettingsCore
 import XCTest
 @testable import WorkspaceCore
 
@@ -17,30 +18,113 @@ final class WorkspaceCoreTests: XCTestCase {
         XCTAssertEqual(identity.root, root.resolvingSymlinksInPath())
         XCTAssertEqual(identity.persistenceKey.count, 64)
 
-        let suiteName = "WorkspaceTrustStoreTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock {
-            UserDefaults(suiteName: suiteName)?
-                .removePersistentDomain(forName: suiteName)
-        }
-
-        let store = WorkspaceTrustStore(defaults: defaults)
+        let repository = CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
+        let store = WorkspaceTrustStore(repository: repository)
         XCTAssertFalse(store.isTrusted(identity))
-        XCTAssertTrue(store.claimInitialTrustBannerPresentation(for: identity))
-        XCTAssertFalse(store.claimInitialTrustBannerPresentation(for: identity))
+        XCTAssertTrue(
+            try store.claimInitialTrustBannerPresentation(for: identity)
+        )
         XCTAssertFalse(
-            WorkspaceTrustStore(defaults: defaults)
+            try store.claimInitialTrustBannerPresentation(for: identity)
+        )
+        XCTAssertFalse(
+            try WorkspaceTrustStore(repository: repository)
                 .claimInitialTrustBannerPresentation(for: identity),
             "The initial trust banner presentation must persist across store instances"
         )
-        store.trust(identity)
+        try store.trust(identity)
         XCTAssertTrue(store.isTrusted(identity))
-        store.revoke(identity)
+        try store.revoke(identity)
         XCTAssertFalse(store.isTrusted(identity))
         XCTAssertFalse(
-            store.claimInitialTrustBannerPresentation(for: identity),
+            try store.claimInitialTrustBannerPresentation(for: identity),
             "Changing trust must not make the one-time banner reappear"
         )
+    }
+
+    @MainActor
+    func testLegacyTrustBooleanMigratesAndCorruptionIsReported() throws {
+        let identity = try WorkspaceIdentity(
+            root: FileManager.default.temporaryDirectory
+        )
+        let key = "trusted-workspace.\(identity.persistenceKey)"
+        let keyValueStore = InMemorySettingsKeyValueStore()
+        let repository = CodableSettingsRepository(store: keyValueStore)
+        let store = WorkspaceTrustStore(repository: repository)
+
+        try keyValueStore.setValue(.boolean(true), forKey: key)
+        XCTAssertEqual(try store.trustState(identity), .trusted)
+        guard let migrated = try keyValueStore.value(forKey: key),
+              case .data = migrated else {
+            return XCTFail("Expected migrated trust envelope")
+        }
+
+        try keyValueStore.setValue(
+            .data(Data("corrupt".utf8)),
+            forKey: key
+        )
+        guard case .resetAfterQuarantine(let record) =
+                try store.trustState(identity) else {
+            return XCTFail("Expected corrupt trust state to be explicit")
+        }
+        XCTAssertEqual(record.key, key)
+        XCTAssertFalse(store.isTrusted(identity))
+    }
+
+    @MainActor
+    func testFailedTrustRevocationStillFailsClosedForCurrentSession() throws {
+        let identity = try WorkspaceIdentity(
+            root: FileManager.default.temporaryDirectory
+        )
+        let keyValueStore = RemoveFailingSettingsStore()
+        let repository = CodableSettingsRepository(store: keyValueStore)
+        let store = WorkspaceTrustStore(repository: repository)
+        try store.trust(identity)
+        XCTAssertTrue(store.isTrusted(identity))
+
+        XCTAssertThrowsError(try store.revoke(identity))
+
+        XCTAssertFalse(
+            store.isTrusted(identity),
+            "A failed persistence removal must not leave this session trusted"
+        )
+        XCTAssertTrue(
+            WorkspaceTrustStore(repository: repository).isTrusted(identity),
+            "The underlying persisted value remains until a later retry succeeds"
+        )
+    }
+
+    @MainActor
+    func testLegacyRecentWorkspacePathsMigrateAndRespectLimit() throws {
+        let keyValueStore = InMemorySettingsKeyValueStore(
+            initialValues: [
+                "recent-workspaces": .stringArray(["/one", "/two"])
+            ]
+        )
+        let repository = CodableSettingsRepository(store: keyValueStore)
+        let store = RecentWorkspaceStore(
+            repository: repository,
+            limit: 2
+        )
+
+        guard case .value(let legacyRoots, let provenance) =
+                try store.roots() else {
+            return XCTFail("Expected legacy recent roots")
+        }
+
+        XCTAssertEqual(legacyRoots.map(\.path), ["/one", "/two"])
+        XCTAssertEqual(
+            provenance,
+            .migrated(from: .unversioned, toVersion: 1)
+        )
+
+        try store.record(URL(fileURLWithPath: "/three"))
+        guard case .value(let roots, _) = try store.roots() else {
+            return XCTFail("Expected recent roots")
+        }
+        XCTAssertEqual(roots.map(\.path), ["/three", "/one"])
     }
 
     func testScannerRespectsIgnoreHiddenAndSymlinkRules() async throws {
@@ -142,9 +226,13 @@ final class WorkspaceCoreTests: XCTestCase {
 
         let scanner = WorkspaceScanner()
         for relativePath in ["Sources/Generated/dropped.swift", "Sources/Generated/keep.swift"] {
-            let classified = try XCTUnwrap(
-                scanner.classify(path: root.appendingPathComponent(relativePath), root: root)
+            let outcome = try scanner.classify(
+                path: root.appendingPathComponent(relativePath),
+                root: root
             )
+            guard case .entry(let classified) = outcome else {
+                return XCTFail("expected entry for \(relativePath), got \(outcome)")
+            }
             let scanned = try XCTUnwrap(scannedEntries[relativePath])
             XCTAssertEqual(classified.isIgnored, scanned.isIgnored, "mismatch for \(relativePath)")
             XCTAssertEqual(classified.relativePath, scanned.relativePath)
@@ -163,11 +251,11 @@ final class WorkspaceCoreTests: XCTestCase {
         }
         try Data("sample".utf8).write(to: root.appendingPathComponent(".git/hooks/sample"))
 
-        let classified = WorkspaceScanner().classify(
+        let classified = try WorkspaceScanner().classify(
             path: root.appendingPathComponent(".git/hooks/sample"),
             root: root
         )
-        XCTAssertNil(classified)
+        XCTAssertEqual(classified, .excluded(.gitMetadata))
     }
 
     func testClassifyPathReturnsNilForPathOutsideRoot() throws {
@@ -180,8 +268,154 @@ final class WorkspaceCoreTests: XCTestCase {
         let outsidePath = FileManager.default.temporaryDirectory
             .appendingPathComponent("elsewhere-\(UUID().uuidString).txt")
 
-        let classified = WorkspaceScanner().classify(path: outsidePath, root: root)
-        XCTAssertNil(classified)
+        let classified = try WorkspaceScanner().classify(path: outsidePath, root: root)
+        XCTAssertEqual(classified, .excluded(.outsideRoot))
+    }
+
+    func testClassifyDistinguishesAbsentFromMetadataFailure() throws {
+        let root = URL(fileURLWithPath: "/virtual-workspace", isDirectory: true)
+        let absent = root.appendingPathComponent("missing.swift")
+        let failed = root.appendingPathComponent("denied.swift")
+        let scanner = WorkspaceScanner(
+            directoryEnumerator: FixtureDirectoryEnumerator(children: [:]),
+            metadataProvider: FixtureMetadataProvider(
+                metadata: [:],
+                failures: [failed: .permissionDenied]
+            ),
+            ignoreFileSource: FixtureIgnoreFileSource(contents: [:])
+        )
+
+        XCTAssertEqual(try scanner.classify(path: absent, root: root), .absent)
+        XCTAssertThrowsError(try scanner.classify(path: failed, root: root)) { error in
+            XCTAssertEqual(
+                error as? WorkspaceScannerError,
+                .metadataFailed(failed, .permissionDenied)
+            )
+        }
+    }
+
+    func testUnreadableIgnoreRulesAreExplicitForScanAndClassify() async throws {
+        let root = URL(fileURLWithPath: "/virtual-workspace", isDirectory: true)
+        let file = root.appendingPathComponent("main.swift")
+        let scanner = WorkspaceScanner(
+            directoryEnumerator: FixtureDirectoryEnumerator(
+                children: [root: [file]]
+            ),
+            metadataProvider: FixtureMetadataProvider(
+                metadata: [
+                    file: WorkspacePathMetadata(
+                        isDirectory: false,
+                        isSymbolicLink: false,
+                        isHidden: false
+                    )
+                ]
+            ),
+            ignoreFileSource: FixtureIgnoreFileSource(
+                contents: [:],
+                failures: [root: .permissionDenied]
+            )
+        )
+
+        XCTAssertThrowsError(try scanner.classify(path: file, root: root)) { error in
+            XCTAssertEqual(
+                error as? WorkspaceScannerError,
+                .unreadableIgnoreFile(
+                    root.appendingPathComponent(".gitignore"),
+                    .permissionDenied
+                )
+            )
+        }
+
+        do {
+            for try await _ in scanner.scan(root: root) {}
+            XCTFail("scan should report unreadable ignore data")
+        } catch {
+            XCTAssertEqual(
+                error as? WorkspaceScannerError,
+                .unreadableIgnoreFile(
+                    root.appendingPathComponent(".gitignore"),
+                    .permissionDenied
+                )
+            )
+        }
+    }
+
+    func testDirectoryEnumerationPermissionFailureIsTyped() async {
+        let root = URL(fileURLWithPath: "/virtual-workspace", isDirectory: true)
+        let scanner = WorkspaceScanner(
+            directoryEnumerator: FixtureDirectoryEnumerator(
+                children: [:],
+                failures: [root: .permissionDenied]
+            ),
+            metadataProvider: FixtureMetadataProvider(metadata: [:]),
+            ignoreFileSource: FixtureIgnoreFileSource(contents: [:])
+        )
+
+        do {
+            for try await _ in scanner.scan(root: root) {}
+            XCTFail("scan should report directory enumeration failure")
+        } catch {
+            XCTAssertEqual(
+                error as? WorkspaceScannerError,
+                .directoryEnumerationFailed(root, .permissionDenied)
+            )
+        }
+    }
+
+    func testInjectedCapabilitiesKeepInitialAndIncrementalClassificationConsistentWithoutDiskWrites() async throws {
+        let root = URL(fileURLWithPath: "/virtual-workspace", isDirectory: true)
+        let sources = root.appendingPathComponent("Sources", isDirectory: true)
+        let kept = sources.appendingPathComponent("keep.swift")
+        let dropped = sources.appendingPathComponent("drop.tmp")
+        let metadata: [URL: WorkspacePathMetadata] = [
+            sources: WorkspacePathMetadata(
+                isDirectory: true,
+                isSymbolicLink: false,
+                isHidden: false
+            ),
+            kept: WorkspacePathMetadata(
+                isDirectory: false,
+                isSymbolicLink: false,
+                isHidden: false
+            ),
+            dropped: WorkspacePathMetadata(
+                isDirectory: false,
+                isSymbolicLink: false,
+                isHidden: false
+            )
+        ]
+        let scanner = WorkspaceScanner(
+            directoryEnumerator: FixtureDirectoryEnumerator(
+                children: [
+                    root: [sources],
+                    sources: [dropped, kept]
+                ]
+            ),
+            metadataProvider: FixtureMetadataProvider(metadata: metadata),
+            ignoreFileSource: FixtureIgnoreFileSource(
+                contents: [root: "*.tmp\n"]
+            )
+        )
+
+        var initial: [String: WorkspaceFileEntry] = [:]
+        for try await batch in scanner.scan(
+            root: root,
+            options: WorkspaceDiscoveryOptions(includeIgnored: true)
+        ) {
+            for entry in batch.entries {
+                initial[entry.relativePath] = entry
+            }
+        }
+
+        for path in [kept, dropped] {
+            guard case .entry(let incremental) = try scanner.classify(
+                path: path,
+                root: root
+            ) else {
+                return XCTFail("expected injected metadata to classify \(path)")
+            }
+            XCTAssertEqual(incremental, initial[incremental.relativePath])
+        }
     }
 
     func testFilenameIndexRanksBasenameAndContiguousMatches() async {
@@ -197,6 +431,66 @@ final class WorkspaceCoreTests: XCTestCase {
 
         let fuzzy = await index.search("featureusers")
         XCTAssertEqual(fuzzy.first?.entry.relativePath, "Sources/Feature/UserService.swift")
+    }
+
+    private struct FixtureDirectoryEnumerator: DirectoryEnumerator {
+        let children: [URL: [URL]]
+        let failures: [URL: WorkspaceAccessFailure]
+
+        init(
+            children: [URL: [URL]],
+            failures: [URL: WorkspaceAccessFailure] = [:]
+        ) {
+            self.children = children
+            self.failures = failures
+        }
+
+        func children(of directory: URL) throws -> [URL] {
+            if let failure = failures[directory] {
+                throw failure
+            }
+            return children[directory] ?? []
+        }
+    }
+
+    private struct FixtureMetadataProvider: PathMetadataProvider {
+        let metadata: [URL: WorkspacePathMetadata]
+        let failures: [URL: WorkspaceAccessFailure]
+
+        init(
+            metadata: [URL: WorkspacePathMetadata],
+            failures: [URL: WorkspaceAccessFailure] = [:]
+        ) {
+            self.metadata = metadata
+            self.failures = failures
+        }
+
+        func metadata(for path: URL) throws -> WorkspacePathMetadata? {
+            if let failure = failures[path] {
+                throw failure
+            }
+            return metadata[path]
+        }
+    }
+
+    private struct FixtureIgnoreFileSource: IgnoreFileSource {
+        let contents: [URL: String]
+        let failures: [URL: WorkspaceAccessFailure]
+
+        init(
+            contents: [URL: String],
+            failures: [URL: WorkspaceAccessFailure] = [:]
+        ) {
+            self.contents = contents
+            self.failures = failures
+        }
+
+        func ignoreFileContents(in directory: URL) throws -> String? {
+            if let failure = failures[directory] {
+                throw failure
+            }
+            return contents[directory]
+        }
     }
 
     func testFilenameIndexIncrementalRemoveDropsExactAndFuzzyMatchesWithoutFullRescan() async {

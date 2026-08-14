@@ -1,4 +1,5 @@
 import Foundation
+import SourceIO
 import SourceModel
 import SyntaxCore
 import ThemeCore
@@ -215,7 +216,10 @@ public enum MarkdownRenderer {
             return []
         }
         let snapshot = SourceSnapshot(text: code)
-        guard snapshot.safetyModeReason == nil else {
+        guard SourceRenderingSafetyPolicy.codeViewportDefault.reason(
+            fileByteCount: snapshot.originalData.count,
+            longestLineUTF8Length: snapshot.longestLineUTF8Length
+        ) == nil else {
             return []
         }
         do {
