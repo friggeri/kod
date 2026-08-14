@@ -338,6 +338,13 @@ final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
 
 @MainActor
 final class WorkspaceViewController: NSViewController {
+    private enum SidebarMode: Int {
+        case explorer
+        case sourceControl
+        case search
+        case problems
+    }
+
     /// The headless owner of this workspace's non-view subsystems
     /// (discovery, filename index, watcher, search, Git, language
     /// services, layout persistence). The controller subscribes to its
@@ -457,9 +464,9 @@ final class WorkspaceViewController: NSViewController {
     private let sidebarModeControl = NSSegmentedControl(
         labels: [
             Localized.string("Explorer", comment: "Sidebar mode segment title for the file Explorer"),
+            Localized.string("Source Control", comment: "Sidebar mode segment title for the Source Control panel"),
             Localized.string("Search", comment: "Sidebar mode segment title for workspace Search"),
-            Localized.string("Problems", comment: "Sidebar mode segment title for the Problems panel"),
-            Localized.string("Source Control", comment: "Sidebar mode segment title for the Source Control panel")
+            Localized.string("Problems", comment: "Sidebar mode segment title for the Problems panel")
         ],
         trackingMode: .selectOne,
         target: nil,
@@ -1030,7 +1037,7 @@ final class WorkspaceViewController: NSViewController {
     /// Reveals the Source Control sidebar (mirrors `searchWorkspace(_:)`).
     @objc
     func showSourceControl(_ sender: Any?) {
-        sidebarModeControl.selectedSegment = 3
+        sidebarModeControl.selectedSegment = SidebarMode.sourceControl.rawValue
         sidebarModeChanged(nil)
     }
 
@@ -1040,7 +1047,7 @@ final class WorkspaceViewController: NSViewController {
     /// via Tab-then-arrow-keys to `sidebarModeControl`.
     @objc
     func showProblems(_ sender: Any?) {
-        sidebarModeControl.selectedSegment = 2
+        sidebarModeControl.selectedSegment = SidebarMode.problems.rawValue
         sidebarModeChanged(nil)
     }
 
@@ -1416,12 +1423,6 @@ final class WorkspaceViewController: NSViewController {
 
     private func configureLanguageInteractions(for controller: CodeDocumentViewController) {
         controller.viewport.onCommandClick = { [weak self, weak controller] utf8Offset in
-            guard let self, let controller else {
-                return
-            }
-            self.performDefinitionNavigation(from: controller, utf8Offset: utf8Offset)
-        }
-        controller.viewport.onLinkClick = { [weak self, weak controller] utf8Offset in
             guard let self, let controller else {
                 return
             }
@@ -2306,7 +2307,7 @@ final class WorkspaceViewController: NSViewController {
         container.identifier = NSUserInterfaceItemIdentifier("workspace.sidebar")
 
         sidebarModeControl.segmentStyle = .texturedRounded
-        sidebarModeControl.selectedSegment = 0
+        sidebarModeControl.selectedSegment = SidebarMode.explorer.rawValue
         sidebarModeControl.target = self
         sidebarModeControl.action = #selector(sidebarModeChanged(_:))
         sidebarModeControl.identifier = NSUserInterfaceItemIdentifier("workspace.sidebarMode")
@@ -2376,7 +2377,8 @@ final class WorkspaceViewController: NSViewController {
                 equalTo: container.safeAreaLayoutGuide.topAnchor,
                 constant: 8
             ),
-            sidebarModeControl.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            sidebarModeControl.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            sidebarModeControl.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 8),
             sidebarModeControl.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8),
 
             explorerContainer.topAnchor.constraint(equalTo: sidebarModeControl.bottomAnchor, constant: 6),
@@ -2454,16 +2456,16 @@ final class WorkspaceViewController: NSViewController {
 
     @objc
     private func sidebarModeChanged(_ sender: Any?) {
-        let segment = sidebarModeControl.selectedSegment
-        explorerContainer.isHidden = segment != 0
-        searchSidebarController.view.isHidden = segment != 1
-        problemsViewController.view.isHidden = segment != 2
-        sourceControlSidebarController.view.isHidden = segment != 3
-        if segment == 0 {
+        let mode = SidebarMode(rawValue: sidebarModeControl.selectedSegment) ?? .explorer
+        explorerContainer.isHidden = mode != .explorer
+        searchSidebarController.view.isHidden = mode != .search
+        problemsViewController.view.isHidden = mode != .problems
+        sourceControlSidebarController.view.isHidden = mode != .sourceControl
+        if mode == .explorer {
             refreshGitDecorationAppearance()
-        } else if segment == 1 {
+        } else if mode == .search {
             searchSidebarController.focusSearchField()
-        } else if segment == 3 {
+        } else if mode == .sourceControl {
             sourceControlSidebarController.refreshAppearance()
         }
     }
@@ -2472,7 +2474,7 @@ final class WorkspaceViewController: NSViewController {
     /// Shift-F, SPEC 5.7).
     @objc
     func searchWorkspace(_ sender: Any?) {
-        sidebarModeControl.selectedSegment = 1
+        sidebarModeControl.selectedSegment = SidebarMode.search.rawValue
         sidebarModeChanged(nil)
     }
 

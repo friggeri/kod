@@ -19,7 +19,6 @@ public final class CodeViewport: NSView {
     /// source positions without depending on LanguageClient; the owning app
     /// decides which workspace service handles the request.
     public var onCommandClick: ((Int) -> Void)?
-    public var onLinkClick: ((Int) -> Void)?
     public var onHover: ((Int, Range<Int>, NSRect) -> Void)?
     public var onHoverExit: (() -> Void)?
     public var onGutterChangeClick: ((String) -> Void)?
@@ -81,6 +80,7 @@ public final class CodeViewport: NSView {
     private var characterWidth: CGFloat = 8
     private var anchorUTF8Offset: Int?
     private var currentHoverUTF8Offset: Int?
+    private var currentModifierFlags: NSEvent.ModifierFlags = []
     private(set) var isFoldIndicatorLaneHovered = false
     private var hoverTrackingArea: NSTrackingArea?
     private var lineCache: [Int: CTLine] = [:]
@@ -739,6 +739,7 @@ public final class CodeViewport: NSView {
 
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        currentModifierFlags = event.modifierFlags
         let point = convert(event.locationInWindow, from: nil)
         if let change = gutterChange(at: point) {
             onGutterChangeClick?(change.id)
@@ -755,10 +756,6 @@ public final class CodeViewport: NSView {
             onCommandClick?(offset)
             return
         }
-        if hoveredLinkUTF8Range?.contains(offset) == true, let onLinkClick {
-            onLinkClick(offset)
-            return
-        }
         anchorUTF8Offset = offset
         selectedUTF8Range = nil
         needsDisplay = true
@@ -766,6 +763,7 @@ public final class CodeViewport: NSView {
     }
 
     public override func mouseMoved(with event: NSEvent) {
+        currentModifierFlags = event.modifierFlags
         let point = convert(event.locationInWindow, from: nil)
         updateFoldIndicatorLaneHover(at: point)
         guard point.x >= gutterWidth else {
@@ -781,7 +779,10 @@ public final class CodeViewport: NSView {
         }
         let offset = sourceOffset(at: point)
         currentHoverUTF8Offset = offset
-        cursor(forUTF8Offset: offset).set()
+        cursor(
+            forUTF8Offset: offset,
+            modifierFlags: currentModifierFlags
+        ).set()
         let anchorRect = NSRect(
             x: point.x,
             y: floor(point.y / lineHeight) * lineHeight,
@@ -797,9 +798,21 @@ public final class CodeViewport: NSView {
 
     public override func mouseExited(with event: NSEvent) {
         currentHoverUTF8Offset = nil
+        currentModifierFlags = []
         setFoldIndicatorLaneHovered(false)
         NSCursor.arrow.set()
         onHoverExit?()
+    }
+
+    public override func flagsChanged(with event: NSEvent) {
+        currentModifierFlags = event.modifierFlags
+        if let currentHoverUTF8Offset {
+            cursor(
+                forUTF8Offset: currentHoverUTF8Offset,
+                modifierFlags: currentModifierFlags
+            ).set()
+        }
+        super.flagsChanged(with: event)
     }
 
     private func updateFoldIndicatorLaneHover(at point: NSPoint) {
@@ -997,7 +1010,10 @@ public final class CodeViewport: NSView {
         lineCache.removeAll(keepingCapacity: true)
         needsDisplay = true
         if let currentHoverUTF8Offset {
-            cursor(forUTF8Offset: currentHoverUTF8Offset).set()
+            cursor(
+                forUTF8Offset: currentHoverUTF8Offset,
+                modifierFlags: currentModifierFlags
+            ).set()
         }
     }
 
@@ -1082,8 +1098,12 @@ public final class CodeViewport: NSView {
             || CharacterSet.nonBaseCharacters.contains(scalar)
     }
 
-    func cursor(forUTF8Offset utf8Offset: Int) -> NSCursor {
-        if hoveredLinkUTF8Range?.contains(utf8Offset) == true {
+    func cursor(
+        forUTF8Offset utf8Offset: Int,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> NSCursor {
+        if modifierFlags.contains(.command),
+           hoveredLinkUTF8Range?.contains(utf8Offset) == true {
             return .pointingHand
         }
         return .iBeam

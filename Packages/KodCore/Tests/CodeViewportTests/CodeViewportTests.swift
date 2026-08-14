@@ -132,11 +132,13 @@ final class CodeViewportTests: XCTestCase {
         window.contentView = viewport
 
         var commandClickOffset: Int?
-        var linkClickOffset: Int?
+        var commandClickCount = 0
         var hoverOffset: Int?
         var hoverExited = false
-        viewport.onCommandClick = { commandClickOffset = $0 }
-        viewport.onLinkClick = { linkClickOffset = $0 }
+        viewport.onCommandClick = {
+            commandClickCount += 1
+            commandClickOffset = $0
+        }
         viewport.onHover = { offset, _, _ in hoverOffset = offset }
         viewport.onHoverExit = { hoverExited = true }
 
@@ -158,7 +160,7 @@ final class CodeViewportTests: XCTestCase {
         let clickOffset = try XCTUnwrap(commandClickOffset)
         viewport.setHoveredLinkUTF8Range(clickOffset..<(clickOffset + 1))
 
-        let linkClick = try XCTUnwrap(
+        let regularClick = try XCTUnwrap(
             NSEvent.mouseEvent(
                 with: .leftMouseDown,
                 location: location,
@@ -171,7 +173,7 @@ final class CodeViewportTests: XCTestCase {
                 pressure: 1
             )
         )
-        viewport.mouseDown(with: linkClick)
+        viewport.mouseDown(with: regularClick)
 
         let mouseMoved = try XCTUnwrap(
             NSEvent.mouseEvent(
@@ -189,11 +191,11 @@ final class CodeViewportTests: XCTestCase {
         viewport.mouseMoved(with: mouseMoved)
         viewport.mouseExited(with: mouseMoved)
 
-        XCTAssertNotNil(commandClickOffset)
-        XCTAssertEqual(linkClickOffset, commandClickOffset)
-        XCTAssertEqual(hoverOffset, commandClickOffset)
+        XCTAssertEqual(commandClickOffset, hoverOffset)
+        XCTAssertEqual(commandClickCount, 1, "A regular click must remain a selection gesture")
         XCTAssertTrue(hoverExited)
         XCTAssertEqual(viewport.focusedUTF8Offset, commandClickOffset)
+        XCTAssertNil(viewport.selectedUTF8Range)
         XCTAssertEqual(snapshot.text, "const client = api;\n")
     }
 

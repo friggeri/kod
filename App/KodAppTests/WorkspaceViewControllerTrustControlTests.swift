@@ -153,22 +153,38 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         XCTAssertFalse(sidebar is NSVisualEffectView)
     }
 
-    func testSidebarOmitsSymbolsAndUsesReadableExplorerFont() throws {
+    func testSidebarModesAreCenteredOrderedAndUseReadableExplorerFont() throws {
         let (controller, _, _, _) = try makeFixture()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        window.layoutIfNeeded()
         let modeControl = try XCTUnwrap(
             findView(
                 identifier: "workspace.sidebarMode",
                 in: controller.view
             ) as? NSSegmentedControl
         )
+        let sidebar = try XCTUnwrap(
+            findView(identifier: "workspace.sidebar", in: controller.view)
+        )
 
         XCTAssertEqual(modeControl.segmentCount, 4)
         XCTAssertEqual(
             (0..<modeControl.segmentCount).compactMap { modeControl.label(forSegment: $0) },
-            ["Explorer", "Search", "Problems", "Source Control"]
+            ["Explorer", "Source Control", "Search", "Problems"]
         )
+        XCTAssertEqual(modeControl.frame.midX, sidebar.bounds.midX, accuracy: 1)
 
         controller.showSourceControl(nil)
+        XCTAssertEqual(modeControl.selectedSegment, 1)
+        controller.searchWorkspace(nil)
+        XCTAssertEqual(modeControl.selectedSegment, 2)
+        controller.showProblems(nil)
         XCTAssertEqual(modeControl.selectedSegment, 3)
 
         let outline = try XCTUnwrap(

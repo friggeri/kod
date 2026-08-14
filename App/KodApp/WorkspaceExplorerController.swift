@@ -7,7 +7,7 @@ import ThemeCore
 import WorkspaceCore
 
 /// Owns the workspace Explorer: the outline view, its tree-node cache and
-/// entries-by-parent model, the hidden/ignored visibility toggles, the
+/// entries-by-parent model, the hidden-file visibility control, the
 /// data source/delegate, the contextual menu, and the icon + Git status
 /// decoration presentation for every row.
 ///
@@ -24,8 +24,8 @@ final class WorkspaceExplorerController: NSObject {
         /// A file row was clicked and should be opened in the active
         /// editor group.
         case openFile(WorkspaceFileEntry)
-        /// The hidden/ignored reveal toggles changed; discovery must be
-        /// restarted with these options.
+        /// Hidden-file visibility changed; discovery must be restarted with
+        /// these options.
         case changeVisibility(WorkspaceDiscoveryOptions)
     }
 
@@ -45,12 +45,10 @@ final class WorkspaceExplorerController: NSObject {
         )
     )
     private let showHiddenFilesButton = NSButton(
-        checkboxWithTitle: Localized.string("Hidden", comment: "Explorer checkbox that reveals hidden files"),
-        target: nil,
-        action: nil
-    )
-    private let showIgnoredFilesButton = NSButton(
-        checkboxWithTitle: Localized.string("Ignored", comment: "Explorer checkbox that reveals Git-ignored files"),
+        checkboxWithTitle: Localized.string(
+            "Show Hidden Files",
+            comment: "Explorer checkbox that reveals hidden files"
+        ),
         target: nil,
         action: nil
     )
@@ -113,13 +111,7 @@ final class WorkspaceExplorerController: NSObject {
         showHiddenFilesButton.state = options.includeHidden ? .on : .off
         showHiddenFilesButton.controlSize = .small
 
-        showIgnoredFilesButton.identifier = NSUserInterfaceItemIdentifier("workspace.showIgnoredFiles")
-        showIgnoredFilesButton.target = self
-        showIgnoredFilesButton.action = #selector(visibilityChanged(_:))
-        showIgnoredFilesButton.state = options.includeIgnored ? .on : .off
-        showIgnoredFilesButton.controlSize = .small
-
-        let footer = NSStackView(views: [statusLabel, showHiddenFilesButton, showIgnoredFilesButton])
+        let footer = NSStackView(views: [statusLabel, showHiddenFilesButton])
         footer.orientation = .horizontal
         footer.alignment = .centerY
         footer.spacing = 8
@@ -197,9 +189,9 @@ final class WorkspaceExplorerController: NSObject {
         outlineView.reloadData()
     }
 
-    /// Whether a live-updated entry is visible under the *current* reveal
-    /// options — a hidden/ignored file only joins the tree once the user
-    /// asks for it.
+    /// Whether a live-updated entry is visible under the current discovery
+    /// policy. The app always includes ignored files; hidden files remain
+    /// user-controlled.
     func shouldInclude(_ entry: WorkspaceFileEntry) -> Bool {
         let options = discoveryOptions()
         return (!entry.isHidden || options.includeHidden)
@@ -285,7 +277,7 @@ final class WorkspaceExplorerController: NSObject {
             .changeVisibility(
                 WorkspaceDiscoveryOptions(
                     includeHidden: showHiddenFilesButton.state == .on,
-                    includeIgnored: showIgnoredFilesButton.state == .on
+                    includeIgnored: true
                 )
             )
         )

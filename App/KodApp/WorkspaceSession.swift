@@ -332,7 +332,7 @@ final class WorkspaceSession {
 
     private(set) var state: WorkspaceSessionState = .initialized
     private(set) var health = WorkspaceHealth()
-    private(set) var discoveryOptions = WorkspaceDiscoveryOptions()
+    private(set) var discoveryOptions = WorkspaceDiscoveryOptions(includeIgnored: true)
     private(set) var discoveryGeneration = 0
 
     // MARK: - Events published to UI

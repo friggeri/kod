@@ -109,54 +109,6 @@
         }
       }
     },
-    "Hidden": {
-      "comment": "Compact toggle for including hidden files in workspace search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hidden"
-          }
-        }
-      }
-    },
-    "Ignored": {
-      "comment": "Compact toggle for including ignored files in workspace search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ignored"
-          }
-        }
-      }
-    },
-    "Include Hidden Files": {
-      "comment": "Tooltip and accessibility label for including hidden files in workspace search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Include Hidden Files"
-          }
-        }
-      }
-    },
-    "Include Ignored Files": {
-      "comment": "Tooltip and accessibility label for including ignored files in workspace search",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Include Ignored Files"
-          }
-        }
-      }
-    },
     "Line %lld: %@": {
       "localizations": {
         "en": {
@@ -273,6 +225,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Searching…"
+          }
+        }
+      }
+    },
+    "Show Hidden Files": {
+      "comment": "Checkbox that includes hidden files in workspace search",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Hidden Files"
           }
         }
       }

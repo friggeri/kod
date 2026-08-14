@@ -129,7 +129,7 @@ Opening a workspace must not automatically fetch network content.
 ### 5.3 File explorer and quick open
 
 - The Explorer presents a lazily expanded tree, not 100,000 prebuilt row objects.
-- Default exclusions follow Git ignore rules and Kod's global exclusions. Users can reveal ignored and hidden files.
+- Git-ignored files are shown by default. Kod's global exclusions still apply, and the Explorer exposes only a **Show Hidden Files** checkbox.
 - Symlinks are displayed but are not recursively indexed outside the root by default.
 - Single-click opens a replaceable preview tab; double-click, a navigation jump, or explicit pinning makes the tab persistent.
 - Quick Open searches the in-memory filename index using path-aware fuzzy matching.
@@ -363,7 +363,7 @@ Kod must preserve column alignment for tabs, indentation guides, selections, dia
 - Search is on demand; there is no persistent content index.
 - Results stream by file and line with match ranges.
 - Search supports regular expressions, case, whole word, include globs, exclude globs, hidden files, and ignored files.
-- Default behavior respects `.gitignore`, `.ignore`, global Git excludes where discoverable without executing helpers, and Kod exclusions.
+- Paths matched by `.gitignore`, `.ignore`, or global Git excludes are searched by default. `.git` remains unconditionally excluded.
 - Every query is cancellable. Starting a new query terminates or supersedes the prior query.
 - Result limits are explicit. Reaching a limit never appears as a complete search.
 - Search subprocess output is parsed incrementally and bounded to prevent unbounded memory growth.

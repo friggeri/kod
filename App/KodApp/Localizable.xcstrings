@@ -1338,18 +1338,6 @@
         }
       }
     },
-    "Hidden" : {
-      "comment" : "Checkbox toggling inclusion of hidden files in workspace search",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hidden"
-          }
-        }
-      }
-    },
     "Hide Kod" : {
       "comment" : "Application menu item that hides the app",
       "extractionState" : "manual",
@@ -1394,18 +1382,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Hint"
-          }
-        }
-      }
-    },
-    "Ignored" : {
-      "comment" : "Ignored-file label used by Explorer accessibility and ignored-file visibility controls",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ignored"
           }
         }
       }
@@ -2663,6 +2639,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Show Git Blame"
+          }
+        }
+      }
+    },
+    "Show Hidden Files" : {
+      "comment" : "Explorer checkbox that reveals hidden files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Hidden Files"
           }
         }
       }

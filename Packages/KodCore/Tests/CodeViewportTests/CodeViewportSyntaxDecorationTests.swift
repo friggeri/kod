@@ -105,7 +105,7 @@ final class CodeViewportSyntaxDecorationTests: XCTestCase {
         XCTAssertFalse(keyColor.isEqual(valueColor))
     }
 
-    func testLSPConfirmedHoverUnderlinesIdentifierAndUsesPointingHandCursor() throws {
+    func testLSPConfirmedHoverUsesPointingHandCursorOnlyWithCommandHeld() throws {
         let snapshot = SourceSnapshot(text: "const client = api;\n")
         let viewport = CodeViewport(snapshot: snapshot)
         let clientOffset = try XCTUnwrap(snapshot.text.range(of: "client"))
@@ -130,10 +130,26 @@ final class CodeViewportSyntaxDecorationTests: XCTestCase {
             ) as? Int,
             NSUnderlineStyle.single.rawValue
         )
-        XCTAssertTrue(viewport.cursor(forUTF8Offset: utf8Offset) === NSCursor.pointingHand)
+        XCTAssertTrue(
+            viewport.cursor(
+                forUTF8Offset: utf8Offset,
+                modifierFlags: []
+            ) === NSCursor.iBeam
+        )
+        XCTAssertTrue(
+            viewport.cursor(
+                forUTF8Offset: utf8Offset,
+                modifierFlags: [.command]
+            ) === NSCursor.pointingHand
+        )
 
         viewport.setHoveredLinkUTF8Range(nil)
-        XCTAssertTrue(viewport.cursor(forUTF8Offset: utf8Offset) === NSCursor.iBeam)
+        XCTAssertTrue(
+            viewport.cursor(
+                forUTF8Offset: utf8Offset,
+                modifierFlags: [.command]
+            ) === NSCursor.iBeam
+        )
     }
 
     func testLinkCandidateRangeSupportsUnicodeIdentifiers() throws {

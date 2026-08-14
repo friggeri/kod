@@ -129,10 +129,8 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
         )
 
         group.openTab(relativePath: "client.ts", pinned: true, snapshot: snapshot)
-
         let viewport = try XCTUnwrap(group.currentDocumentController?.viewport)
         XCTAssertNotNil(viewport.onCommandClick)
-        XCTAssertNotNil(viewport.onLinkClick)
         XCTAssertNotNil(viewport.onHover)
         XCTAssertNotNil(viewport.onHoverExit)
     }
@@ -287,7 +285,7 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
         )
     }
 
-    func testIgnoredLiveUpdateStaysHiddenUntilExplorerRevealIsEnabled() async throws {
+    func testIgnoredLiveUpdateAppearsWithoutExplorerReveal() throws {
         let fixture = try makeFixture()
         try Data("data/\n".utf8).write(to: fixture.root.appendingPathComponent(".gitignore"))
         try FileManager.default.createDirectory(
@@ -298,32 +296,12 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
         try Data("{}".utf8).write(to: ignoredFile)
 
         fixture.controller.handleChangedPath(ignoredFile.path)
-        XCTAssertFalse(
-            (fixture.controller.entriesByParent["data"] ?? []).contains {
-                $0.relativePath == "data/cache.json"
-            }
-        )
-
-        fixture.controller.viewDidAppear()
-        let revealIgnored = try XCTUnwrap(
-            findView(
-                identifier: "workspace.showIgnoredFiles",
-                in: fixture.controller.view
-            ) as? NSButton
-        )
-        revealIgnored.performClick(nil)
-
-        try await waitUntil {
-            (fixture.controller.entriesByParent["data"] ?? []).contains {
-                $0.relativePath == "data/cache.json"
-            }
-        }
-        XCTAssertEqual(revealIgnored.state, .on)
         XCTAssertTrue(
-            (fixture.controller.entriesByParent[""] ?? []).contains {
-                $0.relativePath == "data"
+            (fixture.controller.entriesByParent["data"] ?? []).contains {
+                $0.relativePath == "data/cache.json"
             }
         )
+        XCTAssertTrue(fixture.controller.session.discoveryOptions.includeIgnored)
     }
 
     // MARK: - Real FSEvents end to end

@@ -15,7 +15,7 @@ final class WorkspaceExplorerControllerTests: XCTestCase {
     private let root = URL(fileURLWithPath: "/tmp/workspace-explorer-tests")
 
     private func makeController(
-        options: WorkspaceDiscoveryOptions = WorkspaceDiscoveryOptions(),
+        options: WorkspaceDiscoveryOptions = WorkspaceDiscoveryOptions(includeIgnored: true),
         decoration: @escaping (String, Bool) -> GitExplorerDecoration? = { _, _ in nil }
     ) -> WorkspaceExplorerController {
         WorkspaceExplorerController(
@@ -108,10 +108,10 @@ final class WorkspaceExplorerControllerTests: XCTestCase {
         XCTAssertTrue((controller.entriesByParent["nested"] ?? []).isEmpty)
     }
 
-    func testHiddenAndIgnoredEntriesOnlyJoinTheTreeWhenRevealed() {
+    func testOnlyHiddenEntriesRequireReveal() {
         let hiding = makeController()
         XCTAssertFalse(hiding.shouldInclude(entry(".env", isHidden: true)))
-        XCTAssertFalse(hiding.shouldInclude(entry("build/out", isIgnored: true)))
+        XCTAssertTrue(hiding.shouldInclude(entry("build/out", isIgnored: true)))
         XCTAssertTrue(hiding.shouldInclude(entry("a.txt")))
 
         let revealing = makeController(
@@ -229,7 +229,7 @@ final class WorkspaceExplorerControllerTests: XCTestCase {
         XCTAssertEqual(cell.textField?.textColor, .labelColor)
     }
 
-    func testRevealTogglesEmitAVisibilityIntentWithBothFlags() throws {
+    func testShowHiddenFilesEmitsVisibilityIntentThatKeepsIgnoredFilesVisible() throws {
         let controller = makeController()
         let container = controller.makeView()
         var intents: [WorkspaceExplorerController.Intent] = []
@@ -238,23 +238,15 @@ final class WorkspaceExplorerControllerTests: XCTestCase {
         let hidden = try XCTUnwrap(
             findView(identifier: "workspace.showHiddenFiles", in: container) as? NSButton
         )
-        let ignored = try XCTUnwrap(
-            findView(identifier: "workspace.showIgnoredFiles", in: container) as? NSButton
-        )
-        hidden.state = .on
-        hidden.sendAction(hidden.action, to: hidden.target)
-        ignored.state = .on
-        ignored.sendAction(ignored.action, to: ignored.target)
+        XCTAssertEqual(hidden.title, "Show Hidden Files")
+        hidden.performClick(nil)
 
-        XCTAssertEqual(intents.count, 2)
-        guard case .changeVisibility(let first) = intents[0],
-              case .changeVisibility(let second) = intents[1] else {
-            return XCTFail("Expected two visibility intents")
+        XCTAssertEqual(intents.count, 1)
+        guard case .changeVisibility(let options) = intents[0] else {
+            return XCTFail("Expected a visibility intent")
         }
-        XCTAssertTrue(first.includeHidden)
-        XCTAssertFalse(first.includeIgnored)
-        XCTAssertTrue(second.includeHidden)
-        XCTAssertTrue(second.includeIgnored)
+        XCTAssertTrue(options.includeHidden)
+        XCTAssertTrue(options.includeIgnored)
     }
 
     func testExplorerViewKeepsItsAccessibilityIdentifiersAndContextMenu() throws {
@@ -264,7 +256,7 @@ final class WorkspaceExplorerControllerTests: XCTestCase {
         XCTAssertNotNil(findView(identifier: "workspace.explorer", in: container))
         XCTAssertNotNil(findView(identifier: "workspace.discoveryStatus", in: container))
         XCTAssertNotNil(findView(identifier: "workspace.showHiddenFiles", in: container))
-        XCTAssertNotNil(findView(identifier: "workspace.showIgnoredFiles", in: container))
+        XCTAssertNil(findView(identifier: "workspace.showIgnoredFiles", in: container))
 
         let menu = try XCTUnwrap(controller.outlineView.menu)
         XCTAssertEqual(menu.items.count, 1)

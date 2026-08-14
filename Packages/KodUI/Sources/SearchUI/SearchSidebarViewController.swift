@@ -42,7 +42,6 @@ public final class SearchSidebarViewController: NSViewController {
     private let searchDetailsButton = NSButton()
     private let searchDetailsStack = NSStackView()
     private let includeHiddenButton = NSButton()
-    private let includeIgnoredButton = NSButton()
     private let includeGlobField = NSTextField()
     private let excludeGlobField = NSTextField()
     private let statusLabel = NSTextField(labelWithString: "")
@@ -228,18 +227,14 @@ public final class SearchSidebarViewController: NSViewController {
         searchRow.spacing = 4
         searchRow.translatesAutoresizingMaskIntoConstraints = false
 
-        configureToggleButton(
+        configureCheckboxButton(
             includeHiddenButton,
-            title: searchUIStrings.string("Hidden", comment: "Compact toggle for including hidden files in workspace search"),
-            label: searchUIStrings.string("Include Hidden Files", comment: "Tooltip and accessibility label for including hidden files in workspace search")
-        )
-        configureToggleButton(
-            includeIgnoredButton,
-            title: searchUIStrings.string("Ignored", comment: "Compact toggle for including ignored files in workspace search"),
-            label: searchUIStrings.string("Include Ignored Files", comment: "Tooltip and accessibility label for including ignored files in workspace search")
+            title: searchUIStrings.string(
+                "Show Hidden Files",
+                comment: "Checkbox that includes hidden files in workspace search"
+            )
         )
         includeHiddenButton.identifier = NSUserInterfaceItemIdentifier("search.includeHidden")
-        includeIgnoredButton.identifier = NSUserInterfaceItemIdentifier("search.includeIgnored")
 
         configureFilterField(
             includeGlobField,
@@ -262,7 +257,7 @@ public final class SearchSidebarViewController: NSViewController {
         )
         let visibilitySpacer = NSView()
         let visibilityStack = NSStackView(
-            views: [includeHiddenButton, includeIgnoredButton, visibilitySpacer]
+            views: [includeHiddenButton, visibilitySpacer]
         )
         visibilityStack.orientation = .horizontal
         visibilityStack.alignment = .centerY
@@ -356,7 +351,6 @@ public final class SearchSidebarViewController: NSViewController {
             includeGlobField.heightAnchor.constraint(equalToConstant: 24),
             excludeGlobField.heightAnchor.constraint(equalToConstant: 24),
             includeHiddenButton.heightAnchor.constraint(equalToConstant: 22),
-            includeIgnoredButton.heightAnchor.constraint(equalToConstant: 22),
 
             statusLabel.widthAnchor.constraint(equalTo: controlsStack.widthAnchor),
 
@@ -455,16 +449,12 @@ public final class SearchSidebarViewController: NSViewController {
             return
         }
 
-        let options = SearchOptions(
-            matchCase: matchCaseButton.state == .on,
-            wholeWord: wholeWordButton.state == .on,
-            useRegex: regexButton.state == .on,
-            includeHidden: includeHiddenButton.state == .on,
-            includeIgnored: includeIgnoredButton.state == .on,
-            includeGlobs: Self.splitGlobs(includeGlobField.stringValue),
-            excludeGlobs: Self.splitGlobs(excludeGlobField.stringValue)
+        let query = SearchQuery(
+            pattern: pattern,
+            root: root,
+            options: currentSearchOptions,
+            version: version
         )
-        let query = SearchQuery(pattern: pattern, root: root, options: options, version: version)
         setStatus(
             searchUIStrings.string("Searching…", comment: "Status label shown while a workspace search is in progress")
         )
@@ -515,6 +505,18 @@ public final class SearchSidebarViewController: NSViewController {
         }
     }
 
+    var currentSearchOptions: SearchOptions {
+        SearchOptions(
+            matchCase: matchCaseButton.state == .on,
+            wholeWord: wholeWordButton.state == .on,
+            useRegex: regexButton.state == .on,
+            includeHidden: includeHiddenButton.state == .on,
+            includeIgnored: true,
+            includeGlobs: Self.splitGlobs(includeGlobField.stringValue),
+            excludeGlobs: Self.splitGlobs(excludeGlobField.stringValue)
+        )
+    }
+
     private func applyCompletion(_ completion: SearchCompletion) {
         if completion.matchCount == 0 {
             setStatus(searchUIStrings.string("No results.", comment: "Status label shown when a workspace search finds no matches"))
@@ -550,6 +552,20 @@ public final class SearchSidebarViewController: NSViewController {
         button.font = .systemFont(ofSize: 11, weight: .medium)
         button.toolTip = label
         button.setAccessibilityLabel(label)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+
+    private func configureCheckboxButton(_ button: NSButton, title: String) {
+        button.title = title
+        button.target = self
+        button.action = #selector(optionsChanged)
+        button.setButtonType(.switch)
+        button.controlSize = .small
+        button.font = .systemFont(ofSize: 11)
+        button.toolTip = title
+        button.setAccessibilityLabel(title)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setContentHuggingPriority(.required, for: .horizontal)
         button.setContentCompressionResistancePriority(.required, for: .horizontal)

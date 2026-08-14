@@ -81,6 +81,9 @@ final class SearchSidebarLayoutTests: XCTestCase {
         let excludeField = try XCTUnwrap(
             findView(identifier: "search.excludeGlob", in: rootView) as? NSTextField
         )
+        let showHiddenFiles = try XCTUnwrap(
+            findView(identifier: "search.includeHidden", in: rootView) as? NSButton
+        )
 
         XCTAssertTrue(matchCase.isDescendant(of: searchBar))
         XCTAssertTrue(wholeWord.isDescendant(of: searchBar))
@@ -94,6 +97,14 @@ final class SearchSidebarLayoutTests: XCTestCase {
         XCTAssertTrue(excludeField.isDescendant(of: details))
         XCTAssertEqual(includeField.placeholderString, "e.g. *.swift")
         XCTAssertEqual(excludeField.placeholderString, "e.g. Generated/**")
+        XCTAssertEqual(showHiddenFiles.title, "Show Hidden Files")
+        XCTAssertNil(findView(identifier: "search.includeIgnored", in: rootView))
+        XCTAssertFalse(controller.currentSearchOptions.includeHidden)
+        XCTAssertTrue(controller.currentSearchOptions.includeIgnored)
+
+        showHiddenFiles.performClick(nil)
+
+        XCTAssertTrue(controller.currentSearchOptions.includeHidden)
     }
 
     func testSearchTextHasIconSpacingScrollingAndWorkingClearButton() throws {
