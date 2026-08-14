@@ -25,32 +25,92 @@
       "comment": "Status label summarizing a completed workspace search's match/file counts",
       "extractionState": "manual"
     },
-    "Case": {
-      "comment": "Checkbox toggling case-sensitive workspace search",
+    "Collapsed": {
+      "comment": "Accessibility value for collapsed search details",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Case"
+            "value": "Collapsed"
           }
         }
       }
     },
-    "Exclude (e.g. Generated/**)": {
-      "comment": "Placeholder text for the exclude-glob filter field in workspace search",
+    "Clear Search": {
+      "comment": "Tooltip and accessibility label for the button that clears workspace search",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exclude (e.g. Generated/**)"
+            "value": "Clear Search"
+          }
+        }
+      }
+    },
+    "e.g. *.swift": {
+      "comment": "Placeholder text for the files-to-include glob field",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. *.swift"
+          }
+        }
+      }
+    },
+    "e.g. Generated/**": {
+      "comment": "Placeholder text for the files-to-exclude glob field",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. Generated/**"
+          }
+        }
+      }
+    },
+    "Expanded": {
+      "comment": "Accessibility value for expanded search details",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expanded"
+          }
+        }
+      }
+    },
+    "files to exclude": {
+      "comment": "Label above the files-to-exclude glob field",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "files to exclude"
+          }
+        }
+      }
+    },
+    "files to include": {
+      "comment": "Label above the files-to-include glob field",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "files to include"
           }
         }
       }
     },
     "Hidden": {
-      "comment": "Checkbox toggling inclusion of hidden files in workspace search",
+      "comment": "Compact toggle for including hidden files in workspace search",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -62,7 +122,7 @@
       }
     },
     "Ignored": {
-      "comment": "Checkbox toggling inclusion of ignored files in workspace search",
+      "comment": "Compact toggle for including ignored files in workspace search",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -73,14 +133,26 @@
         }
       }
     },
-    "Include (e.g. *.swift)": {
-      "comment": "Placeholder text for the include-glob filter field in workspace search",
+    "Include Hidden Files": {
+      "comment": "Tooltip and accessibility label for including hidden files in workspace search",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Include (e.g. *.swift)"
+            "value": "Include Hidden Files"
+          }
+        }
+      }
+    },
+    "Include Ignored Files": {
+      "comment": "Tooltip and accessibility label for including ignored files in workspace search",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include Ignored Files"
           }
         }
       }
@@ -97,6 +169,30 @@
       "comment": "Accessibility label for a search-result match row, naming the line number and its text",
       "extractionState": "manual"
     },
+    "Match Case": {
+      "comment": "Tooltip and accessibility label for the case-sensitive search toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match Case"
+          }
+        }
+      }
+    },
+    "Match Whole Word": {
+      "comment": "Tooltip and accessibility label for the whole-word search toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match Whole Word"
+          }
+        }
+      }
+    },
     "No results.": {
       "comment": "Status label shown when a workspace search finds no matches",
       "extractionState": "manual",
@@ -109,14 +205,14 @@
         }
       }
     },
-    "Regex": {
-      "comment": "Checkbox toggling regular-expression matching in workspace search",
+    "Search Details": {
+      "comment": "Tooltip and accessibility label for the search-details disclosure button",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Regex"
+            "value": "Search Details"
           }
         }
       }
@@ -193,14 +289,14 @@
         }
       }
     },
-    "Word": {
-      "comment": "Checkbox toggling whole-word matching in workspace search",
+    "Use Regular Expression": {
+      "comment": "Tooltip and accessibility label for the regular-expression search toggle",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Word"
+            "value": "Use Regular Expression"
           }
         }
       }

@@ -33,32 +33,16 @@ public final class SearchSidebarViewController: NSViewController {
     /// support bundle. Never logs the search pattern itself.
     private let diagnosticsLog: BoundedEventLog
 
-    private let searchField = NSSearchField()
-    private let matchCaseButton = NSButton(
-        checkboxWithTitle: searchUIStrings.string("Case", comment: "Checkbox toggling case-sensitive workspace search"),
-        target: nil,
-        action: nil
-    )
-    private let wholeWordButton = NSButton(
-        checkboxWithTitle: searchUIStrings.string("Word", comment: "Checkbox toggling whole-word matching in workspace search"),
-        target: nil,
-        action: nil
-    )
-    private let regexButton = NSButton(
-        checkboxWithTitle: searchUIStrings.string("Regex", comment: "Checkbox toggling regular-expression matching in workspace search"),
-        target: nil,
-        action: nil
-    )
-    private let includeHiddenButton = NSButton(
-        checkboxWithTitle: searchUIStrings.string("Hidden", comment: "Checkbox toggling inclusion of hidden files in workspace search"),
-        target: nil,
-        action: nil
-    )
-    private let includeIgnoredButton = NSButton(
-        checkboxWithTitle: searchUIStrings.string("Ignored", comment: "Checkbox toggling inclusion of ignored files in workspace search"),
-        target: nil,
-        action: nil
-    )
+    private let searchIconView = NSImageView()
+    private let searchField = NSTextField()
+    private let clearSearchButton = NSButton()
+    private let matchCaseButton = NSButton()
+    private let wholeWordButton = NSButton()
+    private let regexButton = NSButton()
+    private let searchDetailsButton = NSButton()
+    private let searchDetailsStack = NSStackView()
+    private let includeHiddenButton = NSButton()
+    private let includeIgnoredButton = NSButton()
     private let includeGlobField = NSTextField()
     private let excludeGlobField = NSTextField()
     private let statusLabel = NSTextField(labelWithString: "")
@@ -132,55 +116,181 @@ public final class SearchSidebarViewController: NSViewController {
         searchField.placeholderString = searchUIStrings.string("Search Workspace", comment: "Placeholder text in the workspace search field")
         searchField.identifier = NSUserInterfaceItemIdentifier("search.field")
         searchField.target = self
-        searchField.action = #selector(optionsChanged)
+        searchField.action = #selector(searchTextChanged)
+        searchField.isContinuous = true
+        searchField.isBordered = false
+        searchField.drawsBackground = false
+        searchField.focusRingType = .none
+        searchField.controlSize = .small
+        searchField.font = .systemFont(ofSize: 13)
         searchField.translatesAutoresizingMaskIntoConstraints = false
-
-        for button in [matchCaseButton, wholeWordButton, regexButton, includeHiddenButton, includeIgnoredButton] {
-            button.target = self
-            button.action = #selector(optionsChanged)
-            button.translatesAutoresizingMaskIntoConstraints = false
+        searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        if let cell = searchField.cell as? NSTextFieldCell {
+            cell.usesSingleLineMode = true
+            cell.isScrollable = true
+            cell.wraps = false
+            cell.lineBreakMode = .byClipping
         }
+
+        searchIconView.image = NSImage(
+            systemSymbolName: "magnifyingglass",
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+        )
+        searchIconView.identifier = NSUserInterfaceItemIdentifier("search.icon")
+        searchIconView.imageScaling = .scaleProportionallyDown
+        searchIconView.contentTintColor = .secondaryLabelColor
+        searchIconView.setAccessibilityElement(false)
+        searchIconView.translatesAutoresizingMaskIntoConstraints = false
+
+        let clearSearchLabel = searchUIStrings.string(
+            "Clear Search",
+            comment: "Tooltip and accessibility label for the button that clears workspace search"
+        )
+        clearSearchButton.image = NSImage(
+            systemSymbolName: "xmark.circle.fill",
+            accessibilityDescription: clearSearchLabel
+        )?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+        )
+        clearSearchButton.identifier = NSUserInterfaceItemIdentifier("search.clear")
+        clearSearchButton.target = self
+        clearSearchButton.action = #selector(clearSearch)
+        clearSearchButton.bezelStyle = .inline
+        clearSearchButton.isBordered = false
+        clearSearchButton.imagePosition = .imageOnly
+        clearSearchButton.contentTintColor = .secondaryLabelColor
+        clearSearchButton.toolTip = clearSearchLabel
+        clearSearchButton.setAccessibilityLabel(clearSearchLabel)
+        clearSearchButton.translatesAutoresizingMaskIntoConstraints = false
+        clearSearchButton.isHidden = true
+
+        configureToggleButton(
+            matchCaseButton,
+            title: "Aa",
+            label: searchUIStrings.string("Match Case", comment: "Tooltip and accessibility label for the case-sensitive search toggle")
+        )
+        configureToggleButton(
+            wholeWordButton,
+            title: "ab",
+            label: searchUIStrings.string("Match Whole Word", comment: "Tooltip and accessibility label for the whole-word search toggle")
+        )
+        wholeWordButton.attributedTitle = NSAttributedString(
+            string: "ab",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .underlineStyle: NSUnderlineStyle.single.rawValue
+            ]
+        )
+        configureToggleButton(
+            regexButton,
+            title: ".*",
+            label: searchUIStrings.string("Use Regular Expression", comment: "Tooltip and accessibility label for the regular-expression search toggle")
+        )
+        configureToggleButton(
+            searchDetailsButton,
+            title: "...",
+            label: searchUIStrings.string("Search Details", comment: "Tooltip and accessibility label for the search-details disclosure button"),
+            action: #selector(toggleSearchDetails)
+        )
+        searchDetailsButton.identifier = NSUserInterfaceItemIdentifier("search.detailsToggle")
+        searchDetailsButton.setAccessibilityValue(
+            searchUIStrings.string("Collapsed", comment: "Accessibility value for collapsed search details")
+        )
+
         matchCaseButton.identifier = NSUserInterfaceItemIdentifier("search.matchCase")
         wholeWordButton.identifier = NSUserInterfaceItemIdentifier("search.wholeWord")
         regexButton.identifier = NSUserInterfaceItemIdentifier("search.regex")
+
+        let searchOptionsStack = NSStackView(
+            views: [clearSearchButton, matchCaseButton, wholeWordButton, regexButton]
+        )
+        searchOptionsStack.identifier = NSUserInterfaceItemIdentifier("search.options")
+        searchOptionsStack.orientation = .horizontal
+        searchOptionsStack.alignment = .centerY
+        searchOptionsStack.spacing = 4
+        searchOptionsStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let searchBar = SearchBarView()
+        searchBar.identifier = NSUserInterfaceItemIdentifier("search.bar")
+        searchBar.translatesAutoresizingMaskIntoConstraints = false
+        searchBar.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        searchBar.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        searchBar.addSubview(searchIconView)
+        searchBar.addSubview(searchField)
+        searchBar.addSubview(searchOptionsStack)
+
+        let searchRow = NSStackView(views: [searchBar, searchDetailsButton])
+        searchRow.identifier = NSUserInterfaceItemIdentifier("search.row")
+        searchRow.orientation = .horizontal
+        searchRow.alignment = .centerY
+        searchRow.spacing = 4
+        searchRow.translatesAutoresizingMaskIntoConstraints = false
+
+        configureToggleButton(
+            includeHiddenButton,
+            title: searchUIStrings.string("Hidden", comment: "Compact toggle for including hidden files in workspace search"),
+            label: searchUIStrings.string("Include Hidden Files", comment: "Tooltip and accessibility label for including hidden files in workspace search")
+        )
+        configureToggleButton(
+            includeIgnoredButton,
+            title: searchUIStrings.string("Ignored", comment: "Compact toggle for including ignored files in workspace search"),
+            label: searchUIStrings.string("Include Ignored Files", comment: "Tooltip and accessibility label for including ignored files in workspace search")
+        )
         includeHiddenButton.identifier = NSUserInterfaceItemIdentifier("search.includeHidden")
         includeIgnoredButton.identifier = NSUserInterfaceItemIdentifier("search.includeIgnored")
 
-        let optionsStack = NSStackView(views: [matchCaseButton, wholeWordButton, regexButton])
-        optionsStack.orientation = .horizontal
-        optionsStack.spacing = 8
-        optionsStack.translatesAutoresizingMaskIntoConstraints = false
+        configureFilterField(
+            includeGlobField,
+            placeholder: searchUIStrings.string("e.g. *.swift", comment: "Placeholder text for the files-to-include glob field"),
+            identifier: "search.includeGlob"
+        )
+        configureFilterField(
+            excludeGlobField,
+            placeholder: searchUIStrings.string("e.g. Generated/**", comment: "Placeholder text for the files-to-exclude glob field"),
+            identifier: "search.excludeGlob"
+        )
 
-        let visibilityStack = NSStackView(views: [includeHiddenButton, includeIgnoredButton])
+        let includeLabel = searchDetailsLabel(
+            searchUIStrings.string("files to include", comment: "Label above the files-to-include glob field"),
+            identifier: "search.includeLabel"
+        )
+        let excludeLabel = searchDetailsLabel(
+            searchUIStrings.string("files to exclude", comment: "Label above the files-to-exclude glob field"),
+            identifier: "search.excludeLabel"
+        )
+        let visibilitySpacer = NSView()
+        let visibilityStack = NSStackView(
+            views: [includeHiddenButton, includeIgnoredButton, visibilitySpacer]
+        )
         visibilityStack.orientation = .horizontal
-        visibilityStack.spacing = 8
+        visibilityStack.alignment = .centerY
+        visibilityStack.spacing = 4
         visibilityStack.translatesAutoresizingMaskIntoConstraints = false
 
-        includeGlobField.placeholderString = searchUIStrings.string("Include (e.g. *.swift)", comment: "Placeholder text for the include-glob filter field in workspace search")
-        includeGlobField.identifier = NSUserInterfaceItemIdentifier("search.includeGlob")
-        includeGlobField.target = self
-        includeGlobField.action = #selector(optionsChanged)
-        includeGlobField.translatesAutoresizingMaskIntoConstraints = false
-
-        excludeGlobField.placeholderString = searchUIStrings.string("Exclude (e.g. Generated/**)", comment: "Placeholder text for the exclude-glob filter field in workspace search")
-        excludeGlobField.identifier = NSUserInterfaceItemIdentifier("search.excludeGlob")
-        excludeGlobField.target = self
-        excludeGlobField.action = #selector(optionsChanged)
-        excludeGlobField.translatesAutoresizingMaskIntoConstraints = false
-
-        let globStack = NSStackView(views: [includeGlobField, excludeGlobField])
-        globStack.orientation = .horizontal
-        globStack.distribution = .fillEqually
-        globStack.spacing = 8
-        globStack.translatesAutoresizingMaskIntoConstraints = false
+        searchDetailsStack.identifier = NSUserInterfaceItemIdentifier("search.details")
+        searchDetailsStack.orientation = .vertical
+        searchDetailsStack.alignment = .leading
+        searchDetailsStack.spacing = 4
+        searchDetailsStack.addArrangedSubview(includeLabel)
+        searchDetailsStack.addArrangedSubview(includeGlobField)
+        searchDetailsStack.setCustomSpacing(8, after: includeGlobField)
+        searchDetailsStack.addArrangedSubview(excludeLabel)
+        searchDetailsStack.addArrangedSubview(excludeGlobField)
+        searchDetailsStack.setCustomSpacing(6, after: excludeGlobField)
+        searchDetailsStack.addArrangedSubview(visibilityStack)
+        searchDetailsStack.translatesAutoresizingMaskIntoConstraints = false
+        searchDetailsStack.isHidden = true
 
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.font = .systemFont(ofSize: 11)
         statusLabel.identifier = NSUserInterfaceItemIdentifier("search.status")
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         if let engineUnavailableReason {
-            statusLabel.stringValue = engineUnavailableReason
-            statusLabel.textColor = .systemRed
+            setStatus(engineUnavailableReason, color: .systemRed)
+        } else {
+            setStatus("")
         }
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("search.results"))
@@ -202,33 +312,55 @@ public final class SearchSidebarViewController: NSViewController {
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        container.addSubview(searchField)
-        container.addSubview(optionsStack)
-        container.addSubview(visibilityStack)
-        container.addSubview(globStack)
-        container.addSubview(statusLabel)
+        let controlsStack = NSStackView(views: [searchRow, searchDetailsStack, statusLabel])
+        controlsStack.orientation = .vertical
+        controlsStack.alignment = .leading
+        controlsStack.spacing = 6
+        controlsStack.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(controlsStack)
         container.addSubview(scrollView)
 
         NSLayoutConstraint.activate([
-            searchField.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
-            searchField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            searchField.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            controlsStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            controlsStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            controlsStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
 
-            optionsStack.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 6),
-            optionsStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            searchRow.widthAnchor.constraint(equalTo: controlsStack.widthAnchor),
+            searchBar.heightAnchor.constraint(equalToConstant: 30),
+            searchIconView.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 8),
+            searchIconView.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
+            searchIconView.widthAnchor.constraint(equalToConstant: 13),
+            searchIconView.heightAnchor.constraint(equalToConstant: 13),
+            searchField.leadingAnchor.constraint(equalTo: searchIconView.trailingAnchor, constant: 6),
+            searchField.trailingAnchor.constraint(equalTo: searchOptionsStack.leadingAnchor, constant: -4),
+            searchField.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
+            searchOptionsStack.trailingAnchor.constraint(equalTo: searchBar.trailingAnchor, constant: -3),
+            searchOptionsStack.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
 
-            visibilityStack.topAnchor.constraint(equalTo: optionsStack.bottomAnchor, constant: 6),
-            visibilityStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            clearSearchButton.widthAnchor.constraint(equalToConstant: 18),
+            clearSearchButton.heightAnchor.constraint(equalToConstant: 22),
+            matchCaseButton.widthAnchor.constraint(equalToConstant: 28),
+            wholeWordButton.widthAnchor.constraint(equalToConstant: 28),
+            regexButton.widthAnchor.constraint(equalToConstant: 26),
+            searchDetailsButton.widthAnchor.constraint(equalToConstant: 28),
+            matchCaseButton.heightAnchor.constraint(equalToConstant: 22),
+            wholeWordButton.heightAnchor.constraint(equalToConstant: 22),
+            regexButton.heightAnchor.constraint(equalToConstant: 22),
+            searchDetailsButton.heightAnchor.constraint(equalToConstant: 28),
 
-            globStack.topAnchor.constraint(equalTo: visibilityStack.bottomAnchor, constant: 6),
-            globStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            globStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            searchDetailsStack.widthAnchor.constraint(equalTo: controlsStack.widthAnchor),
+            includeGlobField.widthAnchor.constraint(equalTo: searchDetailsStack.widthAnchor),
+            excludeGlobField.widthAnchor.constraint(equalTo: searchDetailsStack.widthAnchor),
+            visibilityStack.widthAnchor.constraint(equalTo: searchDetailsStack.widthAnchor),
+            includeGlobField.heightAnchor.constraint(equalToConstant: 24),
+            excludeGlobField.heightAnchor.constraint(equalToConstant: 24),
+            includeHiddenButton.heightAnchor.constraint(equalToConstant: 22),
+            includeIgnoredButton.heightAnchor.constraint(equalToConstant: 22),
 
-            statusLabel.topAnchor.constraint(equalTo: globStack.bottomAnchor, constant: 6),
-            statusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            statusLabel.widthAnchor.constraint(equalTo: controlsStack.widthAnchor),
 
-            scrollView.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 6),
+            scrollView.topAnchor.constraint(equalTo: controlsStack.bottomAnchor, constant: 6),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
@@ -246,6 +378,31 @@ public final class SearchSidebarViewController: NSViewController {
     @objc
     private func optionsChanged(_ sender: Any?) {
         runSearch()
+    }
+
+    @objc
+    private func searchTextChanged(_ sender: Any?) {
+        updateClearSearchButton()
+        runSearch()
+    }
+
+    @objc
+    private func clearSearch(_ sender: Any?) {
+        searchField.stringValue = ""
+        updateClearSearchButton()
+        runSearch()
+        view.window?.makeFirstResponder(searchField)
+    }
+
+    @objc
+    private func toggleSearchDetails(_ sender: Any?) {
+        let isExpanded = searchDetailsButton.state == .on
+        searchDetailsStack.isHidden = !isExpanded
+        searchDetailsButton.setAccessibilityValue(
+            isExpanded
+                ? searchUIStrings.string("Expanded", comment: "Accessibility value for expanded search details")
+                : searchUIStrings.string("Collapsed", comment: "Accessibility value for collapsed search details")
+        )
     }
 
     @objc
@@ -268,9 +425,14 @@ public final class SearchSidebarViewController: NSViewController {
 
         fileResults = []
         outlineView.reloadData()
+        searchTask?.cancel()
+        searchTask = nil
 
         guard !pattern.isEmpty else {
-            statusLabel.stringValue = engineUnavailableReason ?? ""
+            setStatus(
+                engineUnavailableReason ?? "",
+                color: engineUnavailableReason == nil ? .secondaryLabelColor : .systemRed
+            )
             return
         }
         let searcher: WorkspaceTextSearcher
@@ -289,8 +451,7 @@ public final class SearchSidebarViewController: NSViewController {
                 "Search is unavailable: \(reason).",
                 comment: "Status text shown when the workspace search engine fails to initialize"
             )
-            statusLabel.stringValue = engineUnavailableReason ?? ""
-            statusLabel.textColor = .systemRed
+            setStatus(engineUnavailableReason ?? "", color: .systemRed)
             return
         }
 
@@ -304,10 +465,10 @@ public final class SearchSidebarViewController: NSViewController {
             excludeGlobs: Self.splitGlobs(excludeGlobField.stringValue)
         )
         let query = SearchQuery(pattern: pattern, root: root, options: options, version: version)
-        statusLabel.stringValue = searchUIStrings.string("Searching…", comment: "Status label shown while a workspace search is in progress")
-        statusLabel.textColor = .secondaryLabelColor
+        setStatus(
+            searchUIStrings.string("Searching…", comment: "Status label shown while a workspace search is in progress")
+        )
 
-        searchTask?.cancel()
         searchTask = runSearchTask { [weak self] in
             guard let self else {
                 return
@@ -333,11 +494,13 @@ public final class SearchSidebarViewController: NSViewController {
                 guard version == self.queryVersion else {
                     return
                 }
-                self.statusLabel.stringValue = searchUIStrings.string(
-                    "Search failed: \(String(describing: error))",
-                    comment: "Status label shown when a workspace search fails"
+                self.setStatus(
+                    searchUIStrings.string(
+                        "Search failed: \(String(describing: error))",
+                        comment: "Status label shown when a workspace search fails"
+                    ),
+                    color: .systemRed
                 )
-                self.statusLabel.textColor = .systemRed
                 self.reportSearchHealth(String(describing: error))
                 await self.diagnosticsLog.record(
                     subsystem: .search,
@@ -354,25 +517,107 @@ public final class SearchSidebarViewController: NSViewController {
 
     private func applyCompletion(_ completion: SearchCompletion) {
         if completion.matchCount == 0 {
-            statusLabel.stringValue = searchUIStrings.string("No results.", comment: "Status label shown when a workspace search finds no matches")
+            setStatus(searchUIStrings.string("No results.", comment: "Status label shown when a workspace search finds no matches"))
         } else if completion.truncated {
-            statusLabel.stringValue = searchUIStrings.string(
-                "Showing first \(completion.matchCount) matches (more available).",
-                comment: "Status label shown when a workspace search's results were truncated"
+            setStatus(
+                searchUIStrings.string(
+                    "Showing first \(completion.matchCount) matches (more available).",
+                    comment: "Status label shown when a workspace search's results were truncated"
+                )
             )
         } else {
-            statusLabel.stringValue = searchUIStrings.string(
-                "\(completion.matchCount) matches in \(completion.matchedFileCount) files.",
-                comment: "Status label summarizing a completed workspace search's match/file counts"
+            setStatus(
+                searchUIStrings.string(
+                    "\(completion.matchCount) matches in \(completion.matchedFileCount) files.",
+                    comment: "Status label summarizing a completed workspace search's match/file counts"
+                )
             )
         }
-        statusLabel.textColor = .secondaryLabelColor
+    }
+
+    private func configureToggleButton(
+        _ button: NSButton,
+        title: String,
+        label: String,
+        action: Selector = #selector(optionsChanged)
+    ) {
+        button.title = title
+        button.target = self
+        button.action = action
+        button.setButtonType(.pushOnPushOff)
+        button.bezelStyle = .accessoryBarAction
+        button.controlSize = .small
+        button.font = .systemFont(ofSize: 11, weight: .medium)
+        button.toolTip = label
+        button.setAccessibilityLabel(label)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+
+    private func configureFilterField(
+        _ field: NSTextField,
+        placeholder: String,
+        identifier: String
+    ) {
+        field.placeholderString = placeholder
+        field.identifier = NSUserInterfaceItemIdentifier(identifier)
+        field.target = self
+        field.action = #selector(optionsChanged)
+        field.controlSize = .small
+        field.font = .systemFont(ofSize: 12)
+        field.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    private func searchDetailsLabel(_ title: String, identifier: String) -> NSTextField {
+        let label = NSTextField(labelWithString: title)
+        label.identifier = NSUserInterfaceItemIdentifier(identifier)
+        label.font = .systemFont(ofSize: 11)
+        label.textColor = .secondaryLabelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }
+
+    private func setStatus(_ message: String, color: NSColor = .secondaryLabelColor) {
+        statusLabel.stringValue = message
+        statusLabel.textColor = color
+        statusLabel.isHidden = message.isEmpty
+    }
+
+    private func updateClearSearchButton() {
+        clearSearchButton.isHidden = searchField.stringValue.isEmpty
     }
 
     private static func splitGlobs(_ raw: String) -> [String] {
         raw.split(whereSeparator: { $0 == "," || $0.isWhitespace })
             .map(String.init)
             .filter { !$0.isEmpty }
+    }
+}
+
+private final class SearchBarView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 5
+        layer?.borderWidth = 1
+        layer?.masksToBounds = true
+        updateColors()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
+    }
+
+    private func updateColors() {
+        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        layer?.borderColor = NSColor.separatorColor.cgColor
     }
 }
 
