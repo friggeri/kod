@@ -1,6 +1,43 @@
 import AppKit
 import WorkspaceCore
 
+/// Keeps the native thin divider while providing a forgiving drag target.
+@MainActor
+final class EditorSplitView: NSSplitView, NSSplitViewDelegate {
+    static let minimumDividerHitThickness: CGFloat = 12
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func splitView(
+        _ splitView: NSSplitView,
+        effectiveRect proposedEffectiveRect: NSRect,
+        forDrawnRect drawnRect: NSRect,
+        ofDividerAt dividerIndex: Int
+    ) -> NSRect {
+        var effectiveRect = proposedEffectiveRect
+        if splitView.isVertical,
+           effectiveRect.width < Self.minimumDividerHitThickness {
+            effectiveRect.origin.x =
+                drawnRect.midX - Self.minimumDividerHitThickness / 2
+            effectiveRect.size.width = Self.minimumDividerHitThickness
+        } else if !splitView.isVertical,
+                  effectiveRect.height < Self.minimumDividerHitThickness {
+            effectiveRect.origin.y =
+                drawnRect.midY - Self.minimumDividerHitThickness / 2
+            effectiveRect.size.height = Self.minimumDividerHitThickness
+        }
+        return effectiveRect
+    }
+}
+
 /// Builds and rebuilds a recursive `NSSplitView` tree from a
 /// `SplitLayoutNode`, reusing existing `EditorGroupViewController`s across
 /// rebuilds so live tab/document state survives further splits or closes.
@@ -102,7 +139,7 @@ public final class SplitContainerViewController: NSViewController {
             return controller.view
 
         case .split(let orientation, let ratio, let first, let second):
-            let splitView = NSSplitView()
+            let splitView = EditorSplitView(frame: .zero)
             splitView.isVertical = orientation == .horizontal
             splitView.dividerStyle = .thin
 

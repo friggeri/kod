@@ -159,113 +159,6 @@ private final class WorkspacePreviewSourceControlView: NSButton {
 }
 
 @MainActor
-private final class WorkspaceSplitControlsView: NSView {
-    private let divider = NSView()
-
-    init(target: WorkspaceViewController) {
-        super.init(frame: NSRect(x: 0, y: 0, width: 65, height: 28))
-
-        let splitRightButton = Self.makeButton(
-            symbolName: "square.split.2x1",
-            identifier: "editorGroup.splitRight",
-            accessibilityLabel: Localized.string(
-                "Split Right",
-                comment: "Accessibility label for the titlebar split-editor-right button"
-            ),
-            target: target,
-            action: #selector(WorkspaceViewController.splitActiveGroupRight(_:))
-        )
-        let splitDownButton = Self.makeButton(
-            symbolName: "square.split.1x2",
-            identifier: "editorGroup.splitDown",
-            accessibilityLabel: Localized.string(
-                "Split Down",
-                comment: "Accessibility label for the titlebar split-editor-down button"
-            ),
-            target: target,
-            action: #selector(WorkspaceViewController.splitActiveGroupDown(_:))
-        )
-
-        identifier = NSUserInterfaceItemIdentifier("workspace.splitControls")
-        wantsLayer = true
-        layer?.cornerRadius = 9
-        layer?.cornerCurve = .continuous
-        layer?.borderWidth = 0.5
-
-        divider.wantsLayer = true
-        divider.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(splitRightButton)
-        addSubview(divider)
-        addSubview(splitDownButton)
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 65),
-            heightAnchor.constraint(equalToConstant: 28),
-            splitRightButton.leadingAnchor.constraint(equalTo: leadingAnchor),
-            splitRightButton.topAnchor.constraint(equalTo: topAnchor),
-            splitRightButton.bottomAnchor.constraint(equalTo: bottomAnchor),
-            splitRightButton.widthAnchor.constraint(equalToConstant: 32),
-            divider.leadingAnchor.constraint(equalTo: splitRightButton.trailingAnchor),
-            divider.centerYAnchor.constraint(equalTo: centerYAnchor),
-            divider.widthAnchor.constraint(equalToConstant: 1),
-            divider.heightAnchor.constraint(equalToConstant: 16),
-            splitDownButton.leadingAnchor.constraint(equalTo: divider.trailingAnchor),
-            splitDownButton.trailingAnchor.constraint(equalTo: trailingAnchor),
-            splitDownButton.topAnchor.constraint(equalTo: topAnchor),
-            splitDownButton.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-        updateAppearance()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        nil
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateAppearance()
-    }
-
-    private static func makeButton(
-        symbolName: String,
-        identifier: String,
-        accessibilityLabel: String,
-        target: AnyObject,
-        action: Selector
-    ) -> NSButton {
-        let image = NSImage(
-            systemSymbolName: symbolName,
-            accessibilityDescription: accessibilityLabel
-        ) ?? NSImage()
-        let button = NSButton(image: image, target: target, action: action)
-        button.identifier = NSUserInterfaceItemIdentifier(identifier)
-        button.bezelStyle = .toolbar
-        button.isBordered = false
-        button.imageScaling = .scaleProportionallyDown
-        button.toolTip = accessibilityLabel
-        button.setAccessibilityLabel(accessibilityLabel)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        return button
-    }
-
-    private func updateAppearance() {
-        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        layer?.backgroundColor = (
-            isDark
-                ? NSColor.white.withAlphaComponent(0.10)
-                : NSColor.black.withAlphaComponent(0.065)
-        ).cgColor
-        layer?.borderColor = (
-            isDark
-                ? NSColor.white.withAlphaComponent(0.12)
-                : NSColor.black.withAlphaComponent(0.08)
-        ).cgColor
-        divider.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.45).cgColor
-    }
-}
-
-@MainActor
 final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
     weak var target: WorkspaceViewController?
 
@@ -321,13 +214,42 @@ final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
         }
 
         if itemIdentifier == .workspaceSplitControls {
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            let splitRightLabel = Localized.string(
+                "Split Right",
+                comment: "Accessibility label for the titlebar split-editor-right button"
+            )
+            let splitDownLabel = Localized.string(
+                "Split Down",
+                comment: "Accessibility label for the titlebar split-editor-down button"
+            )
+            let labels = [splitRightLabel, splitDownLabel]
+            let images = [
+                NSImage(
+                    systemSymbolName: "square.split.2x1",
+                    accessibilityDescription: splitRightLabel
+                ) ?? NSImage(),
+                NSImage(
+                    systemSymbolName: "square.split.1x2",
+                    accessibilityDescription: splitDownLabel
+                ) ?? NSImage()
+            ]
+            let item = NSToolbarItemGroup(
+                itemIdentifier: itemIdentifier,
+                images: images,
+                selectionMode: .momentary,
+                labels: labels,
+                target: self,
+                action: #selector(performSplit(_:))
+            )
             item.label = Localized.string(
                 "Split Editor",
                 comment: "Label for the grouped titlebar split-editor controls"
             )
-            item.view = WorkspaceSplitControlsView(target: target)
+            item.controlRepresentation = .expanded
             item.visibilityPriority = .high
+            for (subitem, label) in zip(item.subitems, labels) {
+                subitem.toolTip = label
+            }
             return item
         }
 
@@ -361,6 +283,18 @@ final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
         item.view = button
         item.visibilityPriority = .high
         return item
+    }
+
+    @objc
+    private func performSplit(_ sender: NSToolbarItemGroup) {
+        switch sender.selectedIndex {
+        case 0:
+            target?.splitActiveGroupRight(sender)
+        case 1:
+            target?.splitActiveGroupDown(sender)
+        default:
+            assertionFailure("Unexpected split control index: \(sender.selectedIndex)")
+        }
     }
 }
 

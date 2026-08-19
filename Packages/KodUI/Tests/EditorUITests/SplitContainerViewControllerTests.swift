@@ -70,4 +70,71 @@ final class SplitContainerViewControllerTests: XCTestCase {
         XCTAssertEqual(rootRatio, Double(expectedRootRatio), accuracy: 0.001)
         XCTAssertEqual(nestedRatio, Double(expectedNestedRatio), accuracy: 0.001)
     }
+
+    func testSplitDividersKeepThinVisualsWithWideDragTargets() throws {
+        let root = SplitLayoutNode.split(
+            orientation: .horizontal,
+            ratio: 0.5,
+            first: .leaf(EditorGroupID()),
+            second: .split(
+                orientation: .vertical,
+                ratio: 0.5,
+                first: .leaf(EditorGroupID()),
+                second: .leaf(EditorGroupID())
+            )
+        )
+        let controller = SplitContainerViewController(root: root) { id in
+            EditorGroupViewController(
+                groupID: id,
+                state: EditorGroupState(id: id)
+            )
+        }
+        _ = host(controller)
+
+        let rootSplit = try XCTUnwrap(
+            controller.view.subviews.first as? EditorSplitView
+        )
+        let nestedSplit = try XCTUnwrap(
+            rootSplit.arrangedSubviews[1] as? EditorSplitView
+        )
+
+        XCTAssertEqual(rootSplit.dividerStyle, .thin)
+        XCTAssertEqual(nestedSplit.dividerStyle, .thin)
+
+        let verticalDivider = NSRect(
+            x: rootSplit.arrangedSubviews[0].frame.maxX,
+            y: rootSplit.bounds.minY,
+            width: rootSplit.dividerThickness,
+            height: rootSplit.bounds.height
+        )
+        let verticalHitTarget = rootSplit.splitView(
+            rootSplit,
+            effectiveRect: verticalDivider,
+            forDrawnRect: verticalDivider,
+            ofDividerAt: 0
+        )
+        XCTAssertEqual(
+            verticalHitTarget.width,
+            EditorSplitView.minimumDividerHitThickness
+        )
+        XCTAssertEqual(verticalHitTarget.midX, verticalDivider.midX)
+
+        let horizontalDivider = NSRect(
+            x: nestedSplit.bounds.minX,
+            y: nestedSplit.arrangedSubviews[0].frame.maxY,
+            width: nestedSplit.bounds.width,
+            height: nestedSplit.dividerThickness
+        )
+        let horizontalHitTarget = nestedSplit.splitView(
+            nestedSplit,
+            effectiveRect: horizontalDivider,
+            forDrawnRect: horizontalDivider,
+            ofDividerAt: 0
+        )
+        XCTAssertEqual(
+            horizontalHitTarget.height,
+            EditorSplitView.minimumDividerHitThickness
+        )
+        XCTAssertEqual(horizontalHitTarget.midY, horizontalDivider.midY)
+    }
 }
