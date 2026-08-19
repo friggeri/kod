@@ -25,7 +25,7 @@ final class KodUITargetBoundaryTests: XCTestCase {
             ],
             "GitUI": [
                 "AppKit", "CodeViewport", "Foundation", "GitCore",
-                "KodUIComponents", "SettingsCore", "ThemeCore"
+                "KodUIComponents", "SettingsCore", "SourceModel", "ThemeCore"
             ],
             "EditorUI": [
                 "AppKit", "CodeViewport", "FontCore", "Foundation", "GitCore",

@@ -52,7 +52,7 @@ codesign \
     --deep \
     --options runtime \
     --timestamp \
-    --entitlements "$repository_root/App/KodApp/Kod.entitlements" \
+    --entitlements "$repository_root/App/KodApp/Configuration/Kod.entitlements" \
     --sign "$KOD_CODE_SIGN_IDENTITY" \
     "$app_path"
 

@@ -2,6 +2,7 @@ import AppKit
 import CodeViewport
 import GitCore
 import KodUIComponents
+import SourceModel
 import ThemeCore
 
 @MainActor

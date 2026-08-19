@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/pages.yml"
-      - "App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-512.png"
+      - "App/KodApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-512.png"
       - "Scripts/build-website"
       - "Scripts/verify-website"
       - "website/**"

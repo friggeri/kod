@@ -79,6 +79,7 @@ let package = Package(
                 .product(name: "CodeViewport", package: "KodCore"),
                 .product(name: "GitCore", package: "KodCore"),
                 .product(name: "SettingsCore", package: "KodCore"),
+                .product(name: "SourceModel", package: "KodCore"),
                 .product(name: "ThemeCore", package: "KodCore")
             ],
             resources: [

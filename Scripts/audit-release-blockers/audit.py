@@ -85,15 +85,15 @@ def relative(path: Path) -> str:
 # unreviewed force unwraps" claim is itself checkable against an
 # explicit, small, auditable list rather than an invisible exception.
 REVIEWED_FORCE_UNWRAPS: set[tuple[str, str]] = {
-    ("App/KodApp/PeekViewController.swift", "var controller: PeekViewController!"),
-    ("App/KodApp/WorkspaceViewController.swift", "private var workspaceSplitViewController: NSSplitViewController!"),
-    ("App/KodApp/WorkspaceViewController.swift", "private var explorerContainer: NSView!"),
-    ("App/KodApp/WorkspaceViewController.swift", "private var searchSidebarController: SearchSidebarViewController!"),
-    ("App/KodApp/WorkspaceViewController.swift", "private var problemsViewController: ProblemsViewController!"),
-    ("App/KodApp/WorkspaceViewController.swift", "private var symbolsViewController: SymbolsViewController!"),
-    ("App/KodApp/WorkspaceViewController.swift", "private var sourceControlSidebarController: SourceControlSidebarViewController!"),
-    ("App/KodApp/WorkspaceViewController.swift", "private var gitCoordinator: GitWorkspaceCoordinator!"),
-    ("App/KodApp/WorkspaceViewController.swift", "var splitContainer: SplitContainerViewController!"),
+    ("App/KodApp/Language/PeekViewController.swift", "var controller: PeekViewController!"),
+    ("App/KodApp/Workspace/WorkspaceViewController.swift", "private var workspaceSplitViewController: NSSplitViewController!"),
+    ("App/KodApp/Workspace/WorkspaceViewController.swift", "private var explorerContainer: NSView!"),
+    ("App/KodApp/Workspace/WorkspaceViewController.swift", "private var searchSidebarController: SearchSidebarViewController!"),
+    ("App/KodApp/Workspace/WorkspaceViewController.swift", "private var problemsViewController: ProblemsViewController!"),
+    ("App/KodApp/Workspace/WorkspaceViewController.swift", "private var symbolsViewController: SymbolsViewController!"),
+    ("App/KodApp/Workspace/WorkspaceViewController.swift", "private var sourceControlSidebarController: SourceControlSidebarViewController!"),
+    ("App/KodApp/Workspace/WorkspaceViewController.swift", "private var gitCoordinator: GitWorkspaceCoordinator!"),
+    ("App/KodApp/Workspace/WorkspaceViewController.swift", "var splitContainer: SplitContainerViewController!"),
 }
 
 

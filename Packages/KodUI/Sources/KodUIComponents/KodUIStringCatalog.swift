@@ -4,7 +4,7 @@ import Foundation
 /// resource bundle.
 ///
 /// Package targets cannot read the app's Xcode String Catalog
-/// (`App/KodApp/Localizable.xcstrings`): a SwiftPM target resolves
+/// (`App/KodApp/Resources/Localizable.xcstrings`): a SwiftPM target resolves
 /// strings against its own `Bundle.module`. So `KodUI` targets keep
 /// explicit, namespaced identifier keys (`kodui.<area>.<purpose>`)
 /// rather than English-source-text keys — that way a missing

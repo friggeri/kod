@@ -259,15 +259,37 @@ final class UserFacingStringAuditTests: XCTestCase {
         return String(filePath.dropFirst(rootPath.count + 1))
     }
 
-    private func repositoryRoot() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // UserFacingStringAuditTests.swift -> App/KodAppTests
-            .deletingLastPathComponent() // App/KodAppTests -> App
-            .deletingLastPathComponent() // App -> repository root
+    private func repositoryRoot() throws -> URL {
+        let fileManager = FileManager.default
+        var candidate = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+
+        while true {
+            let project = candidate.appendingPathComponent(
+                "Kod.xcodeproj",
+                isDirectory: true
+            )
+            if fileManager.fileExists(atPath: project.path) {
+                return candidate
+            }
+
+            let parent = candidate.deletingLastPathComponent()
+            guard parent != candidate else { break }
+            candidate = parent
+        }
+
+        throw NSError(
+            domain: "UserFacingStringAuditTests",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Could not locate Kod.xcodeproj above \(#filePath)"
+            ]
+        )
     }
 
-    private func auditedSourceRoots() -> [(label: String, url: URL)] {
-        let root = repositoryRoot()
+    private func auditedSourceRoots() throws -> [(label: String, url: URL)] {
+        let root = try repositoryRoot()
         return [
             ("App/KodApp", root.appendingPathComponent("App/KodApp", isDirectory: true)),
             (
@@ -281,7 +303,7 @@ final class UserFacingStringAuditTests: XCTestCase {
 
     func testAppAndKodUISourceTreesHaveNoUnlocalizedUserFacingStringLiterals() throws {
         var violations: [Violation] = []
-        for (label, root) in auditedSourceRoots() {
+        for (label, root) in try auditedSourceRoots() {
             var isDirectory: ObjCBool = false
             XCTAssertTrue(
                 FileManager.default.fileExists(
@@ -308,7 +330,7 @@ final class UserFacingStringAuditTests: XCTestCase {
     }
 
     func testKodUILocalizationResourcesHaveEnglishValuesAndTranslatorComments() throws {
-        let sourcesRoot = repositoryRoot()
+        let sourcesRoot = try repositoryRoot()
             .appendingPathComponent("Packages/KodUI/Sources", isDirectory: true)
         let enumerator = try XCTUnwrap(
             FileManager.default.enumerator(

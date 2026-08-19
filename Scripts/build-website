@@ -56,11 +56,11 @@ mkdir -p "$output_dir"
 cp -R "$repository_root/website/." "$output_dir/"
 rm "$output_dir/README.md"
 mkdir -p "$output_dir/assets"
-cp "$repository_root/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-512.png" \
+cp "$repository_root/App/KodApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-512.png" \
     "$output_dir/assets/app-icon.png"
-cp "$repository_root/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-32@2x.png" \
+cp "$repository_root/App/KodApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-32@2x.png" \
     "$output_dir/assets/favicon.png"
-cp "$repository_root/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-256.png" \
+cp "$repository_root/App/KodApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-256.png" \
     "$output_dir/assets/apple-touch-icon.png"
 
 sed \
