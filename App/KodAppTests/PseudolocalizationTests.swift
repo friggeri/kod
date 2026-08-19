@@ -71,6 +71,9 @@ final class PseudolocalizationTests: XCTestCase {
         ("GitBlamePanelController accessibility label", "Commit details"),
         ("SourceControlSidebarViewController section title", "Merge Changes"),
         ("GitDiffViewController segmented control label", "Side by Side"),
+        ("WorkspaceActivityBarView accessibility label", "Source Control"),
+        ("WorkspaceStatusBarView Git unavailable value", "Git status is unavailable"),
+        ("WorkspaceStatusBarView cursor value", "Line 120, Column 84, 12 UTF-16 code units selected"),
     ]
 
     // MARK: - Deterministic transform sanity

@@ -123,6 +123,11 @@ final class GitImmutabilityTests: XCTestCase {
         _ = try await revisionContentService.revisionContent(source: .index, path: "keep.txt")
 
         _ = try await locator.locate(startingAt: fixture.rootURL)
+        let context = GitContext(
+            location: location,
+            executableURL: executableURL
+        )
+        _ = try await context.refreshLocation()
 
         let after = try WorktreeManifest.capture(root: fixture.rootURL)
         assertManifestUnchanged(before, after)

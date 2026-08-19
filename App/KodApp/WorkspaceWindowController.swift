@@ -94,6 +94,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         }
         services.focus(window)
         services.activate()
+        session.refreshGitStatus()
     }
 
     func closeSessionWindow() {
@@ -116,6 +117,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         prepareForClose()
         onWindowWillClose?(self)
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        session.refreshGitStatus()
     }
 
     /// Fullscreen transitions are pure window geometry: they go straight

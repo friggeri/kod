@@ -116,7 +116,9 @@ enum KeyboardCommandRegistry {
         "Go to Definition",
         "Go to Matching Bracket",
         // diagnose
+        "Show Explorer",
         "Show Problems",
+        "Show Symbols",
         // diff
         "Show Source Control",
         "Show Git Blame",

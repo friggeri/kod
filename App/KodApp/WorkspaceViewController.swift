@@ -14,6 +14,7 @@ import SearchUI
 import SettingsCore
 import SourceIO
 import SourceModel
+import SyntaxCore
 import ThemeCore
 import WorkspaceCore
 
@@ -338,13 +339,6 @@ final class WorkspaceToolbarDelegate: NSObject, NSToolbarDelegate {
 
 @MainActor
 final class WorkspaceViewController: NSViewController {
-    private enum SidebarMode: Int {
-        case explorer
-        case sourceControl
-        case search
-        case problems
-    }
-
     /// The headless owner of this workspace's non-view subsystems
     /// (discovery, filename index, watcher, search, Git, language
     /// services, layout persistence). The controller subscribes to its
@@ -461,17 +455,7 @@ final class WorkspaceViewController: NSViewController {
     /// `nil` for unknown/custom profiles or default profiles without
     /// guidance, which fall back to the public LSP directory.
     private var currentMissingLanguageInstallationDocumentationURL: URL?
-    private let sidebarModeControl = NSSegmentedControl(
-        labels: [
-            Localized.string("Explorer", comment: "Sidebar mode segment title for the file Explorer"),
-            Localized.string("Source Control", comment: "Sidebar mode segment title for the Source Control panel"),
-            Localized.string("Search", comment: "Sidebar mode segment title for workspace Search"),
-            Localized.string("Problems", comment: "Sidebar mode segment title for the Problems panel")
-        ],
-        trackingMode: .selectOne,
-        target: nil,
-        action: nil
-    )
+    private var activityBarView: WorkspaceActivityBarView?
     private let workspaceTitleLabel = NSTextField(labelWithString: "")
     private var workspaceSplitViewController: NSSplitViewController!
     private var previewSourceControlView: WorkspacePreviewSourceControlView?
@@ -479,6 +463,7 @@ final class WorkspaceViewController: NSViewController {
     private var searchSidebarController: SearchSidebarViewController!
     private var problemsViewController: ProblemsViewController!
     private var sourceControlSidebarController: SourceControlSidebarViewController!
+    private var symbolsViewController: SymbolsViewController!
     /// Read-only Git context for this workspace (SPEC 9): `nil` for
     /// non-Git folders, kept fresh from the same FSEvents pipeline that
     /// drives Explorer/index live updates. Owned by the session.
@@ -492,12 +477,8 @@ final class WorkspaceViewController: NSViewController {
     var multiLanguageServicesCoordinator: MultiLanguageServicesCoordinator {
         session.languageServices
     }
-    private let languageServerStateLabel = NSTextField(labelWithString: "")
-    private let languageServerRestartButton = NSButton(
-        title: Localized.string("Restart", comment: "Button title to restart the language server"),
-        target: nil,
-        action: nil
-    )
+    private var statusBarView: WorkspaceStatusBarView?
+    private weak var statusSelectionViewport: CodeViewport?
     /// The Explorer's tree model, kept on the Explorer collaborator. Still
     /// reachable here because the workspace's live-update pipeline (and its
     /// tests) speak in terms of the workspace, not the sidebar widget.
@@ -857,8 +838,8 @@ final class WorkspaceViewController: NSViewController {
         let sidebarController = NSViewController()
         sidebarController.view = makeSidebar()
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarController)
-        sidebarItem.minimumThickness = 180
-        sidebarItem.maximumThickness = 420
+        sidebarItem.minimumThickness = WorkspaceGeometryController.minimumSidebarWidth
+        sidebarItem.maximumThickness = WorkspaceGeometryController.maximumSidebarWidth
         sidebarItem.canCollapse = true
         sidebarItem.titlebarSeparatorStyle = .none
         outerSplit.addSplitViewItem(sidebarItem)
@@ -922,7 +903,7 @@ final class WorkspaceViewController: NSViewController {
             statusBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            statusBar.heightAnchor.constraint(equalToConstant: 29),
+            statusBar.heightAnchor.constraint(equalToConstant: 30),
             titleOverlay.topAnchor.constraint(equalTo: container.topAnchor),
             titleOverlay.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             titleOverlay.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -995,13 +976,27 @@ final class WorkspaceViewController: NSViewController {
         guard isViewLoaded else {
             return
         }
-        sourceControlSidebarController.update(
-            snapshot: snapshot,
-            presentationIndex: gitCoordinator.presentationIndex
-        )
+        refreshSourceControlSidebar()
         reloadVisibleExplorerDecorations()
         refreshVisibleQuickDiff(snapshot: snapshot)
         quickDiff.refreshSelection(snapshot: snapshot)
+        refreshLanguageServerStateUI()
+    }
+
+    private func refreshSourceControlSidebar() {
+        switch gitCoordinator.repositoryState {
+        case .loading:
+            sourceControlSidebarController.showLoading()
+        case .noRepository:
+            sourceControlSidebarController.update(snapshot: nil)
+        case .available(_, let status):
+            sourceControlSidebarController.update(
+                snapshot: status,
+                presentationIndex: gitCoordinator.presentationIndex
+            )
+        case .unavailable(_, let reason):
+            sourceControlSidebarController.showUnavailable(reason: reason)
+        }
     }
 
     private func reloadVisibleExplorerDecorations() {
@@ -1034,21 +1029,29 @@ final class WorkspaceViewController: NSViewController {
         quickDiff.refreshVisibleEditors(snapshot: snapshot)
     }
 
-    /// Reveals the Source Control sidebar (mirrors `searchWorkspace(_:)`).
     @objc
-    func showSourceControl(_ sender: Any?) {
-        sidebarModeControl.selectedSegment = SidebarMode.sourceControl.rawValue
-        sidebarModeChanged(nil)
+    func showExplorer(_ sender: Any?) {
+        selectSidebarSurface(.explorer, focus: true)
     }
 
-    /// Reveals the Problems sidebar — the "diagnose" step of the primary
-    /// open → search → navigate → diagnose → diff → preview workflow
-    /// (SPEC 5.7) — as a real, menu-reachable command rather than only
-    /// via Tab-then-arrow-keys to `sidebarModeControl`.
+    @objc
+    func searchWorkspace(_ sender: Any?) {
+        selectSidebarSurface(.search, focus: true)
+    }
+
+    @objc
+    func showSourceControl(_ sender: Any?) {
+        selectSidebarSurface(.sourceControl, focus: true)
+    }
+
     @objc
     func showProblems(_ sender: Any?) {
-        sidebarModeControl.selectedSegment = SidebarMode.problems.rawValue
-        sidebarModeChanged(nil)
+        selectSidebarSurface(.problems, focus: true)
+    }
+
+    @objc
+    func showSymbols(_ sender: Any?) {
+        selectSidebarSurface(.symbols, focus: true)
     }
 
     /// Toggles the active tab's Source/Preview mode from the window toolbar,
@@ -1359,66 +1362,149 @@ final class WorkspaceViewController: NSViewController {
     }
 
     private func refreshLanguageServerStateUI() {
-        let status = activeLanguageServerStatus()
-        let state = status.state
-        let prefix = status.languageName.map { "\($0) LSP" } ?? "LSP"
-        languageServerStateLabel.stringValue = Localized.string(
-            "\(prefix): \(state.displayName)",
-            comment: "Status label showing the current language server state"
-        )
-        languageServerStateLabel.toolTip = stateReason(state)
-        // Explicit label/value pair (SPEC 14): color alone (`.systemRed`
-        // for crashed/disabled) never carries the state — the label text
-        // already spells it out, but an explicit accessibility label
-        // distinct from the raw `stringValue` makes clear *what* the
-        // value describes ("Language server status", not just "LSP:
-        // Crashed" read as an opaque string).
-        languageServerStateLabel.setAccessibilityLabel(
-            Localized.string("Language server status", comment: "Accessibility label describing what the language server state value represents")
-        )
-        languageServerStateLabel.setAccessibilityValue(state.displayName)
-        switch state {
-        case .crashed, .disabled:
-            languageServerStateLabel.textColor = .systemRed
-            languageServerRestartButton.isEnabled = trustStore.isTrusted(identity)
-        case .missing:
-            languageServerStateLabel.textColor = .secondaryLabelColor
-            languageServerRestartButton.isEnabled = status.languageName != nil
-                && trustStore.isTrusted(identity)
-        default:
-            languageServerStateLabel.textColor = .secondaryLabelColor
-            languageServerRestartButton.isEnabled = true
+        observeActiveStatusSelection()
+        statusBarView?.update(makeStatusBarModel())
+    }
+
+    private func observeActiveStatusSelection() {
+        let viewport = activeGroupController?
+            .currentStatusDocument?
+            .cursorDocument?
+            .viewport
+        guard statusSelectionViewport !== viewport else {
+            return
         }
+        statusSelectionViewport?.onSelectionStateChange = nil
+        statusSelectionViewport = viewport
+        viewport?.onSelectionStateChange = { [weak self, weak viewport] _ in
+            guard let self,
+                  let viewport,
+                  self.activeGroupController?
+                    .currentStatusDocument?
+                    .cursorDocument?
+                    .viewport === viewport else {
+                return
+            }
+            self.statusBarView?.update(self.makeStatusBarModel())
+        }
+    }
+
+    private func makeStatusBarModel() -> WorkspaceStatusBarView.Model {
+        let statusDocument = activeGroupController?.currentStatusDocument
+        let fileURL = statusDocument.map {
+            activeStatusFileURL(for: $0)
+        }
+        let languageStatus = fileURL.flatMap {
+            multiLanguageServicesCoordinator.status(forURL: $0)
+        }
+        let languageServerItem: WorkspaceStatusBarView.Item
+        let restart: (visible: Bool, enabled: Bool)
+        if let languageStatus {
+            languageServerItem = WorkspaceStatusBarView.languageServerItem(
+                profileName: languageStatus.languageName,
+                state: languageStatus.state
+            )
+            restart = WorkspaceStatusBarView.restartAvailability(
+                profileName: languageStatus.languageName,
+                state: languageStatus.state,
+                isTrusted: trustStore.isTrusted(identity)
+            )
+        } else if statusDocument != nil {
+            let message = Localized.string(
+                "LSP: Unavailable",
+                comment: "Workspace status text when the active file has no configured language server"
+            )
+            languageServerItem =
+                WorkspaceStatusBarView.unavailableLanguageServerItem(message)
+            restart = (false, false)
+        } else {
+            let message = Localized.string(
+                "LSP: No active file",
+                comment: "Workspace status text when no editor document is active"
+            )
+            languageServerItem =
+                WorkspaceStatusBarView.unavailableLanguageServerItem(message)
+            restart = (false, false)
+        }
+
+        let metadataDocument = statusDocument?.metadataDocument
+        let metadataSnapshot = metadataDocument?.snapshot
+        let languageName = languageStatus?.languageName
+            ?? metadataDocument?.viewport.language?.displayName
+            ?? statusDocument.flatMap {
+                fallbackLanguageName(forRelativePath: $0.relativePath)
+            }
+        let gitItems = WorkspaceStatusBarView.gitItems(
+            for: gitCoordinator.repositoryState
+        )
+        return WorkspaceStatusBarView.Model(
+            branch: gitItems.branch,
+            git: gitItems.git,
+            languageServer: languageServerItem,
+            showsLanguageServerRestart: restart.visible,
+            enablesLanguageServerRestart: restart.enabled,
+            language: languageName.map(
+                WorkspaceStatusBarView.languageItem
+            ),
+            encoding: metadataSnapshot.map {
+                WorkspaceStatusBarView.encodingItem($0.encoding)
+            },
+            lineEnding: metadataSnapshot.map {
+                WorkspaceStatusBarView.lineEndingItem($0.lineEnding)
+            },
+            cursor: statusDocument?.cursorDocument.flatMap {
+                WorkspaceStatusBarView.cursorItem(
+                    snapshot: $0.snapshot,
+                    selectionState: $0.viewport.selectionState
+                )
+            }
+        )
+    }
+
+    private func activeStatusFileURL(
+        for statusDocument: EditorStatusDocument
+    ) -> URL {
+        statusDocument.metadataDocument?.snapshot.url
+            ?? identity.root.appendingPathComponent(
+                statusDocument.relativePath
+            )
+    }
+
+    private func fallbackLanguageName(
+        forRelativePath relativePath: String
+    ) -> String? {
+        let pathExtension = URL(
+            fileURLWithPath: relativePath
+        ).pathExtension.lowercased()
+        if let language = SyntaxLanguage.allCases.first(where: {
+            $0.fileExtensions.contains(pathExtension)
+        }) {
+            return language.displayName
+        }
+        if ["png", "jpg", "jpeg", "gif", "webp", "svg"].contains(
+            pathExtension
+        ) {
+            return Localized.string(
+                "Image",
+                comment: "Active-file language label for an image preview"
+            )
+        }
+        guard !pathExtension.isEmpty else {
+            return nil
+        }
+        return pathExtension.uppercased()
     }
 
     @objc
     private func restartLanguageServer(_ sender: Any?) {
-        guard let url = activeGroupController?.currentDocumentController?.snapshot.url else {
+        guard let statusDocument = activeGroupController?.currentStatusDocument else {
             return
         }
+        let url = activeStatusFileURL(for: statusDocument)
         languageHoverController.invalidateCache(
             forProvider: languageProviderIdentifier(for: url)
         )
         multiLanguageServicesCoordinator.restart(forURL: url)
-    }
-
-    private func activeLanguageServerStatus() -> (languageName: String?, state: LanguageServerState) {
-        guard let url = activeGroupController?.currentDocumentController?.snapshot.url else {
-            return (nil, .missing(reason: "No active source document"))
-        }
-        if let status = multiLanguageServicesCoordinator.status(forURL: url) {
-            return status
-        }
-        return (nil, .missing(reason: "No language server is registered for this file type"))
-    }
-
-    private func stateReason(_ state: LanguageServerState) -> String? {
-        switch state {
-        case .missing(let reason), .crashed(let reason), .disabled(let reason):
-            return reason
-        case .starting, .indexing, .ready, .busy, .stopping, .stopped:
-            return nil
-        }
     }
 
     private func configureLanguageInteractions(for controller: CodeDocumentViewController) {
@@ -1828,7 +1914,7 @@ final class WorkspaceViewController: NSViewController {
     }
 
     private var activeGroupController: EditorGroupViewController? {
-        splitContainer.controller(for: layoutState.activeGroupID)
+        splitContainer?.controller(for: layoutState.activeGroupID)
     }
 
     /// Pushes `layoutState.activeGroupID` onto every live group
@@ -1842,6 +1928,15 @@ final class WorkspaceViewController: NSViewController {
             controller.isActive = (controller.groupID == layoutState.activeGroupID)
         }
         refreshPreviewSourceToolbar()
+        refreshLanguageServerStateUI()
+        refreshSymbolsIfVisible()
+    }
+
+    private func refreshSymbolsIfVisible() {
+        guard isViewLoaded, layoutState.sidebarSurface == .symbols else {
+            return
+        }
+        symbolsViewController?.refresh()
     }
 
     private func handleSplit(groupID: EditorGroupID, orientation: SplitOrientation) {
@@ -2070,8 +2165,12 @@ final class WorkspaceViewController: NSViewController {
             self.refreshVisibleQuickDiff(snapshot: self.gitCoordinator.latestStatus)
         }
         controller.onActiveDocumentChange = { [weak self] _ in
-            self?.cancelHover()
-            self?.refreshLanguageServerStateUI()
+            guard let self, self.layoutState.activeGroupID == id else {
+                return
+            }
+            self.cancelHover()
+            self.refreshLanguageServerStateUI()
+            self.refreshSymbolsIfVisible()
         }
         controller.onDocumentClosed = { [weak self] relativePath, documentController in
             self?.multiLanguageServicesCoordinator.handleDocumentClosed(
@@ -2286,6 +2385,7 @@ final class WorkspaceViewController: NSViewController {
     /// `revokeTrust` so neither control shows a stale state.
     private func refreshWorkspaceTrustUI() {
         trustPresenter.render(isTrusted: trustStore.isTrusted(identity))
+        refreshLanguageServerStateUI()
     }
 
     private func updateWorkspaceBannerVisibility() {
@@ -2306,16 +2406,15 @@ final class WorkspaceViewController: NSViewController {
         let container = NSView()
         container.identifier = NSUserInterfaceItemIdentifier("workspace.sidebar")
 
-        sidebarModeControl.segmentStyle = .texturedRounded
-        sidebarModeControl.selectedSegment = SidebarMode.explorer.rawValue
-        sidebarModeControl.target = self
-        sidebarModeControl.action = #selector(sidebarModeChanged(_:))
-        sidebarModeControl.identifier = NSUserInterfaceItemIdentifier("workspace.sidebarMode")
-        sidebarModeControl.setContentCompressionResistancePriority(
-            .defaultLow,
-            for: .horizontal
-        )
-        sidebarModeControl.translatesAutoresizingMaskIntoConstraints = false
+        let activityBar = WorkspaceActivityBarView()
+        activityBarView = activityBar
+        activityBar.onSelectSurface = { [weak self] surface in
+            self?.selectSidebarSurface(surface, focus: true)
+        }
+
+        let content = NSView()
+        content.identifier = NSUserInterfaceItemIdentifier("workspace.sidebarContent")
+        content.translatesAutoresizingMaskIntoConstraints = false
 
         explorerContainer = explorer.makeView()
         explorerContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -2366,116 +2465,156 @@ final class WorkspaceViewController: NSViewController {
         addChild(sourceControlController)
         sourceControlController.view.translatesAutoresizingMaskIntoConstraints = false
         sourceControlController.view.isHidden = true
+        refreshSourceControlSidebar()
 
-        container.addSubview(sidebarModeControl)
-        container.addSubview(explorerContainer)
-        container.addSubview(searchController.view)
-        container.addSubview(problemsController.view)
-        container.addSubview(sourceControlController.view)
+        let symbolsController = SymbolsViewController(
+            search: { [weak self] query in
+                guard let self,
+                      let statusDocument = self.activeGroupController?
+                        .currentStatusDocument else {
+                    return []
+                }
+                let url = self.activeStatusFileURL(for: statusDocument)
+                return try await self.multiLanguageServicesCoordinator.workspaceSymbols(
+                    forURL: url,
+                    query: query
+                )
+            },
+            onSelectSymbol: { [weak self] symbol in
+                self?.navigate(to: symbol.location)
+            }
+        )
+        symbolsViewController = symbolsController
+        addChild(symbolsController)
+        symbolsController.view.translatesAutoresizingMaskIntoConstraints = false
+        symbolsController.view.isHidden = true
+
+        container.addSubview(activityBar)
+        container.addSubview(content)
+        content.addSubview(explorerContainer)
+        content.addSubview(searchController.view)
+        content.addSubview(problemsController.view)
+        content.addSubview(sourceControlController.view)
+        content.addSubview(symbolsController.view)
         NSLayoutConstraint.activate([
-            sidebarModeControl.topAnchor.constraint(
-                equalTo: container.safeAreaLayoutGuide.topAnchor,
-                constant: 8
+            activityBar.topAnchor.constraint(
+                equalTo: container.safeAreaLayoutGuide.topAnchor
             ),
-            sidebarModeControl.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            sidebarModeControl.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 8),
-            sidebarModeControl.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8),
-
-            explorerContainer.topAnchor.constraint(equalTo: sidebarModeControl.bottomAnchor, constant: 6),
-            explorerContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            explorerContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            explorerContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-
-            searchController.view.topAnchor.constraint(equalTo: sidebarModeControl.bottomAnchor, constant: 6),
-            searchController.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            searchController.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            searchController.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-
-            problemsController.view.topAnchor.constraint(equalTo: sidebarModeControl.bottomAnchor, constant: 6),
-            problemsController.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            problemsController.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            problemsController.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-
-            sourceControlController.view.topAnchor.constraint(equalTo: sidebarModeControl.bottomAnchor, constant: 6),
-            sourceControlController.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            sourceControlController.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            sourceControlController.view.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            activityBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            activityBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            content.topAnchor.constraint(equalTo: activityBar.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            content.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
+
+        for surfaceView in [
+            explorerContainer,
+            searchController.view,
+            problemsController.view,
+            sourceControlController.view,
+            symbolsController.view
+        ].compactMap({ $0 }) {
+            NSLayoutConstraint.activate([
+                surfaceView.topAnchor.constraint(
+                    equalTo: content.safeAreaLayoutGuide.topAnchor
+                ),
+                surfaceView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+                surfaceView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+                surfaceView.bottomAnchor.constraint(equalTo: content.bottomAnchor)
+            ])
+        }
+        selectSidebarSurface(layoutState.sidebarSurface, focus: false)
         return container
     }
 
     private func makeStatusBar() -> NSView {
-        let container = NSVisualEffectView()
-        container.identifier = NSUserInterfaceItemIdentifier("workspace.statusBar")
-        container.material = .contentBackground
-        container.blendingMode = .withinWindow
-        container.state = .active
-
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-
-        languageServerStateLabel.font = .systemFont(ofSize: 11)
-        languageServerStateLabel.textColor = .secondaryLabelColor
-        languageServerStateLabel.identifier = NSUserInterfaceItemIdentifier("workspace.languageServerState")
-        languageServerStateLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        languageServerRestartButton.bezelStyle = .rounded
-        languageServerRestartButton.controlSize = .small
-        languageServerRestartButton.font = .systemFont(ofSize: 10)
-        languageServerRestartButton.target = self
-        languageServerRestartButton.action = #selector(restartLanguageServer(_:))
-        languageServerRestartButton.identifier = NSUserInterfaceItemIdentifier("workspace.languageServerRestart")
-        languageServerRestartButton.setAccessibilityLabel(Localized.string("Restart Language Server", comment: "Accessibility label for the language server restart button"))
-        languageServerRestartButton.isEnabled = false
-        languageServerRestartButton.translatesAutoresizingMaskIntoConstraints = false
-
-        let trustStatusButton = trustPresenter.statusButton
-
-        container.addSubview(separator)
-        container.addSubview(languageServerStateLabel)
-        container.addSubview(languageServerRestartButton)
-        container.addSubview(trustStatusButton)
-        NSLayoutConstraint.activate([
-            separator.topAnchor.constraint(equalTo: container.topAnchor),
-            separator.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-
-            languageServerStateLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
-            languageServerStateLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            languageServerRestartButton.leadingAnchor.constraint(equalTo: languageServerStateLabel.trailingAnchor, constant: 8),
-            languageServerRestartButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            languageServerRestartButton.trailingAnchor.constraint(lessThanOrEqualTo: trustStatusButton.leadingAnchor, constant: -8),
-            trustStatusButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -6),
-            trustStatusButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            trustStatusButton.widthAnchor.constraint(equalToConstant: 24),
-            trustStatusButton.heightAnchor.constraint(equalToConstant: 24)
-        ])
-        return container
+        let statusBar = WorkspaceStatusBarView(
+            trustControl: trustPresenter.statusButton
+        )
+        statusBar.onShowSourceControl = { [weak self] in
+            self?.selectSidebarSurface(.sourceControl, focus: true)
+        }
+        statusBar.onRestartLanguageServer = { [weak self] in
+            self?.restartLanguageServer(nil)
+        }
+        statusBarView = statusBar
+        statusBar.update(makeStatusBarModel())
+        return statusBar
     }
 
-    @objc
-    private func sidebarModeChanged(_ sender: Any?) {
-        let mode = SidebarMode(rawValue: sidebarModeControl.selectedSegment) ?? .explorer
-        explorerContainer.isHidden = mode != .explorer
-        searchSidebarController.view.isHidden = mode != .search
-        problemsViewController.view.isHidden = mode != .problems
-        sourceControlSidebarController.view.isHidden = mode != .sourceControl
-        if mode == .explorer {
+    func selectSidebarSurface(
+        _ surface: WorkspaceSidebarSurface,
+        focus: Bool
+    ) {
+        geometry.revealSidebar(nil)
+        let didChange = layoutState.sidebarSurface != surface
+        layoutState.sidebarSurface = surface
+        activityBarView?.setSelectedSurface(surface)
+        explorerContainer?.isHidden = surface != .explorer
+        searchSidebarController?.view.isHidden = surface != .search
+        problemsViewController?.view.isHidden = surface != .problems
+        sourceControlSidebarController?.view.isHidden = surface != .sourceControl
+        symbolsViewController?.view.isHidden = surface != .symbols
+
+        switch surface {
+        case .explorer:
             refreshGitDecorationAppearance()
-        } else if mode == .search {
-            searchSidebarController.focusSearchField()
-        } else if mode == .sourceControl {
+        case .search:
+            break
+        case .sourceControl:
             sourceControlSidebarController.refreshAppearance()
+        case .problems:
+            break
+        case .symbols:
+            symbolsViewController.refresh()
+        }
+
+        activityBarView?.setNextKeyViewAfterBar(primaryFocusView(for: surface))
+        if didChange {
+            persistLayout()
+        }
+        guard focus else {
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.layoutState.sidebarSurface == surface else {
+                return
+            }
+            self.focusPrimaryControl(for: surface)
         }
     }
 
-    /// Reveals the Search sidebar and focuses its search field (Command-
-    /// Shift-F, SPEC 5.7).
-    @objc
-    func searchWorkspace(_ sender: Any?) {
-        sidebarModeControl.selectedSegment = SidebarMode.search.rawValue
-        sidebarModeChanged(nil)
+    private func primaryFocusView(
+        for surface: WorkspaceSidebarSurface
+    ) -> NSView? {
+        switch surface {
+        case .explorer:
+            explorer.primaryFocusView
+        case .search:
+            searchSidebarController?.primaryFocusView
+        case .sourceControl:
+            sourceControlSidebarController?.primaryFocusView
+        case .problems:
+            problemsViewController?.primaryFocusView
+        case .symbols:
+            symbolsViewController?.primaryFocusView
+        }
+    }
+
+    private func focusPrimaryControl(for surface: WorkspaceSidebarSurface) {
+        switch surface {
+        case .explorer:
+            explorer.focusPrimaryControl()
+        case .search:
+            searchSidebarController.focusSearchField()
+        case .sourceControl:
+            sourceControlSidebarController.focusPrimaryControl()
+        case .problems:
+            problemsViewController.focusPrimaryControl()
+        case .symbols:
+            symbolsViewController.focusSearchField()
+        }
     }
 
     /// Opens a Workspace Search match in the active editor group with the

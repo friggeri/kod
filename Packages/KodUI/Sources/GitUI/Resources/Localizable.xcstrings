@@ -1,546 +1,606 @@
 {
-  "sourceLanguage": "en",
-  "strings": {
-    "%@ (binary)": {
-      "comment": "Status text showing a binary file's path",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (binary)"
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%@ (binary)" : {
+      "comment" : "Status text showing a binary file's path",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ (binary)"
           }
         }
       }
     },
-    "%@ Git Local Changes (%@) — %lld of %lld": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ Git Local Changes (%2$@) — %3$lld of %4$lld"
-          }
-        }
-      },
-      "comment": "Inline Git diff hunk header",
-      "extractionState": "manual"
-    },
-    "%@ lines %@, %@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ lines %2$@, %3$@"
-          }
-        }
-      },
-      "comment": "Accessibility label for an added or modified Git hunk in the editor gutter",
-      "extractionState": "manual"
-    },
-    "%lld changes.": {
-      "comment": "Status text shown in the Source Control sidebar with the number of changed files",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld changes."
+    "%@ Git Local Changes (%@) — %lld of %lld" : {
+      "comment" : "Inline Git diff hunk header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ Git Local Changes (%2$@) — %3$lld of %4$lld"
           }
         }
       }
     },
-    "1 change.": {
-      "comment": "Status text shown in the Source Control sidebar when there is exactly one changed file",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 change."
+    "%@ lines %@, %@" : {
+      "comment" : "Accessibility label for an added or modified Git hunk in the editor gutter",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ lines %2$@, %3$@"
           }
         }
       }
     },
-    "A": {
-      "comment": "Single-letter Git status badge for an added file",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A"
+    "%lld changes." : {
+      "comment" : "Status text shown in the Source Control sidebar with the number of changed files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld changes."
           }
         }
       }
     },
-    "Added": {
-      "comment": "Git gutter change kind\nAccessibility description for an added file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Added"
+    "1 change." : {
+      "comment" : "Status text shown in the Source Control sidebar when there is exactly one changed file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 change."
           }
         }
       }
     },
-    "Binary file — no textual diff available.": {
-      "comment": "Text shown in the diff view when the file is binary and has no textual diff",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Binary file — no textual diff available."
+    "A" : {
+      "comment" : "Single-letter Git status badge for an added file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A"
           }
         }
       }
     },
-    "Blame": {
-      "comment": "Column title for the Git blame gutter table",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Blame"
+    "Added" : {
+      "comment" : "Git gutter change kind\nAccessibility description for an added file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added"
           }
         }
       }
     },
-    "C": {
-      "comment": "Single-letter Git status badge for a copied file",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "C"
+    "Binary file — no textual diff available." : {
+      "comment" : "Text shown in the diff view when the file is binary and has no textual diff",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Binary file — no textual diff available."
           }
         }
       }
     },
-    "Changes": {
-      "comment": "Source Control sidebar section title for unstaged and untracked changes",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Changes"
+    "Blame" : {
+      "comment" : "Column title for the Git blame gutter table",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blame"
           }
         }
       }
     },
-    "Close Inline Diff": {
-      "comment": "Inline Git diff close button",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close Inline Diff"
+    "C" : {
+      "comment" : "Single-letter Git status badge for a copied file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "C"
           }
         }
       }
     },
-    "Commit details": {
-      "comment": "Accessibility label for the Git blame commit-details popover text",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Commit details"
+    "Changes" : {
+      "comment" : "Source Control sidebar section title for unstaged and untracked changes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changes"
           }
         }
       }
     },
-    "Conflicted": {
-      "comment": "Accessibility description for a conflicted file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conflicted"
+    "Close Inline Diff" : {
+      "comment" : "Inline Git diff close button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Inline Diff"
           }
         }
       }
     },
-    "Copied": {
-      "comment": "Accessibility description for a copied file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copied"
+    "Commit details" : {
+      "comment" : "Accessibility label for the Git blame commit-details popover text",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Commit details"
           }
         }
       }
     },
-    "D": {
-      "comment": "Single-letter Git status badge for a deleted file",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "D"
+    "Conflicted" : {
+      "comment" : "Accessibility description for a conflicted file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conflicted"
           }
         }
       }
     },
-    "Deleted": {
-      "comment": "Git gutter change kind\nAccessibility description for a deleted file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deleted"
+    "Copied" : {
+      "comment" : "Accessibility description for a copied file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copied"
           }
         }
       }
     },
-    "Deleted lines, %@": {
-      "comment": "Accessibility label for a deleted Git hunk in the editor gutter",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deleted lines, %@"
+    "D" : {
+      "comment" : "Single-letter Git status badge for a deleted file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "D"
           }
         }
       }
     },
-    "Diff for %@, %@ mode": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diff for %1$@, %2$@ mode"
-          }
-        }
-      },
-      "comment": "Accessibility label for the diff text view, naming the file and current diff-layout mode",
-      "extractionState": "manual"
-    },
-    "Folder contains Git changes: %@": {
-      "comment": "Accessibility description for a folder whose descendants have Git changes, followed by the full-word status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Folder contains Git changes: %@"
+    "Deleted" : {
+      "comment" : "Git gutter change kind\nAccessibility description for a deleted file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleted"
           }
         }
       }
     },
-    "Ignored": {
-      "comment": "Accessibility description for an ignored file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ignored"
+    "Deleted lines, %@" : {
+      "comment" : "Accessibility label for a deleted Git hunk in the editor gutter",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleted lines, %@"
           }
         }
       }
     },
-    "Inline diff for %@": {
-      "comment": "Accessibility label for inline Git diff text",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inline diff for %@"
+    "Diff for %@, %@ mode" : {
+      "comment" : "Accessibility label for the diff text view, naming the file and current diff-layout mode",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diff for %1$@, %2$@ mode"
           }
         }
       }
     },
-    "Line %lld, %@, %@: %@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Line %1$lld, %2$@, %3$@: %4$@"
-          }
-        }
-      },
-      "comment": "Accessibility text for a committed Git blame line, spelling out line number, author, date, and summary",
-      "extractionState": "manual"
-    },
-    "Line %lld, not committed yet": {
-      "comment": "Accessibility text for an uncommitted Git blame line",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Line %lld, not committed yet"
+    "Folder contains Git changes: %@" : {
+      "comment" : "Accessibility description for a folder whose descendants have Git changes, followed by the full-word status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folder contains Git changes: %@"
           }
         }
       }
     },
-    "M": {
-      "comment": "Single-letter Git status badge for a modified file",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "M"
+    "Ignored" : {
+      "comment" : "Accessibility description for an ignored file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignored"
           }
         }
       }
     },
-    "Merge Changes": {
-      "comment": "Source Control sidebar section title for merge-conflicted files",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Merge Changes"
+    "Inline diff for %@" : {
+      "comment" : "Accessibility label for inline Git diff text",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inline diff for %@"
           }
         }
       }
     },
-    "Modified": {
-      "comment": "Git gutter change kind\nAccessibility description for a modified file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modified"
+    "Line %lld, %@, %@: %@" : {
+      "comment" : "Accessibility text for a committed Git blame line, spelling out line number, author, date, and summary",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Line %1$lld, %2$@, %3$@: %4$@"
           }
         }
       }
     },
-    "Next Change": {
-      "comment": "Inline Git diff next-change button",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next Change"
+    "Line %lld, not committed yet" : {
+      "comment" : "Accessibility text for an uncommitted Git blame line",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Line %lld, not committed yet"
           }
         }
       }
     },
-    "No changes.": {
-      "comment": "Status text shown in the Source Control sidebar when there are no changes",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No changes."
+    "Loading repository status…" : {
+      "comment" : "Status text shown while Source Control is loading repository status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading repository status…"
           }
         }
       }
     },
-    "No diff.": {
-      "comment": "Status text shown when there is no Git diff to display",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No diff."
+    "M" : {
+      "comment" : "Single-letter Git status badge for a modified file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "M"
           }
         }
       }
     },
-    "No repository.": {
-      "comment": "Status text shown in the Source Control sidebar when the workspace has no Git repository",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No repository."
+    "Merge Changes" : {
+      "comment" : "Source Control sidebar section title for merge-conflicted files",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Merge Changes"
           }
         }
       }
     },
-    "Not committed yet": {
-      "comment": "Git blame gutter text for a line with no committed history yet",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not committed yet"
+    "Modified" : {
+      "comment" : "Git gutter change kind\nAccessibility description for a modified file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modified"
           }
         }
       }
     },
-    "Open Full Diff": {
-      "comment": "Button title opening the full Git diff from an unavailable inline diff\nInline Git diff action opening the full diff view",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Full Diff"
+    "Next Change" : {
+      "comment" : "Inline Git diff next-change button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next Change"
           }
         }
       }
     },
-    "Previous Change": {
-      "comment": "Inline Git diff previous-change button",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Previous Change"
+    "No changes." : {
+      "comment" : "Status text shown in the Source Control sidebar when there are no changes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No changes."
           }
         }
       }
     },
-    "R": {
-      "comment": "Single-letter Git status badge for a renamed file",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "R"
+    "No diff." : {
+      "comment" : "Status text shown when there is no Git diff to display",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No diff."
           }
         }
       }
     },
-    "Renamed": {
-      "comment": "Accessibility description for a renamed file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Renamed"
+    "No repository." : {
+      "comment" : "Status text shown in the Source Control sidebar when the workspace has no Git repository",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No repository."
           }
         }
       }
     },
-    "Side by Side": {
-      "comment": "Diff view mode segment: side-by-side diff layout",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Side by Side"
+    "Not committed yet" : {
+      "comment" : "Git blame gutter text for a line with no committed history yet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not committed yet"
           }
         }
       }
     },
-    "Source Control": {
-      "comment": "Column title for the Source Control sidebar's outline view",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Source Control"
+    "Open Full Diff" : {
+      "comment" : "Button title opening the full Git diff from an unavailable inline diff\nInline Git diff action opening the full diff view",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Full Diff"
           }
         }
       }
     },
-    "Staged Changes": {
-      "comment": "Source Control sidebar section title for staged changes",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Staged Changes"
+    "Previous Change" : {
+      "comment" : "Inline Git diff previous-change button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous Change"
           }
         }
       }
     },
-    "T": {
-      "comment": "Single-letter Git status badge for a type-changed file",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "T"
+    "R" : {
+      "comment" : "Single-letter Git status badge for a renamed file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "R"
           }
         }
       }
     },
-    "Type changed": {
-      "comment": "Accessibility description for a type-changed file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Type changed"
+    "Renamed" : {
+      "comment" : "Accessibility description for a renamed file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renamed"
           }
         }
       }
     },
-    "U": {
-      "comment": "Single-letter Git status badge for an untracked file",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "U"
+    "Repository status unavailable." : {
+      "comment" : "Status text shown when Source Control cannot refresh repository status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repository status unavailable."
           }
         }
       }
     },
-    "Uncommitted change\n%@, line %lld": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uncommitted change\n%1$@, line %2$lld"
-          }
-        }
-      },
-      "comment": "Git blame popover body for an uncommitted line",
-      "extractionState": "manual"
-    },
-    "Unified": {
-      "comment": "Diff view mode segment: unified diff layout",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unified"
+    "Side by Side" : {
+      "comment" : "Diff view mode segment: side-by-side diff layout",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Side by Side"
           }
         }
       }
     },
-    "Untracked": {
-      "comment": "Accessibility description for an untracked file's Git status",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Untracked"
+    "Source Control" : {
+      "comment" : "Column title for the Source Control sidebar's outline view",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source Control"
+          }
+        }
+      }
+    },
+    "Source Control is loading repository status" : {
+      "comment" : "Accessibility value shown while Source Control is loading repository status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source Control is loading repository status"
+          }
+        }
+      }
+    },
+    "Source Control repository status is unavailable" : {
+      "comment" : "Accessibility value shown when Source Control cannot refresh repository status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source Control repository status is unavailable"
+          }
+        }
+      }
+    },
+    "Source Control status" : {
+      "comment" : "Accessibility label for the Source Control status message",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source Control status"
+          }
+        }
+      }
+    },
+    "Staged Changes" : {
+      "comment" : "Source Control sidebar section title for staged changes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Staged Changes"
+          }
+        }
+      }
+    },
+    "T" : {
+      "comment" : "Single-letter Git status badge for a type-changed file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "T"
+          }
+        }
+      }
+    },
+    "Type changed" : {
+      "comment" : "Accessibility description for a type-changed file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type changed"
+          }
+        }
+      }
+    },
+    "U" : {
+      "comment" : "Single-letter Git status badge for an untracked file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "U"
+          }
+        }
+      }
+    },
+    "Uncommitted change\n%@, line %lld" : {
+      "comment" : "Git blame popover body for an uncommitted line",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uncommitted change\n%1$@, line %2$lld"
+          }
+        }
+      }
+    },
+    "Unified" : {
+      "comment" : "Diff view mode segment: unified diff layout",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unified"
+          }
+        }
+      }
+    },
+    "Untracked" : {
+      "comment" : "Accessibility description for an untracked file's Git status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Untracked"
           }
         }
       }
     }
   },
-  "version": "1.1"
+  "version" : "1.1"
 }

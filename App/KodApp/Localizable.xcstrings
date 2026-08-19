@@ -1,174 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "%@ language support is unavailable" : {
-      "comment" : "Workspace health summary for one failed language profile",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ language support is unavailable"
-          }
-        }
-      }
-    },
-    "%@ language documents could not be restored" : {
-      "comment" : "Workspace health summary when a language server cannot reopen documents after restarting",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ language documents could not be restored"
-          }
-        }
-      }
-    },
-    "%lld of %lld workspace issues" : {
-      "comment" : "Position of the currently displayed workspace health issue",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld of %2$lld workspace issues"
-          }
-        }
-      }
-    },
-    "Degraded — %@" : {
-      "comment" : "Workspace health banner summary for reduced functionality",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Degraded — %@"
-          }
-        }
-      }
-    },
-    "Dismiss Workspace Issue" : {
-      "comment" : "Accessibility label for dismissing the current workspace issue",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dismiss Workspace Issue"
-          }
-        }
-      }
-    },
-    "Git status is temporarily unavailable" : {
-      "comment" : "Workspace health message shown when refreshing Git status fails",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Git status is temporarily unavailable"
-          }
-        }
-      }
-    },
-    "Git status refresh did not produce a snapshot" : {
-      "comment" : "Workspace health diagnostic reason when a Git repository refresh fails",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Git status refresh did not produce a snapshot"
-          }
-        }
-      }
-    },
-    "Next Workspace Issue" : {
-      "comment" : "Accessibility label for navigating to the next workspace issue",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Next Workspace Issue"
-          }
-        }
-      }
-    },
-    "Previous Workspace Issue" : {
-      "comment" : "Accessibility label for navigating to the previous workspace issue",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Previous Workspace Issue"
-          }
-        }
-      }
-    },
-    "Recovering — %@" : {
-      "comment" : "Workspace health banner summary while recovery is in progress",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recovering — %@"
-          }
-        }
-      }
-    },
-    "Refresh Files" : {
-      "comment" : "Button manually refreshing workspace files when live updates are unavailable",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Refresh Files"
-          }
-        }
-      }
-    },
-    "Retry" : {
-      "comment" : "Button retrying a failed workspace subsystem",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Retry"
-          }
-        }
-      }
-    },
-    "Unavailable — %@" : {
-      "comment" : "Workspace health banner summary for unavailable functionality",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unavailable — %@"
-          }
-        }
-      }
-    },
-    "Workspace issue: %@. %@" : {
-      "comment" : "Accessibility label for the persistent workspace health banner",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workspace issue: %1$@. %2$@"
-          }
-        }
-      }
-    },
     "\"%@\" is not monospaced; column alignment may vary." : {
 
     },
@@ -204,12 +36,14 @@
     "%@ Syntax" : {
 
     },
-    "%@ language server entered %@ state" : {
+    "%@ language documents could not be restored" : {
+      "comment" : "Workspace health summary when a language server cannot reopen documents after restarting",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ language server entered %2$@ state"
+            "state" : "translated",
+            "value" : "%@ language documents could not be restored"
           }
         }
       }
@@ -226,6 +60,16 @@
         }
       }
     },
+    "%@ language server entered %@ state" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ language server entered %2$@ state"
+          }
+        }
+      }
+    },
     "%@ language server failed to close a document" : {
       "comment" : "Diagnostics log message recorded when a textDocument/didClose request fails",
       "extractionState" : "manual",
@@ -234,6 +78,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ language server failed to close a document"
+          }
+        }
+      }
+    },
+    "%@ language support is unavailable" : {
+      "comment" : "Workspace health summary for one failed language profile",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ language support is unavailable"
           }
         }
       }
@@ -311,10 +167,23 @@
         }
       }
     },
+    "%@: %lld staged, %lld unstaged, %lld untracked, %lld conflicted" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@: %2$lld staged, %3$lld unstaged, %4$lld untracked, %5$lld conflicted"
+          }
+        }
+      }
+    },
     "%arg earlier event(s) dropped (the log is bounded)." : {
 
     },
     "%lld bytes" : {
+
+    },
+    "%lld changes" : {
 
     },
     "%lld changes." : {
@@ -348,6 +217,18 @@
         }
       }
     },
+    "%lld of %lld workspace issues" : {
+      "comment" : "Position of the currently displayed workspace health issue",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld of %2$lld workspace issues"
+          }
+        }
+      }
+    },
     "%lld points" : {
 
     },
@@ -377,6 +258,9 @@
         }
       }
     },
+    "1 change" : {
+      "comment" : "Workspace status text for exactly one Git change"
+    },
     "1 change." : {
       "comment" : "Status text shown in the Source Control sidebar when there is exactly one changed file",
       "extractionState" : "manual",
@@ -400,6 +284,9 @@
           }
         }
       }
+    },
+    "A changed workspace path could not be classified" : {
+      "comment" : "Workspace health summary for an incremental file classification failure"
     },
     "A fast, native, read-only code viewer for macOS" : {
 
@@ -430,6 +317,9 @@
           }
         }
       }
+    },
+    "Activity" : {
+      "comment" : "Accessibility label for the workspace activity bar"
     },
     "Actual Size" : {
       "comment" : "Button title to show the image preview at its actual pixel size",
@@ -536,6 +426,9 @@
     "Bundled Tree-sitter grammar: %@" : {
 
     },
+    "Busy" : {
+      "comment" : "Language server state name"
+    },
     "C" : {
       "comment" : "Single-letter Git status badge for a copied file",
       "extractionState" : "manual",
@@ -596,6 +489,12 @@
         }
       }
     },
+    "Carriage Return and Line Feed line endings" : {
+      "comment" : "Accessibility description for CRLF line endings"
+    },
+    "Carriage Return line endings" : {
+      "comment" : "Accessibility description for CR line endings"
+    },
     "Case" : {
       "comment" : "Checkbox toggling case-sensitive workspace search",
       "extractionState" : "manual",
@@ -654,7 +553,7 @@
       }
     },
     "Choose an existing language-server executable." : {
-      "comment" : "Open panel message for selecting a language-server executable\nOpen panel message for selecting a missing language server"
+      "comment" : "Open panel message for selecting a missing language server"
     },
     "Choose where to save the redacted diagnostics support bundle." : {
       "comment" : "Save panel message for exporting the diagnostics support bundle",
@@ -863,6 +762,12 @@
     "Crash reports are never sent automatically. No upload destination is configured in this build, so enabling this toggle does not transmit anything anywhere — it only prepares Kod to record a crash report locally if a real upload destination is added in a future release. Kod has no usage telemetry." : {
       "comment" : "Explanatory body text under the crash-reporting toggle in Settings"
     },
+    "Crashed" : {
+      "comment" : "Language server state name"
+    },
+    "Cursor position" : {
+      "comment" : "Accessibility label for the active file cursor position"
+    },
     "Custom Language" : {
 
     },
@@ -899,6 +804,18 @@
     "Default language ID" : {
 
     },
+    "Degraded — %@" : {
+      "comment" : "Workspace health banner summary for reduced functionality",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Degraded — %@"
+          }
+        }
+      }
+    },
     "Delete" : {
 
     },
@@ -921,6 +838,15 @@
       }
     },
     "Deleted lines, %@" : {
+
+    },
+    "Detached %@" : {
+
+    },
+    "Detached HEAD" : {
+      "comment" : "Workspace status text for an unborn or detached Git HEAD without a commit identifier"
+    },
+    "Detached HEAD at %@" : {
 
     },
     "Details" : {
@@ -963,6 +889,9 @@
         }
       }
     },
+    "Disabled" : {
+      "comment" : "Language server state name"
+    },
     "Discovering files..." : {
       "comment" : "Status label shown in the workspace Explorer while the initial file scan is in progress",
       "extractionState" : "manual",
@@ -977,6 +906,18 @@
     },
     "Discovery failed: %@" : {
 
+    },
+    "Dismiss Workspace Issue" : {
+      "comment" : "Accessibility label for dismissing the current workspace issue",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dismiss Workspace Issue"
+          }
+        }
+      }
     },
     "Dismiss Workspace Trust Banner" : {
       "comment" : "Accessibility label and description for the button that dismisses the workspace trust banner",
@@ -1137,6 +1078,12 @@
     "File Associations" : {
 
     },
+    "File encoding" : {
+      "comment" : "Accessibility label for the active file encoding"
+    },
+    "File language" : {
+      "comment" : "Accessibility label for the active file language profile"
+    },
     "Files" : {
       "comment" : "Column title for the workspace Explorer's file tree (header is hidden but title remains accessible)",
       "extractionState" : "manual",
@@ -1245,6 +1192,12 @@
     "Git Quick Diff refresh failed" : {
 
     },
+    "Git branch" : {
+      "comment" : "Accessibility label for the current Git branch"
+    },
+    "Git changes" : {
+      "comment" : "Accessibility label for the workspace Git change count"
+    },
     "Git diff could not be loaded." : {
 
     },
@@ -1256,6 +1209,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Git diff loading failed"
+          }
+        }
+      }
+    },
+    "Git loading" : {
+      "comment" : "Workspace status text shown while Git status is loading"
+    },
+    "Git status" : {
+      "comment" : "Accessibility label for workspace Git status"
+    },
+    "Git status is temporarily unavailable" : {
+      "comment" : "Workspace health message shown when refreshing Git status fails",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Git status is temporarily unavailable"
+          }
+        }
+      }
+    },
+    "Git status is unavailable" : {
+      "comment" : "Accessibility value shown when Git status could not be refreshed"
+    },
+    "Git status refresh did not produce a snapshot" : {
+      "comment" : "Workspace health diagnostic reason when a Git repository refresh fails",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Git status refresh did not produce a snapshot"
           }
         }
       }
@@ -1272,6 +1258,9 @@
         }
       }
     },
+    "Git unavailable" : {
+      "comment" : "Workspace status text shown when Git status could not be refreshed"
+    },
     "Go" : {
       "comment" : "Submit button title in the Go to Line panel",
       "extractionState" : "manual",
@@ -1285,7 +1274,7 @@
       }
     },
     "Go to Definition" : {
-      "comment" : "Command palette entry that navigates to the selected symbol's definition\nNavigate menu item that opens the selected symbol's definition"
+      "comment" : "Navigate menu item that opens the selected symbol's definition"
     },
     "Go to Line" : {
       "comment" : "Title of the Go to Line panel window",
@@ -1386,6 +1375,9 @@
         }
       }
     },
+    "Image" : {
+      "comment" : "Active-file language label for an image preview"
+    },
     "Import VS Code Theme..." : {
 
     },
@@ -1430,6 +1422,9 @@
     },
     "Index" : {
 
+    },
+    "Indexing" : {
+      "comment" : "Language server state name"
     },
     "Information" : {
       "comment" : "Accessibility severity word for an informational diagnostic",
@@ -1524,6 +1519,9 @@
         }
       }
     },
+    "LSP" : {
+      "comment" : "Short generic label for language server status"
+    },
     "LSP Missing" : {
 
     },
@@ -1532,6 +1530,12 @@
     },
     "LSP language ID" : {
 
+    },
+    "LSP: No active file" : {
+      "comment" : "Workspace status text when no editor document is active"
+    },
+    "LSP: Unavailable" : {
+      "comment" : "Workspace status text when the active file has no configured language server"
     },
     "Language Profiles" : {
 
@@ -1603,6 +1607,26 @@
         }
       }
     },
+    "Line %lld, Column %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Line %1$lld, Column %2$lld"
+          }
+        }
+      }
+    },
+    "Line %lld, Column %lld, %lld UTF-16 code units selected" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Line %1$lld, Column %2$lld, %3$lld UTF-16 code units selected"
+          }
+        }
+      }
+    },
     "Line %lld, not committed yet" : {
 
     },
@@ -1616,11 +1640,17 @@
         }
       }
     },
+    "Line Feed line endings" : {
+      "comment" : "Accessibility description for LF line endings"
+    },
     "Line Height: %@x" : {
 
     },
     "Line Height: %argx" : {
 
+    },
+    "Line endings" : {
+      "comment" : "Accessibility label for the active file line endings"
     },
     "Line height" : {
       "comment" : "Accessibility label for the line height slider in Settings",
@@ -1654,6 +1684,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Live external-change updates are unavailable: the workspace file watcher could not start"
+          }
+        }
+      }
+    },
+    "Ln %lld, Col %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Ln %1$lld, Col %2$lld"
+          }
+        }
+      }
+    },
+    "Ln %lld, Col %lld, %lld selected" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Ln %1$lld, Col %2$lld, %3$lld selected"
           }
         }
       }
@@ -1718,8 +1768,17 @@
     "Minimum Level" : {
 
     },
+    "Missing" : {
+      "comment" : "Language server state name"
+    },
     "Missing language server" : {
       "comment" : "Accessibility description for the icon in the missing language-server banner"
+    },
+    "Mixed" : {
+      "comment" : "Compact status token for mixed line endings"
+    },
+    "Mixed line endings" : {
+      "comment" : "Accessibility description for mixed line endings"
     },
     "Modified" : {
       "comment" : "Accessibility description for a modified file's Git status",
@@ -1779,7 +1838,19 @@
 
     },
     "Next Git Change" : {
-
+      "comment" : "Navigate menu item that opens the next inline Git change"
+    },
+    "Next Workspace Issue" : {
+      "comment" : "Accessibility label for navigating to the next workspace issue",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next Workspace Issue"
+          }
+        }
+      }
     },
     "No %@ server was found. Syntax highlighting remains available." : {
 
@@ -1825,6 +1896,9 @@
     },
     "No language profile matches *.%@. Plain Text remains available." : {
 
+    },
+    "No line endings" : {
+      "comment" : "Accessibility description for a file with no line endings"
     },
     "No metadata available" : {
       "comment" : "Metadata line shown when no image metadata could be determined",
@@ -1875,7 +1949,7 @@
       }
     },
     "None" : {
-
+      "comment" : "Compact status token for a file with no line endings"
     },
     "Not Now" : {
       "comment" : "Button title dismissing the missing language-server banner for this session"
@@ -1891,6 +1965,9 @@
           }
         }
       }
+    },
+    "Not selected" : {
+      "comment" : "Accessibility value for an unselected activity bar destination"
     },
     "OK" : {
       "comment" : "Button title dismissing the theme-import report alert",
@@ -2214,7 +2291,19 @@
 
     },
     "Previous Git Change" : {
-
+      "comment" : "Navigate menu item that opens the previous inline Git change"
+    },
+    "Previous Workspace Issue" : {
+      "comment" : "Accessibility label for navigating to the previous workspace issue",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous Workspace Issue"
+          }
+        }
+      }
     },
     "Privacy" : {
       "comment" : "Section header for the privacy controls in Settings",
@@ -2303,8 +2392,35 @@
         }
       }
     },
+    "Ready" : {
+      "comment" : "Language server state name"
+    },
+    "Recovering — %@" : {
+      "comment" : "Workspace health banner summary while recovery is in progress",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recovering — %@"
+          }
+        }
+      }
+    },
     "Refresh" : {
 
+    },
+    "Refresh Files" : {
+      "comment" : "Button manually refreshing workspace files when live updates are unavailable",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refresh Files"
+          }
+        }
+      }
     },
     "Regex" : {
       "comment" : "Checkbox toggling regular-expression matching in workspace search",
@@ -2401,6 +2517,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Results"
+          }
+        }
+      }
+    },
+    "Retry" : {
+      "comment" : "Button retrying a failed workspace subsystem",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry"
           }
         }
       }
@@ -2504,6 +2632,9 @@
           }
         }
       }
+    },
+    "Search Workspace, Command-Shift-F" : {
+      "comment" : "Accessibility help for the Search activity bar destination"
     },
     "Search Workspace..." : {
       "comment" : "Edit menu item that opens workspace-wide search",
@@ -2631,6 +2762,9 @@
         }
       }
     },
+    "Show Explorer" : {
+      "comment" : "Edit menu item that reveals the Explorer sidebar"
+    },
     "Show Git Blame" : {
       "comment" : "Edit menu item that shows Git blame for the selected file",
       "extractionState" : "manual",
@@ -2678,6 +2812,12 @@
           }
         }
       }
+    },
+    "Show Source Control, Command-Shift-G" : {
+      "comment" : "Accessibility help for the Source Control activity bar destination"
+    },
+    "Show Symbols" : {
+      "comment" : "Edit menu item that reveals the Symbols sidebar"
     },
     "Showing Preview" : {
       "comment" : "Accessibility value for the preview/source toggle button when a preview is currently shown",
@@ -2802,6 +2942,15 @@
         }
       }
     },
+    "Starting" : {
+      "comment" : "Language server state name"
+    },
+    "Stopped" : {
+      "comment" : "Language server state name"
+    },
+    "Stopping" : {
+      "comment" : "Language server state name"
+    },
     "Suggested Installation" : {
       "comment" : "Section header for the copyable installation guidance shown under a missing default-profile language server",
       "extractionState" : "manual",
@@ -2825,6 +2974,9 @@
           }
         }
       }
+    },
+    "Symbol results" : {
+      "comment" : "Accessibility label for the Symbols sidebar results"
     },
     "Symbols" : {
       "comment" : "Column title for the Symbols sidebar's outline view",
@@ -3063,6 +3215,18 @@
         }
       }
     },
+    "Unavailable — %@" : {
+      "comment" : "Workspace health banner summary for unavailable functionality",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unavailable — %@"
+          }
+        }
+      }
+    },
     "Uncommitted change\n%@, line %lld" : {
       "localizations" : {
         "en" : {
@@ -3223,6 +3387,18 @@
     "Working Tree" : {
 
     },
+    "Workspace issue: %@. %@" : {
+      "comment" : "Accessibility label for the persistent workspace health banner",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace issue: %1$@. %2$@"
+          }
+        }
+      }
+    },
     "Workspace layout could not be saved" : {
       "comment" : "Diagnostics log message recorded when persisting the workspace's split/tab layout fails",
       "extractionState" : "manual",
@@ -3259,6 +3435,12 @@
         }
       }
     },
+    "Workspace status" : {
+      "comment" : "Accessibility label for the workspace status bar"
+    },
+    "Workspace trust could not be granted" : {
+      "comment" : "Workspace health summary when granting trust cannot be persisted"
+    },
     "Workspace trust granted" : {
       "comment" : "Diagnostics log message recorded when a workspace is trusted",
       "extractionState" : "manual",
@@ -3271,6 +3453,9 @@
         }
       }
     },
+    "Workspace trust revocation could not be saved" : {
+      "comment" : "Workspace health summary when revoking trust cannot be persisted"
+    },
     "Workspace trust revoked" : {
       "comment" : "Diagnostics log message recorded when a workspace's trust is revoked",
       "extractionState" : "manual",
@@ -3282,6 +3467,9 @@
           }
         }
       }
+    },
+    "Workspace trust state could not be saved" : {
+      "comment" : "Workspace health summary when trust banner persistence fails"
     },
     "Zoom" : {
       "comment" : "Window menu item that zooms the frontmost window",

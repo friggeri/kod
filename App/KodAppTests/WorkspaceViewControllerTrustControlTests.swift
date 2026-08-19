@@ -153,7 +153,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         XCTAssertFalse(sidebar is NSVisualEffectView)
     }
 
-    func testSidebarModesAreCenteredOrderedAndUseReadableExplorerFont() throws {
+    func testActivityBarIsOrderedAboveExplorerAndUsesReadableFont() throws {
         let (controller, _, _, _) = try makeFixture()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),
@@ -163,29 +163,40 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         )
         window.contentViewController = controller
         window.layoutIfNeeded()
-        let modeControl = try XCTUnwrap(
-            findView(
-                identifier: "workspace.sidebarMode",
-                in: controller.view
-            ) as? NSSegmentedControl
+        let activityBar = try XCTUnwrap(
+            findView(identifier: "workspace.activityBar", in: controller.view)
+                as? WorkspaceActivityBarView
         )
+        XCTAssertEqual(
+            WorkspaceActivityBarView.orderedSurfaces,
+            [.explorer, .search, .sourceControl, .problems, .symbols]
+        )
+        XCTAssertEqual(activityBar.frame.height, 40, accuracy: 0.5)
+
+        controller.showSourceControl(nil)
+        XCTAssertEqual(activityBar.selectedSurface, .sourceControl)
+        controller.searchWorkspace(nil)
+        XCTAssertEqual(activityBar.selectedSurface, .search)
+        controller.showProblems(nil)
+        XCTAssertEqual(activityBar.selectedSurface, .problems)
+        controller.showSymbols(nil)
+        XCTAssertEqual(activityBar.selectedSurface, .symbols)
+
         let sidebar = try XCTUnwrap(
             findView(identifier: "workspace.sidebar", in: controller.view)
         )
-
-        XCTAssertEqual(modeControl.segmentCount, 4)
-        XCTAssertEqual(
-            (0..<modeControl.segmentCount).compactMap { modeControl.label(forSegment: $0) },
-            ["Explorer", "Source Control", "Search", "Problems"]
+        let sidebarContent = try XCTUnwrap(
+            findView(identifier: "workspace.sidebarContent", in: controller.view)
         )
-        XCTAssertEqual(modeControl.frame.midX, sidebar.bounds.midX, accuracy: 1)
-
-        controller.showSourceControl(nil)
-        XCTAssertEqual(modeControl.selectedSegment, 1)
-        controller.searchWorkspace(nil)
-        XCTAssertEqual(modeControl.selectedSegment, 2)
-        controller.showProblems(nil)
-        XCTAssertEqual(modeControl.selectedSegment, 3)
+        XCTAssertEqual(
+            activityBar.frame.minY,
+            sidebarContent.frame.maxY,
+            accuracy: 1
+        )
+        XCTAssertFalse(
+            sidebar.subviews.contains { $0 is NSBox },
+            "the activity bar should flow directly into sidebar content"
+        )
 
         let outline = try XCTUnwrap(
             findView(identifier: "workspace.explorer", in: controller.view) as? NSOutlineView
@@ -252,7 +263,8 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         )
 
         XCTAssertTrue(trustButton.isDescendant(of: statusBar))
-        XCTAssertEqual(trustButton.frame.maxX, statusBar.bounds.maxX - 6, accuracy: 0.5)
+        let trustFrame = trustButton.convert(trustButton.bounds, to: statusBar)
+        XCTAssertEqual(trustFrame.maxX, statusBar.bounds.maxX - 6, accuracy: 0.5)
         XCTAssertNotNil(trustButton.image)
         XCTAssertEqual(
             trustButton.action,

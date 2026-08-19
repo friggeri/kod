@@ -6,6 +6,19 @@ import SyntaxCore
 import TextDecorationModel
 import ThemeCore
 
+public struct CodeViewportSelectionState: Equatable, Sendable {
+    public let selectedUTF8Range: Range<Int>?
+    public let focusedUTF8Offset: Int
+
+    public init(
+        selectedUTF8Range: Range<Int>?,
+        focusedUTF8Offset: Int
+    ) {
+        self.selectedUTF8Range = selectedUTF8Range
+        self.focusedUTF8Offset = focusedUTF8Offset
+    }
+}
+
 @MainActor
 public final class CodeViewport: NSView {
     public let snapshot: SourceSnapshot
@@ -23,7 +36,15 @@ public final class CodeViewport: NSView {
     public var onHoverExit: (() -> Void)?
     public var onGutterChangeClick: ((String) -> Void)?
     public var onCancelEmbeddedViewZone: (() -> Bool)?
+    public var onSelectionStateChange: ((CodeViewportSelectionState) -> Void)?
     var onMinimapInvalidation: ((CodeMinimapInvalidation) -> Void)?
+
+    public var selectionState: CodeViewportSelectionState {
+        CodeViewportSelectionState(
+            selectedUTF8Range: selectedUTF8Range,
+            focusedUTF8Offset: focusedUTF8Offset
+        )
+    }
 
     /// Off by default. When enabled for a file under the 10 MB safety-mode
     /// threshold, long lines wrap to the viewport width; safety-mode files
@@ -699,9 +720,7 @@ public final class CodeViewport: NSView {
             }
             _ = try snapshot.text(inUTF8Range: range)
         }
-        selectedUTF8Range = range
-        needsDisplay = true
-        onMinimapInvalidation?(.selection)
+        applySelectionState(selectedRange: range)
     }
 
     /// Scrolls the given UTF-8 offset into view (centering it when it is
@@ -751,15 +770,16 @@ public final class CodeViewport: NSView {
         }
 
         let offset = sourceOffset(at: point)
-        focusedUTF8Offset = offset
+        applySelectionState(
+            selectedRange: selectedUTF8Range,
+            focusedOffset: offset
+        )
         if event.modifierFlags.contains(.command) {
             onCommandClick?(offset)
             return
         }
         anchorUTF8Offset = offset
-        selectedUTF8Range = nil
-        needsDisplay = true
-        onMinimapInvalidation?(.selection)
+        applySelectionState(selectedRange: nil)
     }
 
     public override func mouseMoved(with event: NSEvent) {
@@ -832,19 +852,18 @@ public final class CodeViewport: NSView {
             return
         }
         let currentOffset = sourceOffset(at: convert(event.locationInWindow, from: nil))
-        selectedUTF8Range = min(anchorUTF8Offset, currentOffset)..<max(
-            anchorUTF8Offset,
-            currentOffset
+        applySelectionState(
+            selectedRange: min(anchorUTF8Offset, currentOffset)..<max(
+                anchorUTF8Offset,
+                currentOffset
+            )
         )
         autoscroll(with: event)
-        needsDisplay = true
-        onMinimapInvalidation?(.selection)
     }
 
     public override func mouseUp(with event: NSEvent) {
         if selectedUTF8Range?.isEmpty == true {
-            selectedUTF8Range = nil
-            onMinimapInvalidation?(.selection)
+            applySelectionState(selectedRange: nil)
         }
         anchorUTF8Offset = nil
     }
@@ -881,9 +900,27 @@ public final class CodeViewport: NSView {
 
     @objc
     public override func selectAll(_ sender: Any?) {
-        selectedUTF8Range = 0..<snapshot.utf8Count
-        needsDisplay = true
-        onMinimapInvalidation?(.selection)
+        applySelectionState(selectedRange: 0..<snapshot.utf8Count)
+    }
+
+    private func applySelectionState(
+        selectedRange: Range<Int>?,
+        focusedOffset: Int? = nil
+    ) {
+        let previous = selectionState
+        selectedUTF8Range = selectedRange
+        if let focusedOffset {
+            focusedUTF8Offset = focusedOffset
+        }
+        let current = selectionState
+        guard current != previous else {
+            return
+        }
+        if current.selectedUTF8Range != previous.selectedUTF8Range {
+            needsDisplay = true
+            onMinimapInvalidation?(.selection)
+        }
+        onSelectionStateChange?(current)
     }
 
     @objc

@@ -8,12 +8,27 @@ import WorkspaceCore
 /// presentation index derived from its latest status snapshot.
 @MainActor
 final class GitWorkspaceCoordinator {
+    enum RepositoryState: Equatable {
+        case loading
+        case noRepository
+        case available(
+            location: GitRepositoryLocation,
+            status: GitStatusSnapshot
+        )
+        case unavailable(
+            location: GitRepositoryLocation?,
+            reason: String
+        )
+    }
+
     private(set) var context: GitContext?
+    private(set) var repositoryState: RepositoryState = .loading
     private(set) var latestStatus: GitStatusSnapshot?
     private(set) var presentationIndex = GitStatusPresentationIndex.empty
     private let root: URL
     private let onStatusChanged: (GitStatusSnapshot?) -> Void
     private let diagnosticsLog: BoundedEventLog
+    private var refreshGeneration: UInt64 = 0
 
     /// `true` once `start()` has run, regardless of whether a repository
     /// was found.
@@ -33,32 +48,55 @@ final class GitWorkspaceCoordinator {
         hasStarted = true
         do {
             context = try await GitContext.open(at: root)
+        } catch let error as GitRepositoryLocatorError {
+            context = nil
+            switch error {
+            case .notARepository:
+                publish(.noRepository)
+            case .processFailed, .malformedOutput:
+                publish(
+                    .unavailable(
+                        location: nil,
+                        reason: String(describing: error)
+                    )
+                )
+            }
+            await recordOpenFailure(error: error)
+            return
         } catch {
             context = nil
-            await diagnosticsLog.record(
-                subsystem: .git,
-                level: .info,
-                message: Localized.string(
-                    "Opening the workspace's Git repository failed or found none",
-                    comment: "Diagnostics log message recorded when opening a workspace's Git repository fails or finds none"
-                ),
-                context: [
-                    DiagnosticContextField(name: "workspaceRoot", category: .fullPath, value: root.path),
-                    DiagnosticContextField(name: "reason", category: .diagnosticMessage, value: String(describing: error))
-                ]
-            )
+            publish(.unavailable(location: nil, reason: String(describing: error)))
+            await recordOpenFailure(error: error)
+            return
         }
         await refresh()
     }
 
     func refresh() async {
+        refreshGeneration &+= 1
+        await refresh(generation: refreshGeneration)
+    }
+
+    private func refresh(generation: UInt64) async {
         guard let context else {
-            publishStatus(nil)
+            if generation == refreshGeneration,
+               case .loading = repositoryState {
+                publish(.noRepository)
+            }
             return
         }
         do {
-            publishStatus(try await context.status())
+            let location = try await context.refreshLocation()
+            let status = try await context.status()
+            guard generation == refreshGeneration else {
+                return
+            }
+            publish(.available(location: location, status: status))
         } catch {
+            let location = await context.location
+            guard generation == refreshGeneration else {
+                return
+            }
             await diagnosticsLog.record(
                 subsystem: .git,
                 level: .warning,
@@ -68,7 +106,15 @@ final class GitWorkspaceCoordinator {
                     DiagnosticContextField(name: "reason", category: .diagnosticMessage, value: String(describing: error))
                 ]
             )
-            publishStatus(nil)
+            guard generation == refreshGeneration else {
+                return
+            }
+            publish(
+                .unavailable(
+                    location: location,
+                    reason: String(describing: error)
+                )
+            )
         }
     }
 
@@ -84,8 +130,10 @@ final class GitWorkspaceCoordinator {
         guard let context else {
             return
         }
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
         await context.invalidate(Self.gitInvalidation(for: batch))
-        await refresh()
+        await refresh(generation: generation)
     }
 
     func explorerDecoration(
@@ -98,9 +146,40 @@ final class GitWorkspaceCoordinator {
         )
     }
 
-    private func publishStatus(_ snapshot: GitStatusSnapshot?) {
+    private func publish(_ state: RepositoryState) {
+        repositoryState = state
+        let snapshot: GitStatusSnapshot?
+        switch state {
+        case .available(_, let status):
+            snapshot = status
+        case .loading, .noRepository, .unavailable:
+            snapshot = nil
+        }
         latestStatus = snapshot
         presentationIndex = GitStatusPresentationIndex(snapshot: snapshot)
         onStatusChanged(snapshot)
+    }
+
+    private func recordOpenFailure(error: Error) async {
+        await diagnosticsLog.record(
+            subsystem: .git,
+            level: .info,
+            message: Localized.string(
+                "Opening the workspace's Git repository failed or found none",
+                comment: "Diagnostics log message recorded when opening a workspace's Git repository fails or finds none"
+            ),
+            context: [
+                DiagnosticContextField(
+                    name: "workspaceRoot",
+                    category: .fullPath,
+                    value: root.path
+                ),
+                DiagnosticContextField(
+                    name: "reason",
+                    category: .diagnosticMessage,
+                    value: String(describing: error)
+                )
+            ]
+        )
     }
 }

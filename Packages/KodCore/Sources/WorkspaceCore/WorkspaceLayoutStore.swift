@@ -70,9 +70,17 @@ public final class WorkspaceLayoutStore {
     ) -> CodableSetting<WorkspaceLayoutState> {
         CodableSetting(
             key: keyPrefix + identity.persistenceKey,
-            currentVersion: 1,
+            currentVersion: 3,
             migrations: [
-                .unversionedCodable(WorkspaceLayoutState.self) { $0 }
+                .versioned(from: 2, WorkspaceLayoutState.self) {
+                    Self.migrateActivityRailState($0)
+                },
+                .versioned(from: 1, WorkspaceLayoutState.self) {
+                    Self.migrateLegacyState($0)
+                },
+                .unversionedCodable(WorkspaceLayoutState.self) {
+                    Self.migrateLegacyState($0)
+                }
             ],
             validate: { state in
                 do {
@@ -85,5 +93,34 @@ public final class WorkspaceLayoutStore {
                 }
             }
         )
+    }
+
+    nonisolated private static func migrateLegacyState(
+        _ legacyState: WorkspaceLayoutState
+    ) -> WorkspaceLayoutState {
+        var state = legacyState
+        state.sidebarSurface = .explorer
+        if var geometry = state.geometry, geometry.sidebarWidth > 0 {
+            geometry.sidebarWidth = min(
+                max(geometry.sidebarWidth, 180),
+                420
+            )
+            state.geometry = geometry
+        }
+        return state
+    }
+
+    nonisolated private static func migrateActivityRailState(
+        _ railState: WorkspaceLayoutState
+    ) -> WorkspaceLayoutState {
+        var state = railState
+        if var geometry = state.geometry, geometry.sidebarWidth > 0 {
+            geometry.sidebarWidth = min(
+                max(geometry.sidebarWidth - 44, 180),
+                420
+            )
+            state.geometry = geometry
+        }
+        return state
     }
 }

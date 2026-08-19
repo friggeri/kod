@@ -110,6 +110,34 @@ final class WorkspaceLayoutPersistenceTests: XCTestCase {
         XCTAssertFalse(saved.minimapEnabled)
     }
 
+    func testNewWorkspaceUsesDefaultTotalSidebarWidth() async throws {
+        let fixture = try makeFixture()
+        let window = host(fixture.controller)
+
+        fixture.controller.restoreWorkspaceGeometryIfNeeded()
+        try await Task.sleep(for: .milliseconds(20))
+        window.layoutIfNeeded()
+        fixture.controller.view.layoutSubtreeIfNeeded()
+
+        let splitController = try XCTUnwrap(
+            fixture.controller.children
+                .compactMap { $0 as? NSSplitViewController }
+                .first
+        )
+        let sidebarItem = try XCTUnwrap(splitController.splitViewItems.first)
+        XCTAssertEqual(
+            sidebarItem.preferredThicknessFraction,
+            WorkspaceGeometryController.defaultSidebarWidth
+                / splitController.splitView.bounds.width,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            sidebarPaneWidth(item: sidebarItem, in: splitController.splitView),
+            WorkspaceGeometryController.defaultSidebarWidth,
+            accuracy: 1
+        )
+    }
+
     func testSavedWindowAndSidebarGeometryRestoreForReconstructedWorkspace() async throws {
         guard let visibleFrame = NSScreen.screens.first?.visibleFrame else {
             throw XCTSkip("No screen is available to constrain a test window")
@@ -195,7 +223,42 @@ final class WorkspaceLayoutPersistenceTests: XCTestCase {
         )
     }
 
+    func testSelectedSidebarSurfaceRestoresWithoutStealingFocus() throws {
+        var savedState = WorkspaceLayoutState.singleGroup()
+        savedState.sidebarSurface = .symbols
+        let fixture = try makeFixture(savedState: savedState)
+        let window = host(fixture.controller)
+        let activityBar = try XCTUnwrap(
+            findView(
+                identifier: "workspace.activityBar",
+                in: fixture.controller.view
+            ) as? WorkspaceActivityBarView
+        )
+        let symbolsField = try XCTUnwrap(
+            findView(
+                identifier: "symbols.field",
+                in: fixture.controller.view
+            )
+        )
+
+        XCTAssertEqual(activityBar.selectedSurface, .symbols)
+        XCTAssertFalse(symbolsField.isHidden)
+        XCTAssertFalse(window.firstResponder === symbolsField)
+    }
+
     // The pure frame-constraint and fullscreen-selection policy these
     // tests used to cover now lives in `WorkspaceGeometryController`; see
     // `WorkspaceGeometryControllerTests`.
+
+    private func findView(identifier: String, in view: NSView) -> NSView? {
+        if view.identifier?.rawValue == identifier {
+            return view
+        }
+        for subview in view.subviews {
+            if let found = findView(identifier: identifier, in: subview) {
+                return found
+            }
+        }
+        return nil
+    }
 }

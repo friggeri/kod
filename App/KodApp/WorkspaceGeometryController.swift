@@ -70,11 +70,21 @@ final class WorkspaceGeometryController {
         }
     }
 
+    func revealSidebar(_ sender: Any?) {
+        guard splitViewController?.splitViewItems.first?.isCollapsed == true else {
+            return
+        }
+        toggleSidebar(sender)
+    }
+
     /// Called for every `NSSplitView.didResizeSubviewsNotification` on the
     /// workspace's outer split view: a resize the *user* performed updates
     /// the remembered expanded width, while one this controller itself is
     /// applying must not feed back into it.
     func splitViewDidResize() {
+        guard hasRestoredGeometry else {
+            return
+        }
         if pendingExpandedSidebarWidth != nil {
             applyPendingExpandedSidebarWidthIfPossible()
             return
@@ -96,6 +106,19 @@ final class WorkspaceGeometryController {
         guard let geometry else {
             if !window.styleMask.contains(.fullScreen) {
                 lastNormalWindowFrame = window.frame
+            }
+            isApplyingSidebarGeometry = true
+            window.layoutIfNeeded()
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self else {
+                    return
+                }
+                guard let window, self.windowProvider() === window else {
+                    self.isApplyingSidebarGeometry = false
+                    return
+                }
+                window.layoutIfNeeded()
+                self.restoreDefaultSidebarGeometry()
             }
             return
         }
@@ -202,6 +225,18 @@ final class WorkspaceGeometryController {
         applySidebarWidth(width)
         sidebarItem.isCollapsed = geometry.isSidebarCollapsed
         lastExpandedSidebarWidth = width
+    }
+
+    private func restoreDefaultSidebarGeometry() {
+        guard let sidebarItem = splitViewController?.splitViewItems.first else {
+            return
+        }
+        isApplyingSidebarGeometry = true
+        defer {
+            isApplyingSidebarGeometry = false
+        }
+        sidebarItem.isCollapsed = false
+        applySidebarWidth(lastExpandedSidebarWidth)
     }
 
     private func applySidebarWidth(_ width: CGFloat) {

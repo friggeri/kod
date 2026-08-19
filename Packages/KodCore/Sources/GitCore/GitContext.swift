@@ -5,8 +5,9 @@ import Foundation
 /// caching invalidated by repository change signals from the client.
 /// This is the one type App code needs to hold onto per open workspace.
 public actor GitContext {
-    public let location: GitRepositoryLocation
+    public private(set) var location: GitRepositoryLocation
     private let executableURL: URL
+    private let repositoryLocator: GitRepositoryLocator
     private let environment: [String: String]
     private let statusService: GitStatusService
     private let diffService: GitDiffService
@@ -19,6 +20,7 @@ public actor GitContext {
     private let revisionContentCache = GitResultCache<GitRevisionContent>()
     private let headExistenceCache = GitResultCache<Bool>()
     private var worktreeGeneration = 0
+    private var locationRefreshGeneration: UInt64 = 0
 
     /// Resolves Git's absolute executable and this path's repository
     /// location, then constructs a ready-to-use context. Throws if
@@ -34,6 +36,7 @@ public actor GitContext {
     public init(location: GitRepositoryLocation, executableURL: URL) {
         self.location = location
         self.executableURL = executableURL
+        self.repositoryLocator = GitRepositoryLocator(executableURL: executableURL)
         self.environment = GitInvocationHardening.environment(home: ProcessInfo.processInfo.environment["HOME"])
         self.statusService = GitStatusService(
             executableURL: executableURL,
@@ -63,6 +66,20 @@ public actor GitContext {
 
     func repositoryStateIdentity() -> GitRepositoryStateIdentity {
         currentIdentity()
+    }
+
+    @discardableResult
+    public func refreshLocation() async throws -> GitRepositoryLocation {
+        locationRefreshGeneration &+= 1
+        let generation = locationRefreshGeneration
+        let refreshed = try await repositoryLocator.locate(
+            startingAt: location.workingTreeRoot
+        )
+        guard generation == locationRefreshGeneration else {
+            return location
+        }
+        location = refreshed
+        return refreshed
     }
 
     public func status(useCache: Bool = true) async throws -> GitStatusSnapshot {

@@ -24,9 +24,11 @@ enum WorkspaceCommandID: String, CaseIterable {
     case editCopy = "edit.copy"
     case editSelectAll = "edit.selectAll"
     case editFindInFile = "command.findInFile"
+    case editShowExplorer = "edit.showExplorer"
     case editSearchWorkspace = "command.searchWorkspace"
     case editShowSourceControl = "edit.showSourceControl"
     case editShowProblems = "edit.showProblems"
+    case editShowSymbols = "edit.showSymbols"
     case editShowGitBlame = "edit.showGitBlame"
 
     // --- View ---
@@ -246,6 +248,10 @@ final class WorkspaceCommandCatalog {
             action: #selector(WorkspaceViewController.findInFile(_:)),
             key: "f",
             surface: .menuAndPalette)
+        add(id: .editShowExplorer,
+            menuTitle: Localized.string("Show Explorer", comment: "Edit menu item that reveals the Explorer sidebar"),
+            action: #selector(WorkspaceViewController.showExplorer(_:)),
+            surface: .menuAndPalette)
         add(id: .editSearchWorkspace,
             menuTitle: Localized.string("Search Workspace...", comment: "Edit menu item that opens workspace-wide search"),
             paletteTitle: Localized.string("Search Workspace", comment: "Command palette entry that opens workspace-wide search"),
@@ -258,11 +264,15 @@ final class WorkspaceCommandCatalog {
             action: #selector(WorkspaceViewController.showSourceControl(_:)),
             key: "g",
             modifiers: [.command, .shift],
-            surface: .menuOnly(exclusionReason: "Sidebar toggles are not currently in palette"))
+            surface: .menuAndPalette)
         add(id: .editShowProblems,
             menuTitle: Localized.string("Show Problems", comment: "Edit menu item that reveals the Problems panel"),
             action: #selector(WorkspaceViewController.showProblems(_:)),
-            surface: .menuOnly(exclusionReason: "Panel toggles are not currently in palette"))
+            surface: .menuAndPalette)
+        add(id: .editShowSymbols,
+            menuTitle: Localized.string("Show Symbols", comment: "Edit menu item that reveals the Symbols sidebar"),
+            action: #selector(WorkspaceViewController.showSymbols(_:)),
+            surface: .menuAndPalette)
         add(id: .editShowGitBlame,
             menuTitle: Localized.string("Show Git Blame", comment: "Edit menu item that shows Git blame for the selected file"),
             action: #selector(WorkspaceViewController.showGitBlameForSelectedFile(_:)),
@@ -408,7 +418,11 @@ final class WorkspaceCommandCatalog {
         self.paletteOrder = [
             .fileQuickOpen,
             .editFindInFile,
+            .editShowExplorer,
             .editSearchWorkspace,
+            .editShowSourceControl,
+            .editShowProblems,
+            .editShowSymbols,
             .fileGoToLine,
             .viewWordWrap,
             .viewMinimap,
@@ -454,9 +468,11 @@ final class WorkspaceCommandCatalog {
                 .command(.editSelectAll),
                 .separator,
                 .command(.editFindInFile),
+                .command(.editShowExplorer),
                 .command(.editSearchWorkspace),
                 .command(.editShowSourceControl),
                 .command(.editShowProblems),
+                .command(.editShowSymbols),
                 .command(.editShowGitBlame)
             ]),
             .submenu(title: Localized.string("View", comment: "Title of the View menu"), children: [

@@ -85,6 +85,31 @@ final class SourceControlSidebarViewControllerTests: XCTestCase {
         }
     }
 
+    func testLoadingAndUnavailableStatesNeverMasqueradeAsNoRepository() throws {
+        let controller = try makeController()
+        controller.loadView()
+
+        controller.showLoading()
+        XCTAssertEqual(
+            try statusLabel(in: controller).stringValue,
+            "Loading repository status…"
+        )
+
+        controller.showUnavailable(reason: "status failed")
+        XCTAssertEqual(
+            try statusLabel(in: controller).stringValue,
+            "Repository status unavailable."
+        )
+        XCTAssertEqual(
+            try statusLabel(in: controller).toolTip,
+            "status failed"
+        )
+
+        controller.update(snapshot: GitStatusSnapshot(entries: []))
+        XCTAssertEqual(try statusLabel(in: controller).stringValue, "No changes.")
+        XCTAssertNil(try statusLabel(in: controller).toolTip)
+    }
+
     func testUpdateBuildsThreeVSCodeGroupsInOrderAndMixesUntrackedChanges() throws {
         let controller = try makeController()
         controller.loadView()

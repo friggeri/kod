@@ -100,7 +100,17 @@ public struct GitRepositoryLocator: Sendable {
         )
         let revParseResult = try await runner.run(revParseInvocation)
         guard revParseResult.exitCode == 0 else {
-            throw GitRepositoryLocatorError.notARepository(path)
+            let message = String(
+                decoding: revParseResult.standardError,
+                as: UTF8.self
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !Self.hasRepositoryMarker(startingAt: path) {
+                throw GitRepositoryLocatorError.notARepository(path)
+            }
+            throw GitRepositoryLocatorError.processFailed(
+                exitCode: revParseResult.exitCode,
+                message: message
+            )
         }
         let output = String(decoding: revParseResult.standardOutput, as: UTF8.self)
         let lines = output.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
@@ -120,6 +130,35 @@ public struct GitRepositoryLocator: Sendable {
             commonDirectory: commonDirectory,
             isBareRepository: isBareRepository,
             head: head
+        )
+    }
+
+    private static func hasRepositoryMarker(startingAt path: URL) -> Bool {
+        let fileManager = FileManager.default
+        var candidate = path.standardizedFileURL
+        while true {
+            if fileManager.fileExists(
+                atPath: candidate.appendingPathComponent(".git").path
+            ) {
+                return true
+            }
+            guard candidate.path != "/" else {
+                break
+            }
+            let parent = candidate.deletingLastPathComponent()
+            guard parent.path != candidate.path else {
+                break
+            }
+            candidate = parent
+        }
+
+        return fileManager.fileExists(
+            atPath: path.appendingPathComponent("HEAD").path
+        ) && fileManager.fileExists(
+            atPath: path.appendingPathComponent(
+                "objects",
+                isDirectory: true
+            ).path
         )
     }
 

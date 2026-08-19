@@ -113,6 +113,9 @@ final class WorkspaceGeometryControllerTests: XCTestCase {
     }
 
     func testSidebarWidthIsClampedIntoTheSupportedRange() {
+        XCTAssertEqual(WorkspaceGeometryController.minimumSidebarWidth, 180)
+        XCTAssertEqual(WorkspaceGeometryController.defaultSidebarWidth, 240)
+        XCTAssertEqual(WorkspaceGeometryController.maximumSidebarWidth, 420)
         XCTAssertEqual(
             WorkspaceGeometryController.clampedSidebarWidth(nil),
             WorkspaceGeometryController.defaultSidebarWidth
@@ -137,6 +140,62 @@ final class WorkspaceGeometryControllerTests: XCTestCase {
             WorkspaceGeometryController(restoredSidebarWidth: 10_000)
                 .lastExpandedSidebarWidth,
             WorkspaceGeometryController.maximumSidebarWidth
+        )
+    }
+
+    func testMissingPersistedGeometryAppliesTheDefaultSidebarWidth() async throws {
+        let controller = WorkspaceGeometryController(restoredSidebarWidth: nil)
+        let splitController = NSSplitViewController()
+        let sidebarController = NSViewController()
+        sidebarController.view = NSView()
+        let sidebarItem = NSSplitViewItem(
+            sidebarWithViewController: sidebarController
+        )
+        sidebarItem.minimumThickness =
+            WorkspaceGeometryController.minimumSidebarWidth
+        sidebarItem.maximumThickness =
+            WorkspaceGeometryController.maximumSidebarWidth
+        splitController.addSplitViewItem(sidebarItem)
+        let editorController = NSViewController()
+        editorController.view = NSView()
+        splitController.addSplitViewItem(
+            NSSplitViewItem(viewController: editorController)
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = splitController
+        window.setContentSize(NSSize(width: 900, height: 600))
+        window.layoutIfNeeded()
+        controller.windowProvider = { window }
+        controller.attach(splitViewController: splitController)
+
+        controller.restoreIfNeeded(geometry: nil)
+        try await Task.sleep(for: .milliseconds(20))
+        window.layoutIfNeeded()
+
+        XCTAssertTrue(controller.hasRestoredGeometry)
+        XCTAssertEqual(
+            controller.lastExpandedSidebarWidth,
+            WorkspaceGeometryController.defaultSidebarWidth
+        )
+        XCTAssertEqual(
+            sidebarItem.preferredThicknessFraction,
+            WorkspaceGeometryController.defaultSidebarWidth
+                / splitController.splitView.bounds.width,
+            accuracy: 0.001
+        )
+        let width = try XCTUnwrap(
+            splitController.splitView.arrangedSubviews.first?.frame.width
+        )
+        XCTAssertEqual(
+            width,
+            WorkspaceGeometryController.defaultSidebarWidth,
+            accuracy: 1
         )
     }
 

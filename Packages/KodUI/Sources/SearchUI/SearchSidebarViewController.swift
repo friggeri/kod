@@ -369,6 +369,10 @@ public final class SearchSidebarViewController: NSViewController {
         view.window?.makeFirstResponder(searchField)
     }
 
+    public var primaryFocusView: NSView {
+        searchField
+    }
+
     @objc
     private func optionsChanged(_ sender: Any?) {
         runSearch()

@@ -45,6 +45,12 @@ final class SymbolsViewController: NSViewController {
         searchField.identifier = NSUserInterfaceItemIdentifier("symbols.field")
         searchField.target = self
         searchField.action = #selector(runSearch)
+        searchField.setAccessibilityLabel(
+            Localized.string(
+                "Search Symbols",
+                comment: "Accessibility label for the Symbols sidebar search field"
+            )
+        )
         searchField.translatesAutoresizingMaskIntoConstraints = false
 
         statusLabel.textColor = .secondaryLabelColor
@@ -63,6 +69,12 @@ final class SymbolsViewController: NSViewController {
         outlineView.action = #selector(handleSelection)
         outlineView.rowSizeStyle = .default
         outlineView.backgroundColor = .clear
+        outlineView.setAccessibilityLabel(
+            Localized.string(
+                "Symbol results",
+                comment: "Accessibility label for the Symbols sidebar results"
+            )
+        )
 
         let scrollView = NSScrollView()
         scrollView.documentView = outlineView
@@ -94,6 +106,10 @@ final class SymbolsViewController: NSViewController {
 
     func focusSearchField() {
         view.window?.makeFirstResponder(searchField)
+    }
+
+    var primaryFocusView: NSView {
+        searchField
     }
 
     func refresh() {

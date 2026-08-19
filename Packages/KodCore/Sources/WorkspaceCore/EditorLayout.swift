@@ -291,6 +291,14 @@ public enum SplitOrientation: String, Equatable, Codable, Sendable {
     case vertical
 }
 
+public enum WorkspaceSidebarSurface: String, CaseIterable, Hashable, Codable, Sendable {
+    case explorer
+    case search
+    case sourceControl
+    case problems
+    case symbols
+}
+
 public struct WorkspaceWindowFrame: Equatable, Codable, Sendable {
     public var x: Double
     public var y: Double
@@ -490,6 +498,7 @@ public struct WorkspaceLayoutState: Equatable, Codable, Sendable {
     public var activeGroupID: EditorGroupID
     public var wordWrapEnabled: Bool
     public var minimapEnabled: Bool
+    public var sidebarSurface: WorkspaceSidebarSurface
     public var geometry: WorkspaceGeometryState?
 
     public init(
@@ -498,6 +507,7 @@ public struct WorkspaceLayoutState: Equatable, Codable, Sendable {
         activeGroupID: EditorGroupID,
         wordWrapEnabled: Bool = false,
         minimapEnabled: Bool = true,
+        sidebarSurface: WorkspaceSidebarSurface = .explorer,
         geometry: WorkspaceGeometryState? = nil
     ) {
         self.root = root
@@ -505,6 +515,7 @@ public struct WorkspaceLayoutState: Equatable, Codable, Sendable {
         self.activeGroupID = activeGroupID
         self.wordWrapEnabled = wordWrapEnabled
         self.minimapEnabled = minimapEnabled
+        self.sidebarSurface = sidebarSurface
         self.geometry = geometry
     }
 
@@ -525,6 +536,7 @@ public struct WorkspaceLayoutState: Equatable, Codable, Sendable {
         case activeGroupID
         case wordWrapEnabled
         case minimapEnabled
+        case sidebarSurface
         case geometry
     }
 
@@ -535,6 +547,10 @@ public struct WorkspaceLayoutState: Equatable, Codable, Sendable {
         activeGroupID = try container.decode(EditorGroupID.self, forKey: .activeGroupID)
         wordWrapEnabled = try container.decodeIfPresent(Bool.self, forKey: .wordWrapEnabled) ?? false
         minimapEnabled = try container.decodeIfPresent(Bool.self, forKey: .minimapEnabled) ?? true
+        sidebarSurface = try container.decodeIfPresent(
+            WorkspaceSidebarSurface.self,
+            forKey: .sidebarSurface
+        ) ?? .explorer
         geometry = try container.decodeIfPresent(WorkspaceGeometryState.self, forKey: .geometry)
     }
 

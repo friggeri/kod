@@ -825,6 +825,19 @@ final class WorkspaceSession {
         }
     }
 
+    func refreshGitStatus() {
+        guard gitCoordinator.hasStarted else {
+            return
+        }
+        runTracked(.git) { [weak self] in
+            guard let self else {
+                return
+            }
+            await self.gitCoordinator.refresh()
+            self.synchronizeGitHealthAfterRefresh()
+        }
+    }
+
     func updateFilenameIndex(
         removing relativePaths: [String],
         appending entries: [WorkspaceFileEntry] = []
@@ -917,13 +930,14 @@ final class WorkspaceSession {
     }
 
     private func synchronizeGitHealthAfterRefresh() {
-        guard gitCoordinator.context != nil else {
-            // A folder that is not a repository is a valid state, not a
-            // degraded Git subsystem.
-            clearHealthIssue(.git)
+        switch gitCoordinator.repositoryState {
+        case .loading:
             return
-        }
-        guard gitCoordinator.latestStatus != nil else {
+        case .noRepository:
+            clearHealthIssue(.git)
+        case .available:
+            clearHealthIssue(.git)
+        case .unavailable(_, let reason):
             recordHealthIssue(
                 .git,
                 severity: .degraded,
@@ -931,14 +945,9 @@ final class WorkspaceSession {
                     "Git status is temporarily unavailable",
                     comment: "Workspace health message shown when refreshing Git status fails"
                 ),
-                reason: Localized.string(
-                    "Git status refresh did not produce a snapshot",
-                    comment: "Workspace health diagnostic reason when a Git repository refresh fails"
-                )
+                reason: reason
             )
-            return
         }
-        clearHealthIssue(.git)
     }
 
     // MARK: - Language services

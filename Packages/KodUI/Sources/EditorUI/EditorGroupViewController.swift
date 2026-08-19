@@ -669,6 +669,13 @@ public final class EditorGroupViewController: NSViewController {
         return runtimes[selectedTabID]?.focusedSourceDocument
     }
 
+    public var currentStatusDocument: EditorStatusDocument? {
+        guard let selectedTabID = state.selectedTabID else {
+            return nil
+        }
+        return runtimes[selectedTabID]?.statusDocument
+    }
+
     public func applyDiagnostics(url: URL, diagnostics: [NormalizedDiagnostic]) {
         let markerDiagnostics = diagnostics.map { diagnostic in
             let severity: CodeMinimapDiagnosticSeverity

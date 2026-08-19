@@ -86,6 +86,14 @@ final class ProblemsViewController: NSViewController {
         updateStatusLabel()
     }
 
+    var primaryFocusView: NSView {
+        outlineView
+    }
+
+    func focusPrimaryControl() {
+        outlineView.window?.makeFirstResponder(outlineView)
+    }
+
     private func apply(_ snapshot: WorkspaceDiagnosticsStore.Snapshot) {
         diagnosticsByFile = snapshot.presentationDiagnosticsByFile
         let activeFiles = Set(diagnosticsByFile.keys)

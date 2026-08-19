@@ -16,37 +16,47 @@ import XCTest
 /// process invocation end to end, exactly like `GitCoreTests`.
 @MainActor
 final class GitWorkspaceCoordinatorTests: XCTestCase {
+    @discardableResult
+    private func runGit(
+        _ arguments: [String],
+        at root: URL,
+        extraEnvironment: [String: String] = [:]
+    ) throws -> String {
+        var environment: [String: String] = [
+            "PATH": "/usr/bin:/bin",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "HOME": FileManager.default.temporaryDirectory.path
+        ]
+        for (key, value) in extraEnvironment {
+            environment[key] = value
+        }
+        let process = Process()
+        process.executableURL = try GitExecutableLocator.resolve()
+        process.arguments = arguments
+        process.currentDirectoryURL = root
+        process.environment = environment
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0, "git \(arguments.joined(separator: " ")) failed")
+        return String(
+            decoding: output.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func makeFixtureRepository() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GitWorkspaceCoordinatorFixture-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
-        let gitExecutableURL = try GitExecutableLocator.resolve()
-        func run(_ arguments: [String], extraEnvironment: [String: String] = [:]) throws {
-            var environment: [String: String] = [
-                "PATH": "/usr/bin:/bin",
-                "GIT_CONFIG_GLOBAL": "/dev/null",
-                "GIT_CONFIG_SYSTEM": "/dev/null",
-                "HOME": FileManager.default.temporaryDirectory.path
-            ]
-            for (key, value) in extraEnvironment {
-                environment[key] = value
-            }
-            let process = Process()
-            process.executableURL = gitExecutableURL
-            process.arguments = arguments
-            process.currentDirectoryURL = root
-            process.environment = environment
-            process.standardOutput = Pipe()
-            process.standardError = Pipe()
-            try process.run()
-            process.waitUntilExit()
-        }
-
-        try run(["init", "-q", "-b", "main"])
+        try runGit(["init", "-q", "-b", "main"], at: root)
         try Data("hi\n".utf8).write(to: root.appendingPathComponent("a.txt"))
-        try run(["add", "-A"])
-        try run(["commit", "-q", "-m", "c1"], extraEnvironment: [
+        try runGit(["add", "-A"], at: root)
+        try runGit(["commit", "-q", "-m", "c1"], at: root, extraEnvironment: [
             "GIT_AUTHOR_NAME": "Ada", "GIT_AUTHOR_EMAIL": "ada@example.com",
             "GIT_AUTHOR_DATE": "2024-01-01T10:00:00 -0500",
             "GIT_COMMITTER_NAME": "Ada", "GIT_COMMITTER_EMAIL": "ada@example.com",
@@ -99,6 +109,35 @@ final class GitWorkspaceCoordinatorTests: XCTestCase {
         }, "The workspace root must be tagged .fullPath so it is fully redacted in the event's context, never left as a raw path")
     }
 
+    func testMalformedRepositoryStartsUnavailableRatherThanNoRepository() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "MalformedGitWorkspace-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        try Data("invalid gitfile\n".utf8).write(
+            to: root.appendingPathComponent(".git")
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let coordinator = GitWorkspaceCoordinator(
+            root: root,
+            diagnosticsLog: BoundedEventLog()
+        )
+        await coordinator.start()
+
+        guard case .unavailable(nil, let reason) =
+                coordinator.repositoryState else {
+            return XCTFail("Expected unavailable repository state")
+        }
+        XCTAssertFalse(reason.isEmpty)
+        XCTAssertNil(coordinator.latestStatus)
+    }
+
     func testStartOnAGitFolderLoadsAnInitialStatusAndDecorationsReflectIt() async throws {
         let root = try makeFixtureRepository()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -137,6 +176,63 @@ final class GitWorkspaceCoordinatorTests: XCTestCase {
             )
         )
         XCTAssertFalse(observedSnapshots.isEmpty)
+    }
+
+    func testRefreshPublishesLiveBranchAndDetachedHeadWithStatusAtomically() async throws {
+        let root = try makeFixtureRepository()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let coordinator = GitWorkspaceCoordinator(
+            root: root,
+            diagnosticsLog: BoundedEventLog()
+        )
+        await coordinator.start()
+
+        guard case .available(let initialLocation, _) = coordinator.repositoryState else {
+            return XCTFail("Expected available repository state")
+        }
+        XCTAssertEqual(initialLocation.head, .branch(name: "main"))
+
+        try runGit(["checkout", "-q", "-b", "feature/status"], at: root)
+        await coordinator.refresh()
+        guard case .available(let branchLocation, let branchStatus) =
+                coordinator.repositoryState else {
+            return XCTFail("Expected branch repository state")
+        }
+        XCTAssertEqual(branchLocation.head, .branch(name: "feature/status"))
+        XCTAssertEqual(coordinator.latestStatus, branchStatus)
+
+        let commitID = try runGit(["rev-parse", "HEAD"], at: root)
+        try runGit(["checkout", "-q", "--detach", "HEAD"], at: root)
+        await coordinator.refresh()
+        guard case .available(let detachedLocation, let detachedStatus) =
+                coordinator.repositoryState else {
+            return XCTFail("Expected detached repository state")
+        }
+        XCTAssertEqual(detachedLocation.head, .detached(commitID: commitID))
+        XCTAssertEqual(coordinator.latestStatus, detachedStatus)
+    }
+
+    func testRefreshFailureIsUnavailableRatherThanFalseClean() async throws {
+        let root = try makeFixtureRepository()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let coordinator = GitWorkspaceCoordinator(
+            root: root,
+            diagnosticsLog: BoundedEventLog()
+        )
+        await coordinator.start()
+
+        try FileManager.default.removeItem(
+            at: root.appendingPathComponent(".git", isDirectory: true)
+        )
+        await coordinator.refresh()
+
+        guard case .unavailable(let location, let reason) =
+                coordinator.repositoryState else {
+            return XCTFail("Expected unavailable repository state")
+        }
+        XCTAssertNotNil(location)
+        XCTAssertFalse(reason.isEmpty)
+        XCTAssertNil(coordinator.latestStatus)
     }
 
     func testHandleBatchInvalidatesCacheAndRefreshesStatus() async throws {

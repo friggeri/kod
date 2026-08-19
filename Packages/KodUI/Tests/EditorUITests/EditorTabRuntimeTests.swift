@@ -120,6 +120,9 @@ final class EditorTabRuntimeTests: XCTestCase {
         XCTAssertTrue(runtime.focusedSourceDocument === document)
         XCTAssertTrue(runtime.visibleSourceDocument === document)
         XCTAssertEqual(runtime.previewSourceControlState, .unavailable)
+        XCTAssertEqual(runtime.statusDocument.contentKind, .source)
+        XCTAssertTrue(runtime.statusDocument.metadataDocument === document)
+        XCTAssertTrue(runtime.statusDocument.cursorDocument === document)
     }
 
     func testSourceWithPreviewKeepsBothSidesAliveAcrossTheToggle() async throws {
@@ -135,12 +138,17 @@ final class EditorTabRuntimeTests: XCTestCase {
         XCTAssertTrue(runtime.displayedController === runtime.previewController)
         XCTAssertEqual(runtime.previewSourceControlState, .showingPreview)
         XCTAssertNil(runtime.visibleSourceDocument, "the source view is not what is on screen")
+        XCTAssertEqual(runtime.statusDocument.contentKind, .preview)
+        XCTAssertTrue(runtime.statusDocument.metadataDocument === document)
+        XCTAssertNil(runtime.statusDocument.cursorDocument)
 
         runtime.togglePrefersPreview()
 
         XCTAssertTrue(runtime.displayedController === document, "toggling never tears the source view down")
         XCTAssertTrue(runtime.visibleSourceDocument === document)
         XCTAssertEqual(runtime.previewSourceControlState, .showingSource)
+        XCTAssertEqual(runtime.statusDocument.contentKind, .source)
+        XCTAssertTrue(runtime.statusDocument.cursorDocument === document)
         XCTAssertNotNil(runtime.previewController, "the built preview survives a toggle to Source")
 
         runtime.togglePrefersPreview()
@@ -158,6 +166,8 @@ final class EditorTabRuntimeTests: XCTestCase {
         XCTAssertTrue(runtime.displayedController === preview)
         XCTAssertNil(runtime.sourceDocument, "binary image bytes have no source view at all")
         XCTAssertEqual(runtime.previewSourceControlState, .previewOnly)
+        XCTAssertEqual(runtime.statusDocument.contentKind, .image)
+        XCTAssertNil(runtime.statusDocument.metadataDocument)
 
         runtime.togglePrefersPreview()
 
@@ -190,6 +200,9 @@ final class EditorTabRuntimeTests: XCTestCase {
         XCTAssertTrue(runtime.sourceDocument === document, "the source stays alive underneath the diff")
         XCTAssertNil(runtime.focusedSourceDocument, "Find/Go to Line must not target a diff's hidden source")
         XCTAssertEqual(runtime.previewSourceControlState, .unavailable)
+        XCTAssertEqual(runtime.statusDocument.contentKind, .diff)
+        XCTAssertTrue(runtime.statusDocument.metadataDocument === document)
+        XCTAssertNil(runtime.statusDocument.cursorDocument)
 
         runtime.dismissDiff()
 
@@ -212,6 +225,9 @@ final class EditorTabRuntimeTests: XCTestCase {
         XCTAssertNil(runtime.focusedSourceDocument)
         XCTAssertTrue(runtime.showsQuickDiff)
         XCTAssertEqual(runtime.previewSourceControlState, .unavailable)
+        XCTAssertEqual(runtime.statusDocument.contentKind, .quickDiff)
+        XCTAssertTrue(runtime.statusDocument.metadataDocument === document)
+        XCTAssertTrue(runtime.statusDocument.cursorDocument === quickDiffDocument)
 
         let discarded = runtime.discardContent()
 

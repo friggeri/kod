@@ -131,6 +131,14 @@ final class WorkspaceExplorerController: NSObject {
         return container
     }
 
+    var primaryFocusView: NSView {
+        outlineView
+    }
+
+    func focusPrimaryControl() {
+        outlineView.window?.makeFirstResponder(outlineView)
+    }
+
     /// The contextual menu deliberately leaves its items target-less so
     /// they travel the responder chain to the workspace controller, which
     /// owns the Git/blame surface (and is reached identically from the

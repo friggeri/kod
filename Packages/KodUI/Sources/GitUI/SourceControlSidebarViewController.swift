@@ -138,6 +138,14 @@ public final class SourceControlSidebarViewController: NSViewController {
                 "No repository.",
                 comment: "Status text shown in the Source Control sidebar when the workspace has no Git repository"
             )
+            statusLabel.toolTip = nil
+            statusLabel.setAccessibilityLabel(
+                gitUIStrings.string(
+                    "Source Control status",
+                    comment: "Accessibility label for the Source Control status message"
+                )
+            )
+            statusLabel.setAccessibilityValue(statusLabel.stringValue)
             return
         }
 
@@ -175,10 +183,54 @@ public final class SourceControlSidebarViewController: NSViewController {
                 comment: "Status text shown in the Source Control sidebar with the number of changed files"
             )
         }
+        statusLabel.toolTip = nil
+        statusLabel.setAccessibilityLabel(
+            gitUIStrings.string(
+                "Source Control status",
+                comment: "Accessibility label for the Source Control status message"
+            )
+        )
+        statusLabel.setAccessibilityValue(statusLabel.stringValue)
+    }
+
+    public func showLoading() {
+        showPlaceholder(
+            text: gitUIStrings.string(
+                "Loading repository status…",
+                comment: "Status text shown while Source Control is loading repository status"
+            ),
+            accessibilityValue: gitUIStrings.string(
+                "Source Control is loading repository status",
+                comment: "Accessibility value shown while Source Control is loading repository status"
+            ),
+            toolTip: nil
+        )
+    }
+
+    public func showUnavailable(reason: String) {
+        showPlaceholder(
+            text: gitUIStrings.string(
+                "Repository status unavailable.",
+                comment: "Status text shown when Source Control cannot refresh repository status"
+            ),
+            accessibilityValue: gitUIStrings.string(
+                "Source Control repository status is unavailable",
+                comment: "Accessibility value shown when Source Control cannot refresh repository status"
+            ),
+            toolTip: reason
+        )
     }
 
     public func refreshAppearance() {
         applyAppearance(appearanceCenter.snapshot)
+    }
+
+    public var primaryFocusView: NSView {
+        outlineView
+    }
+
+    public func focusPrimaryControl() {
+        outlineView.window?.makeFirstResponder(outlineView)
     }
 
     private func applyAppearance(_ snapshot: AppearanceCenter.Snapshot) {
@@ -196,6 +248,25 @@ public final class SourceControlSidebarViewController: NSViewController {
             ),
             columnIndexes: IndexSet(integer: 0)
         )
+    }
+
+    private func showPlaceholder(
+        text: String,
+        accessibilityValue: String,
+        toolTip: String?
+    ) {
+        captureCollapsedSectionState()
+        sections = []
+        outlineView.reloadData()
+        statusLabel.stringValue = text
+        statusLabel.toolTip = toolTip
+        statusLabel.setAccessibilityLabel(
+            gitUIStrings.string(
+                "Source Control status",
+                comment: "Accessibility label for the Source Control status message"
+            )
+        )
+        statusLabel.setAccessibilityValue(accessibilityValue)
     }
 
     static func statusPresentation(

@@ -84,6 +84,36 @@ final class GitRepositoryLocatorTests: XCTestCase {
         }
     }
 
+    func testMalformedRepositoryIsAProcessFailureNotNoRepository() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "MalformedGitRepo-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        try Data("not a git directory\n".utf8).write(
+            to: root.appendingPathComponent(".git")
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let locator = try makeLocator()
+        do {
+            _ = try await locator.locate(startingAt: root)
+            XCTFail("expected processFailed error")
+        } catch GitRepositoryLocatorError.processFailed(
+            let exitCode,
+            let message
+        ) {
+            XCTAssertNotEqual(exitCode, 0)
+            XCTAssertFalse(message.isEmpty)
+        } catch {
+            XCTFail("expected processFailed, got \(error)")
+        }
+    }
+
     func testLocatesALinkedWorktree() async throws {
         let fixture = try GitFixtureBuilder.makeEmptyRepository()
         defer { try? fixture.removeAll() }

@@ -57,6 +57,20 @@ actually complete Kod's primary workflows end to end.
 
 ## 2. App shell accessibility
 
+- [ ] Activity bar: confirm VoiceOver announces one "Activity" group above
+      the sidebar content with
+      Explorer, Search, Source Control, Problems, and Symbols in that order.
+      Each destination must announce "Selected" or "Not selected"; the current
+      destination must remain distinguishable with Differentiate Without
+      Color enabled.
+- [ ] Activity bar keyboard behavior: Tab into the bar, move among all five
+      destinations with arrow keys, and activate each with Space and Return.
+      Activating the selected destination must move focus into its primary
+      control rather than collapsing the sidebar.
+- [ ] Collapse the sidebar with Toggle Sidebar, then invoke each Show/Search
+      surface command from the menu or Command Palette. Confirm the whole
+      activity-bar-and-content pane reappears and focus lands in the requested
+      surface.
 - [ ] Explorer: navigate the file tree with VoiceOver and confirm each row
       announces file/folder name and Git status (if any) as text, not
       just a colored badge.
@@ -76,6 +90,25 @@ actually complete Kod's primary workflows end to end.
 - [ ] Workspace trust: confirm the banner is announced only on the first
       open, its dismiss button is last, and the status-bar trust indicator
       announces the current state and opens a labeled confirmation prompt.
+- [ ] Status bar: confirm VoiceOver announces one "Workspace status" group.
+      Verify branch or full detached-HEAD identity, Git change count and
+      staged/unstaged/untracked/conflicted breakdown, language-server profile
+      and lifecycle state, language, encoding, line endings, one-based line
+      and column, UTF-16 selection count, and trust state whenever each value
+      is available.
+- [ ] Change branches and detach HEAD with an external Git client, introduce
+      and remove working-tree changes, and trigger a failed Git refresh.
+      Confirm the status bar updates after each refresh and says Git is
+      unavailable on failure rather than announcing a clean repository.
+- [ ] Exercise every language-server lifecycle state available in the test
+      setup. Confirm the state is spoken as text, and the compact Restart
+      control appears only for actionable states with a clear label and
+      tooltip.
+- [ ] Switch active editor splits and select text containing emoji. Confirm
+      line/column and selection count follow only the active split and count
+      the emoji in UTF-16 code units. Preview and full-diff tabs must retain
+      file metadata without announcing a fabricated cursor; Quick Diff must
+      report its visible cursor.
 - [ ] Settings window: tab through every control (Theme, Font, Diagnostics/
       Privacy tabs) with VoiceOver and confirm every control has a
       meaningful label, not a bare identifier or "button".
@@ -115,13 +148,20 @@ keyboard:
       already covered above, and any additional shape/icon cues).
 - [ ] Change the system accent color and confirm Kod's selection/highlight
       colors follow it rather than a hardcoded blue.
+- [ ] Enable Reduce Transparency and switch between light, dark, and
+      increased-contrast appearances. Confirm the activity bar and 30-point
+      status bar remain legible, with a visible focus outline and native
+      semantic status colors.
 
 ## 5. Localization infrastructure sanity check
 
 - [ ] With a Debug build, use Xcode's "Pseudolocalization" scheme option
       (Edit Scheme → Run → Options → Application Language →
-      "Double-Length Pseudolanguage") and confirm no control in the app
-      shell visibly clips or truncates its label.
+      "Double-Length Pseudolanguage") at the 640-point minimum window width.
+      Confirm the status bar preserves branch, Git, LSP, cursor, and trust;
+      hides line endings, encoding, then duplicate language as needed; and
+      middle-truncates the branch while its full value remains available as
+      help/tooltip text.
 
 ---
 

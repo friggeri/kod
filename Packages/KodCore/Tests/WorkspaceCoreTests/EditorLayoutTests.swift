@@ -209,6 +209,7 @@ final class EditorLayoutTests: XCTestCase {
         state.activeGroup?.openTab(relativePath: "Sources/A.swift", pinned: true)
         state.wordWrapEnabled = true
         state.minimapEnabled = false
+        state.sidebarSurface = .symbols
         _ = state.split(orientation: .vertical)
         state.geometry = WorkspaceGeometryState(
             windowFrame: WorkspaceWindowFrame(
@@ -252,6 +253,7 @@ final class EditorLayoutTests: XCTestCase {
         XCTAssertEqual(decoded.activeGroupID, state.activeGroupID)
         XCTAssertNil(decoded.geometry)
         XCTAssertTrue(decoded.minimapEnabled)
+        XCTAssertEqual(decoded.sidebarSurface, .explorer)
         XCTAssertNoThrow(try decoded.validate(), "a legacy blob missing only optional fields must remain valid")
     }
 }
@@ -624,6 +626,7 @@ final class WorkspaceLayoutStoreTests: XCTestCase {
         guard case .value(let loaded, _) = try store.load(for: identity) else {
             return XCTFail("Expected persisted layout")
         }
+
         XCTAssertEqual(loaded, state)
 
         let repositoryContents = try FileManager.default.contentsOfDirectory(atPath: root.path)
@@ -631,6 +634,114 @@ final class WorkspaceLayoutStoreTests: XCTestCase {
 
         try store.clear(for: identity)
         XCTAssertEqual(try store.load(for: identity), .absent)
+    }
+
+    @MainActor
+    func testVersionOneLayoutMigratesToExplorerWithoutChangingContentWidth() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try FileManager.default.removeItem(at: root)
+        }
+
+        let identity = try WorkspaceIdentity(root: root)
+        let (store, _, keyValueStore) = makeStore()
+        var legacy = WorkspaceLayoutState.singleGroup()
+        legacy.sidebarSurface = .symbols
+        legacy.geometry = WorkspaceGeometryState(
+            windowFrame: WorkspaceWindowFrame(x: 10, y: 20, width: 900, height: 600),
+            sidebarWidth: 240,
+            isSidebarCollapsed: false
+        )
+        let envelope = CodableSettingsEnvelope(version: 1, payload: legacy)
+        try keyValueStore.setValue(
+            .data(try JSONEncoder().encode(envelope)),
+            forKey: "workspace-layout.\(identity.persistenceKey)"
+        )
+
+        guard case .value(let migrated, let provenance) = try store.load(for: identity) else {
+            return XCTFail("Expected migrated layout")
+        }
+        XCTAssertEqual(provenance, .migrated(from: .version(1), toVersion: 3))
+        XCTAssertEqual(migrated.sidebarSurface, .explorer)
+        XCTAssertEqual(migrated.geometry?.sidebarWidth, 240)
+    }
+
+    @MainActor
+    func testVersionTwoActivityRailLayoutRemovesRailWidthAndPreservesSurface() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try FileManager.default.removeItem(at: root)
+        }
+
+        let identity = try WorkspaceIdentity(root: root)
+        let (store, _, keyValueStore) = makeStore()
+        var railState = WorkspaceLayoutState.singleGroup()
+        railState.sidebarSurface = .symbols
+        railState.geometry = WorkspaceGeometryState(
+            windowFrame: WorkspaceWindowFrame(x: 10, y: 20, width: 900, height: 600),
+            sidebarWidth: 284,
+            isSidebarCollapsed: false
+        )
+        let envelope = CodableSettingsEnvelope(version: 2, payload: railState)
+        try keyValueStore.setValue(
+            .data(try JSONEncoder().encode(envelope)),
+            forKey: "workspace-layout.\(identity.persistenceKey)"
+        )
+
+        guard case .value(let migrated, let provenance) = try store.load(for: identity) else {
+            return XCTFail("Expected migrated layout")
+        }
+        XCTAssertEqual(provenance, .migrated(from: .version(2), toVersion: 3))
+        XCTAssertEqual(migrated.sidebarSurface, .symbols)
+        XCTAssertEqual(migrated.geometry?.sidebarWidth, 240)
+    }
+
+    @MainActor
+    func testUnversionedLayoutMigrationClampsContentWidthAndPreservesZero() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try FileManager.default.removeItem(at: root)
+        }
+
+        let identity = try WorkspaceIdentity(root: root)
+        let (store, _, keyValueStore) = makeStore()
+        var legacy = WorkspaceLayoutState.singleGroup()
+        legacy.geometry = WorkspaceGeometryState(
+            windowFrame: WorkspaceWindowFrame(x: 10, y: 20, width: 900, height: 600),
+            sidebarWidth: 500,
+            isSidebarCollapsed: false
+        )
+        try keyValueStore.setValue(
+            .data(try JSONEncoder().encode(legacy)),
+            forKey: "workspace-layout.\(identity.persistenceKey)"
+        )
+
+        guard case .value(let migrated, let provenance) = try store.load(for: identity) else {
+            return XCTFail("Expected migrated layout")
+        }
+        XCTAssertEqual(provenance, .migrated(from: .unversioned, toVersion: 3))
+        XCTAssertEqual(migrated.geometry?.sidebarWidth, 420)
+
+        var zeroWidth = WorkspaceLayoutState.singleGroup()
+        zeroWidth.geometry = WorkspaceGeometryState(
+            windowFrame: WorkspaceWindowFrame(x: 10, y: 20, width: 900, height: 600),
+            sidebarWidth: 0,
+            isSidebarCollapsed: true
+        )
+        try keyValueStore.setValue(
+            .data(try JSONEncoder().encode(zeroWidth)),
+            forKey: "workspace-layout.\(identity.persistenceKey)"
+        )
+        guard case .value(let migratedZero, _) = try store.load(for: identity) else {
+            return XCTFail("Expected zero-width migration")
+        }
+        XCTAssertEqual(migratedZero.geometry?.sidebarWidth, 0)
     }
 
     @MainActor

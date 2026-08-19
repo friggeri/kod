@@ -7,6 +7,35 @@ import PreviewUI
 import ThemeCore
 import WorkspaceCore
 
+public struct EditorStatusDocument {
+    public enum ContentKind: Equatable, Sendable {
+        case loading
+        case source
+        case preview
+        case image
+        case diff
+        case quickDiff
+        case tombstone
+    }
+
+    public let relativePath: String
+    public let contentKind: ContentKind
+    public let metadataDocument: CodeDocumentViewController?
+    public let cursorDocument: CodeDocumentViewController?
+
+    public init(
+        relativePath: String,
+        contentKind: ContentKind,
+        metadataDocument: CodeDocumentViewController?,
+        cursorDocument: CodeDocumentViewController?
+    ) {
+        self.relativePath = relativePath
+        self.contentKind = contentKind
+        self.metadataDocument = metadataDocument
+        self.cursorDocument = cursorDocument
+    }
+}
+
 /// Everything one open tab currently *is*, as a single value instead of the
 /// several parallel per-tab dictionaries and boolean flag sets
 /// `EditorGroupViewController` used to keep in sync by hand (a document
@@ -262,6 +291,60 @@ final class EditorTabRuntime {
 
     var documentControllers: [CodeDocumentViewController] {
         content.documentControllers
+    }
+
+    var statusDocument: EditorStatusDocument {
+        switch content {
+        case .loading:
+            return EditorStatusDocument(
+                relativePath: relativePath,
+                contentKind: .loading,
+                metadataDocument: nil,
+                cursorDocument: nil
+            )
+        case .source(let document):
+            return EditorStatusDocument(
+                relativePath: relativePath,
+                contentKind: .source,
+                metadataDocument: document,
+                cursorDocument: document
+            )
+        case .sourceWithPreview(let document, _):
+            return EditorStatusDocument(
+                relativePath: relativePath,
+                contentKind: prefersPreview ? .preview : .source,
+                metadataDocument: document,
+                cursorDocument: prefersPreview ? nil : document
+            )
+        case .imagePreview:
+            return EditorStatusDocument(
+                relativePath: relativePath,
+                contentKind: .image,
+                metadataDocument: nil,
+                cursorDocument: nil
+            )
+        case .diff(_, let retainedSource):
+            return EditorStatusDocument(
+                relativePath: relativePath,
+                contentKind: .diff,
+                metadataDocument: retainedSource?.document,
+                cursorDocument: nil
+            )
+        case .quickDiff(let document, _, let retainedSource):
+            return EditorStatusDocument(
+                relativePath: relativePath,
+                contentKind: .quickDiff,
+                metadataDocument: retainedSource?.document ?? document,
+                cursorDocument: document
+            )
+        case .tombstone:
+            return EditorStatusDocument(
+                relativePath: relativePath,
+                contentKind: .tombstone,
+                metadataDocument: nil,
+                cursorDocument: nil
+            )
+        }
     }
 
     var showsQuickDiff: Bool {

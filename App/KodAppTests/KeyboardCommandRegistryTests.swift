@@ -184,7 +184,11 @@ final class KeyboardCommandRegistryTests: XCTestCase {
             [
                 "command.quickOpen",
                 "command.findInFile",
+                "edit.showExplorer",
                 "command.searchWorkspace",
+                "edit.showSourceControl",
+                "edit.showProblems",
+                "edit.showSymbols",
                 "command.goToLine",
                 "command.toggleWordWrap",
                 "command.toggleMinimap",

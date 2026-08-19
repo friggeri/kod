@@ -85,6 +85,10 @@
 		B000000000000000000000AE /* SourceIO in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000001E /* SourceIO */; };
 		B000000000000000000000AF /* SourceIO in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000001F /* SourceIO */; };
 		B000000000000000000000B0 /* WorkspaceCommandCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C000000000000000000000B0 /* WorkspaceCommandCatalog.swift */; };
+		B000000000000000000000B1 /* WorkspaceActivityBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C000000000000000000000B1 /* WorkspaceActivityBarView.swift */; };
+		B000000000000000000000B2 /* WorkspaceActivityBarViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C000000000000000000000B2 /* WorkspaceActivityBarViewTests.swift */; };
+		B000000000000000000000B3 /* WorkspaceStatusBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C000000000000000000000B3 /* WorkspaceStatusBarView.swift */; };
+		B000000000000000000000B4 /* WorkspaceStatusBarViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C000000000000000000000B4 /* WorkspaceStatusBarViewTests.swift */; };
 		B000000000000000000000B6 /* SettingsCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000020 /* SettingsCore */; };
 		B000000000000000000000B7 /* SettingsCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000021 /* SettingsCore */; };
 		B000000000000000000000B8 /* KodUIComponents in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000023 /* KodUIComponents */; };
@@ -192,6 +196,10 @@
 		C000000000000000000000AC /* LanguageSupportPromptQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSupportPromptQueueTests.swift; sourceTree = "<group>"; };
 		C000000000000000000000AD /* GitQuickDiffCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitQuickDiffCoordinatorTests.swift; sourceTree = "<group>"; };
 		C000000000000000000000B0 /* WorkspaceCommandCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCommandCatalog.swift; sourceTree = "<group>"; };
+		C000000000000000000000B1 /* WorkspaceActivityBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActivityBarView.swift; sourceTree = "<group>"; };
+		C000000000000000000000B2 /* WorkspaceActivityBarViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActivityBarViewTests.swift; sourceTree = "<group>"; };
+		C000000000000000000000B3 /* WorkspaceStatusBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStatusBarView.swift; sourceTree = "<group>"; };
+		C000000000000000000000B4 /* WorkspaceStatusBarViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStatusBarViewTests.swift; sourceTree = "<group>"; };
 		C00000000000000000000043 /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 		C00000000000000000000044 /* DiagnosticsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsViewModel.swift; sourceTree = "<group>"; };
 		C00000000000000000000045 /* WorkspaceViewControllerTrustControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceViewControllerTrustControlTests.swift; sourceTree = "<group>"; };
@@ -317,6 +325,8 @@
 				C000000000000000000000A7 /* LanguageSupportPromptQueue.swift */,
 				C000000000000000000000A8 /* GitQuickDiffCoordinator.swift */,
 				C000000000000000000000B0 /* WorkspaceCommandCatalog.swift */,
+				C000000000000000000000B1 /* WorkspaceActivityBarView.swift */,
+				C000000000000000000000B3 /* WorkspaceStatusBarView.swift */,
 				C00000000000000000000011 /* WelcomeView.swift */,
 				C00000000000000000000014 /* WorkspaceViewController.swift */,
 				C00000000000000000000015 /* QuickOpenPanelController.swift */,
@@ -378,6 +388,8 @@
 				C00000000000000000000095 /* LanguageProviderRoutingTests.swift */,
 				C00000000000000000000096 /* MultiLanguageServicesCoordinatorShutdownTests.swift */,
 				C00000000000000000000055 /* WorkspaceLayoutPersistenceTests.swift */,
+				C000000000000000000000B2 /* WorkspaceActivityBarViewTests.swift */,
+				C000000000000000000000B4 /* WorkspaceStatusBarViewTests.swift */,
 			);
 			path = KodAppTests;
 			sourceTree = "<group>";
@@ -615,6 +627,8 @@
 				B000000000000000000000A7 /* LanguageSupportPromptQueue.swift in Sources */,
 				B000000000000000000000A8 /* GitQuickDiffCoordinator.swift in Sources */,
 				B000000000000000000000B0 /* WorkspaceCommandCatalog.swift in Sources */,
+				B000000000000000000000B1 /* WorkspaceActivityBarView.swift in Sources */,
+				B000000000000000000000B3 /* WorkspaceStatusBarView.swift in Sources */,
 				B00000000000000000000002 /* WelcomeView.swift in Sources */,
 				B00000000000000000000009 /* WorkspaceViewController.swift in Sources */,
 				B00000000000000000000010 /* QuickOpenPanelController.swift in Sources */,
@@ -674,6 +688,8 @@
 				B00000000000000000000095 /* LanguageProviderRoutingTests.swift in Sources */,
 				B00000000000000000000096 /* MultiLanguageServicesCoordinatorShutdownTests.swift in Sources */,
 				B0000000000000000000006D /* WorkspaceLayoutPersistenceTests.swift in Sources */,
+				B000000000000000000000B2 /* WorkspaceActivityBarViewTests.swift in Sources */,
+				B000000000000000000000B4 /* WorkspaceStatusBarViewTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
