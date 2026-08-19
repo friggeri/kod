@@ -10,15 +10,15 @@ final class ThemeContrastTests: XCTestCase {
         }
     }
 
-    func testHighContrastThemesMeetEnhancedContrast() {
+    func testLegacyHighContrastThemesRemainDecodableWithEnhancedContrast() {
         for theme in [BundledThemes.highContrastLight, BundledThemes.highContrastDark] {
             assertContrast(theme, minimumRatio: 7.0)
         }
     }
 
-    func testAllBundledThemesAreDistinctAndCoverAllAppearances() {
+    func testSelectableBundledThemesAreDistinctAndCoverLightAndDark() {
         let appearances = Set(BundledThemes.all.map(\.appearance))
-        XCTAssertEqual(appearances, Set(ThemeAppearance.allCases))
+        XCTAssertEqual(appearances, [.light, .dark])
 
         let identifiers = Set(BundledThemes.all.map(\.identifier))
         XCTAssertEqual(identifiers.count, BundledThemes.all.count, "theme identifiers must be unique")
@@ -35,11 +35,11 @@ final class ThemeContrastTests: XCTestCase {
         )
         XCTAssertEqual(
             BundledThemes.defaultTheme(isDark: false, isHighContrast: true).identifier,
-            BundledThemes.highContrastLight.identifier
+            BundledThemes.light.identifier
         )
         XCTAssertEqual(
             BundledThemes.defaultTheme(isDark: true, isHighContrast: true).identifier,
-            BundledThemes.highContrastDark.identifier
+            BundledThemes.dark.identifier
         )
     }
 
@@ -57,7 +57,8 @@ final class ThemeContrastTests: XCTestCase {
 
         let dark = BundledThemes.dark
         XCTAssertEqual(dark.name, "Kod Dark")
-        XCTAssertEqual(dark.editor.background, ThemeColor(hex: "#242728"))
+        XCTAssertEqual(dark.editor.background, ThemeColor(hex: "#313435"))
+        XCTAssertEqual(dark.editor.background, dark.surface.windowBackground)
         XCTAssertEqual(dark.editor.foreground, ThemeColor(hex: "#FAFAFA"))
         XCTAssertEqual(dark.surface.focusBorder, ThemeColor(hex: "#FFBB33"))
         XCTAssertEqual(dark.syntax["keyword"]?.foreground, ThemeColor(hex: "#FF1A79"))

@@ -56,6 +56,10 @@ final class QuickOpenPanelController: NSWindowController {
         updateResults(for: "")
     }
 
+    func refreshResults() {
+        updateResults(for: searchField.stringValue)
+    }
+
     private func makeContentViewController() -> NSViewController {
         let controller = NSViewController()
         let container = NSView(frame: NSRect(origin: .zero, size: Self.contentSize))

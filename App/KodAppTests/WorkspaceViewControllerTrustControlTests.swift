@@ -169,7 +169,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         )
         XCTAssertEqual(
             WorkspaceActivityBarView.orderedSurfaces,
-            [.explorer, .search, .sourceControl, .problems, .symbols]
+            [.explorer, .search, .sourceControl, .problems]
         )
         XCTAssertEqual(activityBar.frame.height, 40, accuracy: 0.5)
 
@@ -179,8 +179,6 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         XCTAssertEqual(activityBar.selectedSurface, .search)
         controller.showProblems(nil)
         XCTAssertEqual(activityBar.selectedSurface, .problems)
-        controller.showSymbols(nil)
-        XCTAssertEqual(activityBar.selectedSurface, .symbols)
 
         let sidebar = try XCTUnwrap(
             findView(identifier: "workspace.sidebar", in: controller.view)

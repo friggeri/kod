@@ -225,7 +225,7 @@ final class WorkspaceLayoutPersistenceTests: XCTestCase {
 
     func testSelectedSidebarSurfaceRestoresWithoutStealingFocus() throws {
         var savedState = WorkspaceLayoutState.singleGroup()
-        savedState.sidebarSurface = .symbols
+        savedState.sidebarSurface = .problems
         let fixture = try makeFixture(savedState: savedState)
         let window = host(fixture.controller)
         let activityBar = try XCTUnwrap(
@@ -234,16 +234,16 @@ final class WorkspaceLayoutPersistenceTests: XCTestCase {
                 in: fixture.controller.view
             ) as? WorkspaceActivityBarView
         )
-        let symbolsField = try XCTUnwrap(
+        let problemsOutline = try XCTUnwrap(
             findView(
-                identifier: "symbols.field",
+                identifier: "problems.outline",
                 in: fixture.controller.view
             )
         )
 
-        XCTAssertEqual(activityBar.selectedSurface, .symbols)
-        XCTAssertFalse(symbolsField.isHidden)
-        XCTAssertFalse(window.firstResponder === symbolsField)
+        XCTAssertEqual(activityBar.selectedSurface, .problems)
+        XCTAssertFalse(problemsOutline.isHidden)
+        XCTAssertFalse(window.firstResponder === problemsOutline)
     }
 
     // The pure frame-constraint and fullscreen-selection policy these

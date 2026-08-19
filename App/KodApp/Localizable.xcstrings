@@ -70,6 +70,9 @@
         }
       }
     },
+    "%@ language server: %@" : {
+      "comment" : "Accessibility value describing a language server and its state"
+    },
     "%@ language server failed to close a document" : {
       "comment" : "Diagnostics log message recorded when a textDocument/didClose request fails",
       "extractionState" : "manual",
@@ -241,9 +244,6 @@
           }
         }
       }
-    },
-    "%lld symbols." : {
-
     },
     "%lld unsafe construct(s) removed while rendering this document." : {
 
@@ -566,6 +566,9 @@
           }
         }
       }
+    },
+    "Click to restart the language server." : {
+      "comment" : "Language server status tooltip action offering restart"
     },
     "Close %@" : {
 
@@ -1531,12 +1534,6 @@
     "LSP language ID" : {
 
     },
-    "LSP: No active file" : {
-      "comment" : "Workspace status text when no editor document is active"
-    },
-    "LSP: Unavailable" : {
-      "comment" : "Workspace status text when the active file has no configured language server"
-    },
     "Language Profiles" : {
 
     },
@@ -1894,6 +1891,9 @@
         }
       }
     },
+    "No language server configured" : {
+      "comment" : "Language server status shown when the active file has no configured server"
+    },
     "No language profile matches *.%@. Plain Text remains available." : {
 
     },
@@ -1932,18 +1932,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No repository."
-          }
-        }
-      }
-    },
-    "No results." : {
-      "comment" : "Status label shown when a workspace search finds no matches",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No results."
           }
         }
       }
@@ -2473,18 +2461,6 @@
         }
       }
     },
-    "Restart Language Server" : {
-      "comment" : "Accessibility label for the language server restart button",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restart Language Server"
-          }
-        }
-      }
-    },
     "Restricted mode" : {
       "comment" : "Accessibility description for the lock icon shown when a workspace is untrusted",
       "extractionState" : "manual",
@@ -2609,18 +2585,6 @@
         }
       }
     },
-    "Search Symbols" : {
-      "comment" : "Placeholder text for the Symbols sidebar's search field",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Search Symbols"
-          }
-        }
-      }
-    },
     "Search Workspace" : {
       "comment" : "Placeholder text in the workspace search field",
       "extractionState" : "manual",
@@ -2662,18 +2626,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Search keys and values"
-          }
-        }
-      }
-    },
-    "Searching…" : {
-      "comment" : "Status label shown while a workspace search is in progress",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Searching…"
           }
         }
       }
@@ -2815,9 +2767,6 @@
     },
     "Show Source Control, Command-Shift-G" : {
       "comment" : "Accessibility help for the Source Control activity bar destination"
-    },
-    "Show Symbols" : {
-      "comment" : "Edit menu item that reveals the Symbols sidebar"
     },
     "Showing Preview" : {
       "comment" : "Accessibility value for the preview/source toggle button when a preview is currently shown",
@@ -2975,33 +2924,6 @@
         }
       }
     },
-    "Symbol results" : {
-      "comment" : "Accessibility label for the Symbols sidebar results"
-    },
-    "Symbols" : {
-      "comment" : "Column title for the Symbols sidebar's outline view",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Symbols"
-          }
-        }
-      }
-    },
-    "Symbols are unavailable until the language server is ready." : {
-      "comment" : "Status label shown when a symbol search cannot run because its language server is unavailable",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Symbols are unavailable until the language server is ready."
-          }
-        }
-      }
-    },
     "Syntax" : {
 
     },
@@ -3130,6 +3052,9 @@
           }
         }
       }
+    },
+    "Trust the workspace to restart the language server." : {
+      "comment" : "Language server status tooltip action explaining why restart is disabled"
     },
     "Trust this workspace, enabling language servers and repository tools" : {
       "comment" : "Accessibility label/help for controls that grant workspace trust",

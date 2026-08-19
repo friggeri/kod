@@ -161,9 +161,21 @@ public enum WorkspaceScannerError: Error, Equatable, Sendable {
     case directoryEnumerationFailed(URL, WorkspaceAccessFailure)
     case metadataFailed(URL, WorkspaceAccessFailure)
     case unreadableIgnoreFile(URL, WorkspaceAccessFailure)
+    case invalidRelativeDirectory(String)
 }
 
 public struct WorkspaceScanner: Sendable {
+    private struct QueuedDirectory {
+        let url: URL
+        let relativePath: String
+        let inheritedRules: [IgnoreRule]
+    }
+
+    private struct DirectoryContents {
+        let entries: [WorkspaceFileEntry]
+        let childDirectories: [QueuedDirectory]
+    }
+
     private let directoryEnumerator: any DirectoryEnumerator
     private let metadataProvider: any PathMetadataProvider
     private let ignoreFileSource: any IgnoreFileSource
@@ -261,6 +273,35 @@ public struct WorkspaceScanner: Sendable {
         }
     }
 
+    /// Lists only the immediate children of one workspace-relative directory.
+    /// The Explorer uses this for root startup and directory expansion so it
+    /// never enumerates a collapsed subtree.
+    public func scanDirectory(
+        root: URL,
+        relativePath: String,
+        options: WorkspaceDiscoveryOptions = WorkspaceDiscoveryOptions()
+    ) -> AsyncThrowingStream<WorkspaceDiscoveryBatch, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task.detached(priority: .userInitiated) {
+                do {
+                    try scanDirectorySynchronously(
+                        root: root,
+                        relativePath: relativePath,
+                        options: options,
+                        continuation: continuation
+                    )
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     private func scanSynchronously(
         root: URL,
         options: WorkspaceDiscoveryOptions,
@@ -284,93 +325,204 @@ public struct WorkspaceScanner: Sendable {
             }
         }
 
-        func visit(
-            directory: URL,
-            relativeDirectory: String,
-            inheritedRules: [IgnoreRule]
-        ) throws {
-            try Task.checkCancellation()
-            let rules = inheritedRules + (try ignoreRules(
-                at: directory,
-                relativeDirectory: relativeDirectory
-            ))
-
-            let children: [URL]
-            do {
-                children = try directoryEnumerator.children(of: directory).sorted {
-                    $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
-                        == .orderedAscending
-                }
-            } catch {
-                throw WorkspaceScannerError.directoryEnumerationFailed(
-                    directory,
-                    accessFailure(from: error)
-                )
+        func flushPending() {
+            guard !pending.isEmpty else {
+                return
             }
-
-            for child in children {
-                try Task.checkCancellation()
-                let name = child.lastPathComponent
-                if name == ".git" {
-                    continue
-                }
-
-                let relativePath = relativeDirectory.isEmpty
-                    ? name
-                    : "\(relativeDirectory)/\(name)"
-                let metadata: WorkspacePathMetadata
-                do {
-                    guard let value = try metadataProvider.metadata(for: child) else {
-                        continue
-                    }
-                    metadata = value
-                } catch {
-                    throw WorkspaceScannerError.metadataFailed(
-                        child,
-                        accessFailure(from: error)
-                    )
-                }
-                let entry = makeEntry(
-                    url: child,
-                    relativePath: relativePath,
-                    metadata: metadata,
-                    rules: rules
-                )
-
-                if name == ".gitignore" {
-                    if options.includeHidden {
-                        emit(entry)
-                    }
-                    continue
-                }
-
-                let shouldInclude = (!entry.isHidden || options.includeHidden)
-                    && (!entry.isIgnored || options.includeIgnored)
-                if shouldInclude {
-                    emit(entry)
-                }
-
-                if entry.kind == .directory,
-                   !entry.isHidden || options.includeHidden,
-                   !entry.isIgnored || options.includeIgnored || rules.contains(where: \.isNegated) {
-                    try visit(
-                        directory: child,
-                        relativeDirectory: relativePath,
-                        inheritedRules: rules
-                    )
-                }
-            }
-        }
-
-        try visit(directory: root, relativeDirectory: "", inheritedRules: [])
-        if !pending.isEmpty {
             continuation.yield(
                 WorkspaceDiscoveryBatch(
                     entries: pending,
                     discoveredCount: discoveredCount
                 )
             )
+            pending.removeAll(keepingCapacity: true)
         }
+
+        var queue = [
+            QueuedDirectory(
+                url: root,
+                relativePath: "",
+                inheritedRules: []
+            )
+        ]
+        var nextDirectoryIndex = 0
+        var levelEndIndex = queue.endIndex
+
+        while nextDirectoryIndex < queue.endIndex {
+            try Task.checkCancellation()
+            let directory = queue[nextDirectoryIndex]
+            nextDirectoryIndex += 1
+            let contents = try contents(
+                of: directory,
+                options: options
+            )
+            contents.entries.forEach(emit)
+            queue.append(contentsOf: contents.childDirectories)
+
+            if nextDirectoryIndex == levelEndIndex {
+                flushPending()
+                levelEndIndex = queue.endIndex
+            }
+        }
+    }
+
+    private func scanDirectorySynchronously(
+        root: URL,
+        relativePath: String,
+        options: WorkspaceDiscoveryOptions,
+        continuation: AsyncThrowingStream<WorkspaceDiscoveryBatch, Error>.Continuation
+    ) throws {
+        let directory = try directoryContext(
+            root: root,
+            relativePath: relativePath
+        )
+        let entries = try contents(of: directory, options: options).entries
+        var discoveredCount = 0
+
+        for startIndex in stride(
+            from: 0,
+            to: entries.count,
+            by: options.batchSize
+        ) {
+            try Task.checkCancellation()
+            let endIndex = min(startIndex + options.batchSize, entries.count)
+            let batchEntries = Array(entries[startIndex..<endIndex])
+            discoveredCount += batchEntries.count
+            continuation.yield(
+                WorkspaceDiscoveryBatch(
+                    entries: batchEntries,
+                    discoveredCount: discoveredCount
+                )
+            )
+        }
+    }
+
+    private func directoryContext(
+        root: URL,
+        relativePath: String
+    ) throws -> QueuedDirectory {
+        if relativePath.isEmpty {
+            return QueuedDirectory(
+                url: root,
+                relativePath: "",
+                inheritedRules: []
+            )
+        }
+        guard !relativePath.hasPrefix("/") else {
+            throw WorkspaceScannerError.invalidRelativeDirectory(relativePath)
+        }
+
+        var directory = root
+        var currentRelativePath = ""
+        var inheritedRules: [IgnoreRule] = []
+        for component in relativePath.split(separator: "/", omittingEmptySubsequences: false) {
+            guard !component.isEmpty, component != ".", component != ".." else {
+                throw WorkspaceScannerError.invalidRelativeDirectory(relativePath)
+            }
+            inheritedRules += try ignoreRules(
+                at: directory,
+                relativeDirectory: currentRelativePath
+            )
+            directory.appendPathComponent(String(component), isDirectory: true)
+            currentRelativePath = currentRelativePath.isEmpty
+                ? String(component)
+                : "\(currentRelativePath)/\(component)"
+        }
+        return QueuedDirectory(
+            url: directory,
+            relativePath: currentRelativePath,
+            inheritedRules: inheritedRules
+        )
+    }
+
+    private func contents(
+        of directory: QueuedDirectory,
+        options: WorkspaceDiscoveryOptions
+    ) throws -> DirectoryContents {
+        try Task.checkCancellation()
+        let rules = directory.inheritedRules + (try ignoreRules(
+            at: directory.url,
+            relativeDirectory: directory.relativePath
+        ))
+
+        let children: [URL]
+        do {
+            children = try directoryEnumerator.children(of: directory.url).sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                    == .orderedAscending
+            }
+        } catch {
+            throw WorkspaceScannerError.directoryEnumerationFailed(
+                directory.url,
+                accessFailure(from: error)
+            )
+        }
+
+        var entries: [WorkspaceFileEntry] = []
+        var childDirectories: [QueuedDirectory] = []
+        entries.reserveCapacity(children.count)
+        childDirectories.reserveCapacity(children.count)
+
+        for child in children {
+            try Task.checkCancellation()
+            let name = child.lastPathComponent
+            if name == ".git" {
+                continue
+            }
+
+            let relativePath = directory.relativePath.isEmpty
+                ? name
+                : "\(directory.relativePath)/\(name)"
+            let metadata: WorkspacePathMetadata
+            do {
+                guard let value = try metadataProvider.metadata(for: child) else {
+                    continue
+                }
+                metadata = value
+            } catch {
+                throw WorkspaceScannerError.metadataFailed(
+                    child,
+                    accessFailure(from: error)
+                )
+            }
+            let entry = makeEntry(
+                url: child,
+                relativePath: relativePath,
+                metadata: metadata,
+                rules: rules
+            )
+
+            if name == ".gitignore" {
+                if options.includeHidden {
+                    entries.append(entry)
+                }
+                continue
+            }
+
+            if (!entry.isHidden || options.includeHidden)
+                && (!entry.isIgnored || options.includeIgnored) {
+                entries.append(entry)
+            }
+
+            if entry.kind == .directory,
+               !entry.isHidden || options.includeHidden,
+               !entry.isIgnored
+                    || options.includeIgnored
+                    || rules.contains(where: \.isNegated) {
+                childDirectories.append(
+                    QueuedDirectory(
+                        url: child,
+                        relativePath: relativePath,
+                        inheritedRules: rules
+                    )
+                )
+            }
+        }
+
+        return DirectoryContents(
+            entries: entries,
+            childDirectories: childDirectories
+        )
     }
 
     private func makeEntry(

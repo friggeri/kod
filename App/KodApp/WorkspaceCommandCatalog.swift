@@ -28,7 +28,6 @@ enum WorkspaceCommandID: String, CaseIterable {
     case editSearchWorkspace = "command.searchWorkspace"
     case editShowSourceControl = "edit.showSourceControl"
     case editShowProblems = "edit.showProblems"
-    case editShowSymbols = "edit.showSymbols"
     case editShowGitBlame = "edit.showGitBlame"
 
     // --- View ---
@@ -269,10 +268,6 @@ final class WorkspaceCommandCatalog {
             menuTitle: Localized.string("Show Problems", comment: "Edit menu item that reveals the Problems panel"),
             action: #selector(WorkspaceViewController.showProblems(_:)),
             surface: .menuAndPalette)
-        add(id: .editShowSymbols,
-            menuTitle: Localized.string("Show Symbols", comment: "Edit menu item that reveals the Symbols sidebar"),
-            action: #selector(WorkspaceViewController.showSymbols(_:)),
-            surface: .menuAndPalette)
         add(id: .editShowGitBlame,
             menuTitle: Localized.string("Show Git Blame", comment: "Edit menu item that shows Git blame for the selected file"),
             action: #selector(WorkspaceViewController.showGitBlameForSelectedFile(_:)),
@@ -422,7 +417,6 @@ final class WorkspaceCommandCatalog {
             .editSearchWorkspace,
             .editShowSourceControl,
             .editShowProblems,
-            .editShowSymbols,
             .fileGoToLine,
             .viewWordWrap,
             .viewMinimap,
@@ -472,7 +466,6 @@ final class WorkspaceCommandCatalog {
                 .command(.editSearchWorkspace),
                 .command(.editShowSourceControl),
                 .command(.editShowProblems),
-                .command(.editShowSymbols),
                 .command(.editShowGitBlame)
             ]),
             .submenu(title: Localized.string("View", comment: "Title of the View menu"), children: [

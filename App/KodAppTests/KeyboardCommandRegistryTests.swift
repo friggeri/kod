@@ -188,7 +188,6 @@ final class KeyboardCommandRegistryTests: XCTestCase {
                 "command.searchWorkspace",
                 "edit.showSourceControl",
                 "edit.showProblems",
-                "edit.showSymbols",
                 "command.goToLine",
                 "command.toggleWordWrap",
                 "command.toggleMinimap",

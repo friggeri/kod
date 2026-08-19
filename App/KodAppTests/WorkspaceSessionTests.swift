@@ -36,8 +36,8 @@ final class WorkspaceSessionTests: XCTestCase {
         return root
     }
 
-    /// Builds a session whose subsystems are entirely injected. `scan`
-    /// defaults to a single immediately-finished batch so discovery
+    /// Builds a session whose subsystems are entirely injected. The shallow
+    /// directory scan defaults to a single immediately-finished batch so discovery
     /// completes (and therefore the watcher starts) deterministically.
     private func makeFixture(
         watcherStartError: (any Error)? = nil,
@@ -45,7 +45,12 @@ final class WorkspaceSessionTests: XCTestCase {
         languageStartError: (any Error)? = nil,
         searcherError: (any Error)? = nil,
         recorder suppliedRecorder: Recorder? = nil,
-        scan: (@MainActor (
+        directoryScan: (@MainActor (
+            URL,
+            String,
+            WorkspaceDiscoveryOptions
+        ) -> AsyncThrowingStream<WorkspaceDiscoveryBatch, any Error>)? = nil,
+        filenameScan: (@MainActor (
             URL,
             WorkspaceDiscoveryOptions
         ) -> AsyncThrowingStream<WorkspaceDiscoveryBatch, any Error>)? = nil
@@ -57,15 +62,24 @@ final class WorkspaceSessionTests: XCTestCase {
         let recorder = suppliedRecorder ?? Recorder()
 
         var services = WorkspaceSessionServices()
-        services.scan = { url, options in
+        services.scanDirectory = { url, relativePath, options in
             recorder.scanCount += 1
-            if let scan {
-                return scan(url, options)
+            if let directoryScan {
+                return directoryScan(url, relativePath, options)
             }
             return AsyncThrowingStream { continuation in
                 continuation.yield(
                     WorkspaceDiscoveryBatch(entries: [], discoveredCount: 0)
                 )
+                continuation.finish()
+            }
+        }
+        services.scan = { url, options in
+            recorder.filenameScanCount += 1
+            if let filenameScan {
+                return filenameScan(url, options)
+            }
+            return AsyncThrowingStream { continuation in
                 continuation.finish()
             }
         }
@@ -142,10 +156,51 @@ final class WorkspaceSessionTests: XCTestCase {
         XCTAssertEqual(fixture.recorder.languageStartCount, 1)
         XCTAssertEqual(fixture.recorder.gitStartCount, 1)
         XCTAssertEqual(fixture.recorder.scanCount, 1)
+        XCTAssertEqual(fixture.recorder.filenameScanCount, 0)
         XCTAssertEqual(fixture.recorder.watcherFactoryCount, 1)
         XCTAssertEqual(session.state, .running)
         XCTAssertTrue(session.isWatchingFileSystem)
         XCTAssertFalse(session.health.isDegraded)
+    }
+
+    func testFilenameIndexStartsLazilyOnFirstRequest() async throws {
+        let fixture = try makeFixture(
+            filenameScan: { root, _ in
+                AsyncThrowingStream { continuation in
+                    continuation.yield(
+                        WorkspaceDiscoveryBatch(
+                            entries: [
+                                WorkspaceFileEntry(
+                                    url: root.appendingPathComponent("Sources/main.swift"),
+                                    relativePath: "Sources/main.swift",
+                                    kind: .file,
+                                    isHidden: false,
+                                    isIgnored: false
+                                )
+                            ],
+                            discoveredCount: 1
+                        )
+                    )
+                    continuation.finish()
+                }
+            }
+        )
+        await fixture.session.start()
+        await fixture.session.waitForPendingWork()
+
+        XCTAssertEqual(fixture.recorder.filenameScanCount, 0)
+        let initialMatches = await fixture.session.filenameIndex.search("main")
+        XCTAssertTrue(initialMatches.isEmpty)
+
+        fixture.session.startFilenameIndexing()
+        await fixture.session.waitForPendingWork()
+        let matches = await fixture.session.filenameIndex.search("main")
+
+        XCTAssertEqual(fixture.recorder.filenameScanCount, 1)
+        XCTAssertEqual(
+            matches.first?.entry.relativePath,
+            "Sources/main.swift"
+        )
     }
 
     func testConcurrentShutdownsJoinOneTeardownAndAreIdempotent() async throws {
@@ -335,7 +390,7 @@ final class WorkspaceSessionTests: XCTestCase {
         recorder.shouldWatcherFail = true
 
         var services = WorkspaceSessionServices()
-        services.scan = { _, _ in
+        services.scanDirectory = { _, _, _ in
             recorder.scanCount += 1
             return AsyncThrowingStream { continuation in
                 continuation.finish()
@@ -432,7 +487,7 @@ final class WorkspaceSessionTests: XCTestCase {
 
         let fixture = try makeFixture(
             recorder: recorderBox,
-            scan: { _, _ in
+            directoryScan: { _, _, _ in
                 AsyncThrowingStream { continuation in
                     // Deliberately never finished: discovery stays in
                     // flight until shutdown cancels it.
@@ -669,6 +724,7 @@ private final class FakeFileWatcher: WorkspaceFileWatching, @unchecked Sendable 
 @MainActor
 private final class Recorder {
     var scanCount = 0
+    var filenameScanCount = 0
     var watcherFactoryCount = 0
     var gitStartCount = 0
     var languageStartCount = 0

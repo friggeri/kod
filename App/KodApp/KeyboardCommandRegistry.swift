@@ -118,7 +118,6 @@ enum KeyboardCommandRegistry {
         // diagnose
         "Show Explorer",
         "Show Problems",
-        "Show Symbols",
         // diff
         "Show Source Control",
         "Show Git Blame",

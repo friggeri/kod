@@ -37,12 +37,17 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
         }
     }
 
+    struct LanguageServerStatus: Equatable {
+        let item: Item
+        let symbolName: String
+        let canRemediate: Bool
+        let isRemediationEnabled: Bool
+    }
+
     struct Model: Equatable {
         let branch: Item?
         let git: Item?
-        let languageServer: Item
-        let showsLanguageServerRestart: Bool
-        let enablesLanguageServerRestart: Bool
+        let languageServer: LanguageServerStatus?
         let language: Item?
         let encoding: Item?
         let lineEnding: Item?
@@ -52,7 +57,6 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
     struct LayoutPlan: Equatable {
         let showsLineEnding: Bool
         let showsEncoding: Bool
-        let showsLanguage: Bool
         let truncatesBranch: Bool
         let estimatedRequiredWidth: CGFloat
     }
@@ -62,12 +66,11 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
 
     private let branchButton = NSButton()
     private let gitButton = NSButton()
-    private let languageServerLabel = NSTextField(labelWithString: "")
-    private let restartButton = KodSymbolButton(
-        systemSymbolName: "arrow.clockwise",
+    private let languageServerButton = KodSymbolButton(
+        systemSymbolName: "circle.dashed",
         accessibilityLabel: Localized.string(
-            "Restart Language Server",
-            comment: "Accessibility label for the language server restart button"
+            "Language server status",
+            comment: "Accessibility label describing the language server state"
         ),
         pointSize: 12
     )
@@ -76,6 +79,14 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
     private let lineEndingLabel = NSTextField(labelWithString: "")
     private let cursorLabel = NSTextField(labelWithString: "")
     private let trustControl: NSButton
+    private let gitGroup = NSStackView()
+    private let fileGroup = NSStackView()
+    private let cursorGroup = NSStackView()
+    private let trustGroup = NSStackView()
+    private let separatorAfterGit = NSBox()
+    private let separatorAfterFile = NSBox()
+    private let separatorAfterCursor = NSBox()
+    private let contentStack = NSStackView()
     private var model: Model?
     private var appliedLayoutPlan: LayoutPlan?
 
@@ -110,10 +121,6 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
             truncationMode: .byTruncatingTail
         )
         configureLabel(
-            languageServerLabel,
-            identifier: "workspace.languageServerState"
-        )
-        configureLabel(
             languageLabel,
             identifier: "workspace.status.language"
         )
@@ -130,81 +137,109 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
             identifier: "workspace.status.cursor"
         )
 
-        restartButton.identifier = NSUserInterfaceItemIdentifier(
-            "workspace.languageServerRestart"
+        languageServerButton.identifier = NSUserInterfaceItemIdentifier(
+            "workspace.languageServerStatus"
         )
-        restartButton.target = self
-        restartButton.action = #selector(restartLanguageServer(_:))
-        restartButton.translatesAutoresizingMaskIntoConstraints = false
-        restartButton.widthAnchor.constraint(equalToConstant: 20).isActive = true
-        restartButton.heightAnchor.constraint(equalToConstant: 20).isActive = true
+        languageServerButton.title = ""
+        languageServerButton.target = self
+        languageServerButton.action = #selector(performLanguageServerAction(_:))
+        languageServerButton.translatesAutoresizingMaskIntoConstraints = false
+        languageServerButton.widthAnchor.constraint(equalToConstant: 20).isActive = true
+        languageServerButton.heightAnchor.constraint(equalToConstant: 20).isActive = true
 
         trustControl.translatesAutoresizingMaskIntoConstraints = false
         trustControl.widthAnchor.constraint(equalToConstant: 24).isActive = true
         trustControl.heightAnchor.constraint(equalToConstant: 24).isActive = true
 
-        let leftStack = NSStackView(
-            views: [
-                branchButton,
-                gitButton,
-                languageServerLabel,
-                restartButton
-            ]
+        configureGroup(
+            gitGroup,
+            identifier: "workspace.status.gitGroup",
+            views: [branchButton, gitButton]
         )
-        configureStack(leftStack)
-
-        let rightStack = NSStackView(
+        configureGroup(
+            fileGroup,
+            identifier: "workspace.status.fileGroup",
             views: [
                 languageLabel,
+                languageServerButton,
                 encodingLabel,
-                lineEndingLabel,
-                cursorLabel,
-                trustControl
+                lineEndingLabel
             ]
         )
-        configureStack(rightStack)
-
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        spacer.setContentCompressionResistancePriority(
-            .defaultLow,
-            for: .horizontal
+        configureGroup(
+            cursorGroup,
+            identifier: "workspace.status.cursorGroup",
+            views: [cursorLabel]
         )
-        let contentStack = NSStackView(views: [leftStack, spacer, rightStack])
+        configureGroup(
+            trustGroup,
+            identifier: "workspace.status.trustGroup",
+            views: [trustControl]
+        )
+        configureGroupSeparator(
+            separatorAfterGit,
+            identifier: "workspace.status.separatorAfterGit"
+        )
+        configureGroupSeparator(
+            separatorAfterFile,
+            identifier: "workspace.status.separatorAfterFile"
+        )
+        configureGroupSeparator(
+            separatorAfterCursor,
+            identifier: "workspace.status.separatorAfterCursor"
+        )
+
+        contentStack.identifier = NSUserInterfaceItemIdentifier(
+            "workspace.status.content"
+        )
+        [
+            gitGroup,
+            separatorAfterGit,
+            fileGroup,
+            separatorAfterFile,
+            cursorGroup,
+            separatorAfterCursor,
+            trustGroup
+        ].forEach(contentStack.addArrangedSubview)
         contentStack.orientation = .horizontal
         contentStack.alignment = .centerY
-        contentStack.spacing = 8
+        contentStack.spacing = 10
         contentStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.setAccessibilityElement(false)
-        separator.translatesAutoresizingMaskIntoConstraints = false
+        let topSeparator = NSBox()
+        topSeparator.boxType = .separator
+        topSeparator.setAccessibilityElement(false)
+        topSeparator.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(separator)
+        addSubview(topSeparator)
         addSubview(contentStack)
         NSLayoutConstraint.activate([
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            topSeparator.topAnchor.constraint(equalTo: topAnchor),
+            topSeparator.leadingAnchor.constraint(equalTo: leadingAnchor),
+            topSeparator.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentStack.topAnchor.constraint(equalTo: topAnchor, constant: 1),
-            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            contentStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            contentStack.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leadingAnchor,
+                constant: 6
+            ),
+            contentStack.trailingAnchor.constraint(
+                lessThanOrEqualTo: trailingAnchor,
+                constant: -6
+            ),
             contentStack.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
         branchButton.widthAnchor.constraint(lessThanOrEqualToConstant: 260).isActive = true
         gitButton.widthAnchor.constraint(lessThanOrEqualToConstant: 120).isActive = true
-        languageServerLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
         languageLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 140).isActive = true
         cursorLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 140).isActive = true
         branchButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        languageServerLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         cursorLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         branchButton.nextKeyView = gitButton
-        gitButton.nextKeyView = restartButton
-        restartButton.nextKeyView = trustControl
+        gitButton.nextKeyView = languageServerButton
+        languageServerButton.nextKeyView = trustControl
     }
 
     @available(*, unavailable)
@@ -216,13 +251,12 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
         self.model = model
         render(model.branch, on: branchButton)
         render(model.git, on: gitButton)
-        render(model.languageServer, on: languageServerLabel)
+        render(model.languageServer, on: languageServerButton)
         render(model.language, on: languageLabel)
         render(model.encoding, on: encodingLabel)
         render(model.lineEnding, on: lineEndingLabel)
         render(model.cursor, on: cursorLabel)
-        restartButton.isHidden = !model.showsLanguageServerRestart
-        restartButton.isEnabled = model.enablesLanguageServerRestart
+        updateGroupVisibility()
         appliedLayoutPlan = nil
         needsLayout = true
     }
@@ -238,8 +272,7 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
                     model.lineEnding == nil || !plan.showsLineEnding
                 encodingLabel.isHidden =
                     model.encoding == nil || !plan.showsEncoding
-                languageLabel.isHidden =
-                    model.language == nil || !plan.showsLanguage
+                updateGroupVisibility()
                 appliedLayoutPlan = plan
             }
         }
@@ -259,7 +292,6 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
     ) -> LayoutPlan {
         var showsLineEnding = model.lineEnding != nil
         var showsEncoding = model.encoding != nil
-        var showsLanguage = model.language != nil
 
         func textWidth(_ item: Item?, maximum: CGFloat) -> CGFloat {
             guard let item else {
@@ -274,36 +306,47 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
         func estimatedWidth(
             minimumBranchWidth: Bool
         ) -> CGFloat {
-            var widths: [CGFloat] = []
-            if model.branch != nil {
-                widths.append(
+            func groupWidth(_ widths: [CGFloat]) -> CGFloat? {
+                let visible = widths.filter { $0 > 0 }
+                guard !visible.isEmpty else {
+                    return nil
+                }
+                return visible.reduce(0, +)
+                    + CGFloat(max(0, visible.count - 1)) * 8
+            }
+
+            var groups: [CGFloat] = []
+            let gitWidth = groupWidth([
+                model.branch == nil
+                    ? 0
+                    : (
                     minimumBranchWidth
                         ? 72
                         : textWidth(model.branch, maximum: 260)
-                )
+                    ),
+                textWidth(model.git, maximum: 120)
+            ])
+            if let gitWidth {
+                groups.append(gitWidth)
             }
-            if model.git != nil {
-                widths.append(textWidth(model.git, maximum: 120))
-            }
-            widths.append(textWidth(model.languageServer, maximum: 200))
-            if model.showsLanguageServerRestart {
-                widths.append(20)
-            }
-            if showsLanguage {
-                widths.append(textWidth(model.language, maximum: 140))
-            }
-            if showsEncoding {
-                widths.append(textWidth(model.encoding, maximum: 90))
-            }
-            if showsLineEnding {
-                widths.append(textWidth(model.lineEnding, maximum: 70))
+
+            let fileWidth = groupWidth([
+                textWidth(model.language, maximum: 140),
+                model.languageServer == nil ? 0 : 20,
+                showsEncoding ? textWidth(model.encoding, maximum: 90) : 0,
+                showsLineEnding
+                    ? textWidth(model.lineEnding, maximum: 70)
+                    : 0
+            ])
+            if let fileWidth {
+                groups.append(fileWidth)
             }
             if model.cursor != nil {
-                widths.append(textWidth(model.cursor, maximum: 140))
+                groups.append(textWidth(model.cursor, maximum: 140))
             }
-            widths.append(24)
-            let spacing = CGFloat(max(0, widths.count - 1)) * 8
-            return 18 + widths.reduce(0, +) + spacing
+            groups.append(24)
+            let separatorAndSpacing = CGFloat(max(0, groups.count - 1)) * 21
+            return 12 + groups.reduce(0, +) + separatorAndSpacing
         }
 
         if estimatedWidth(minimumBranchWidth: false) > availableWidth {
@@ -312,15 +355,11 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
         if estimatedWidth(minimumBranchWidth: false) > availableWidth {
             showsEncoding = false
         }
-        if estimatedWidth(minimumBranchWidth: false) > availableWidth {
-            showsLanguage = false
-        }
 
         let idealWidth = estimatedWidth(minimumBranchWidth: false)
         return LayoutPlan(
             showsLineEnding: showsLineEnding,
             showsEncoding: showsEncoding,
-            showsLanguage: showsLanguage,
             truncatesBranch: model.branch != nil && idealWidth > availableWidth,
             estimatedRequiredWidth: estimatedWidth(minimumBranchWidth: true)
         )
@@ -375,41 +414,74 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
         }
     }
 
-    static func languageServerItem(
+    static func languageServerStatus(
         profileName: String?,
-        state: LanguageServerState
-    ) -> Item {
+        state: LanguageServerState,
+        isTrusted: Bool
+    ) -> LanguageServerStatus {
         let stateName = localizedLanguageServerStateName(state)
         let name = profileName ?? Localized.string(
             "LSP",
             comment: "Short generic label for language server status"
         )
-        let text = Localized.string(
-            "\(name): \(stateName)",
-            comment: "Workspace status text showing the active language profile and language server state"
+        let value = Localized.string(
+            "\(name) language server: \(stateName)",
+            comment: "Accessibility value describing a language server and its state"
         )
-        return Item(
-            text: text,
-            accessibilityLabel: Localized.string(
-                "Language server status",
-                comment: "Accessibility label describing the language server state value"
+        let remediation = restartAvailability(
+            profileName: profileName,
+            state: state,
+            isTrusted: isTrusted
+        )
+        var toolTip = languageServerReason(state).map {
+            "\(value): \($0)"
+        } ?? value
+        if remediation.visible {
+            let action = remediation.enabled
+                ? Localized.string(
+                    "Click to restart the language server.",
+                    comment: "Language server status tooltip action offering restart"
+                )
+                : Localized.string(
+                    "Trust the workspace to restart the language server.",
+                    comment: "Language server status tooltip action explaining why restart is disabled"
+                )
+            toolTip += "\n\(action)"
+        }
+        return LanguageServerStatus(
+            item: Item(
+                text: stateName,
+                accessibilityLabel: Localized.string(
+                    "Language server status",
+                    comment: "Accessibility label describing the language server state value"
+                ),
+                accessibilityValue: value,
+                toolTip: toolTip,
+                tone: languageServerTone(state)
             ),
-            accessibilityValue: text,
-            toolTip: languageServerReason(state),
-            tone: languageServerTone(state)
+            symbolName: languageServerSymbolName(state),
+            canRemediate: remediation.visible,
+            isRemediationEnabled: remediation.enabled
         )
     }
 
-    static func unavailableLanguageServerItem(_ message: String) -> Item {
-        Item(
-            text: message,
-            accessibilityLabel: Localized.string(
-                "Language server status",
-                comment: "Accessibility label describing the language server state value"
+    static func unavailableLanguageServerStatus(
+        _ message: String
+    ) -> LanguageServerStatus {
+        LanguageServerStatus(
+            item: Item(
+                text: message,
+                accessibilityLabel: Localized.string(
+                    "Language server status",
+                    comment: "Accessibility label describing the language server state value"
+                ),
+                accessibilityValue: message,
+                toolTip: message,
+                tone: .secondary
             ),
-            accessibilityValue: message,
-            toolTip: message,
-            tone: .secondary
+            symbolName: "minus.circle",
+            canRemediate: false,
+            isRemediationEnabled: false
         )
     }
 
@@ -688,11 +760,71 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
         }
     }
 
-    private func configureStack(_ stack: NSStackView) {
+    private static func languageServerSymbolName(
+        _ state: LanguageServerState
+    ) -> String {
+        switch state {
+        case .missing:
+            "exclamationmark.circle"
+        case .starting, .stopping:
+            "arrow.triangle.2.circlepath"
+        case .indexing:
+            "magnifyingglass.circle"
+        case .ready:
+            "checkmark.circle"
+        case .busy:
+            "ellipsis.circle"
+        case .stopped:
+            "stop.circle"
+        case .crashed:
+            "exclamationmark.triangle"
+        case .disabled:
+            "slash.circle"
+        }
+    }
+
+    private func configureGroup(
+        _ stack: NSStackView,
+        identifier: String,
+        views: [NSView]
+    ) {
+        stack.identifier = NSUserInterfaceItemIdentifier(identifier)
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
+        views.forEach(stack.addArrangedSubview)
+    }
+
+    private func configureGroupSeparator(
+        _ separator: NSBox,
+        identifier: String
+    ) {
+        separator.identifier = NSUserInterfaceItemIdentifier(identifier)
+        separator.boxType = .separator
+        separator.setAccessibilityElement(false)
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.widthAnchor.constraint(equalToConstant: 1).isActive = true
+        separator.heightAnchor.constraint(equalToConstant: 14).isActive = true
+    }
+
+    private func updateGroupVisibility() {
+        gitGroup.isHidden = branchButton.isHidden && gitButton.isHidden
+        fileGroup.isHidden = languageLabel.isHidden
+            && languageServerButton.isHidden
+            && encodingLabel.isHidden
+            && lineEndingLabel.isHidden
+        cursorGroup.isHidden = cursorLabel.isHidden
+
+        let gitVisible = !gitGroup.isHidden
+        let fileVisible = !fileGroup.isHidden
+        let cursorVisible = !cursorGroup.isHidden
+        let trustVisible = !trustGroup.isHidden
+        separatorAfterGit.isHidden = !gitVisible
+            || !(fileVisible || cursorVisible || trustVisible)
+        separatorAfterFile.isHidden = !fileVisible
+            || !(cursorVisible || trustVisible)
+        separatorAfterCursor.isHidden = !cursorVisible || !trustVisible
     }
 
     private func configureButton(
@@ -756,18 +888,38 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
         button.setAccessibilityValue(item.accessibilityValue)
     }
 
+    private func render(
+        _ status: LanguageServerStatus?,
+        on button: KodSymbolButton
+    ) {
+        guard let status else {
+            button.isHidden = true
+            button.isEnabled = false
+            return
+        }
+        button.isHidden = false
+        button.setSymbol(
+            status.symbolName,
+            accessibilityDescription: status.item.accessibilityValue,
+            pointSize: 12
+        )
+        button.isEnabled = status.canRemediate
+            && status.isRemediationEnabled
+        button.contentTintColor = color(for: status.item.tone)
+        button.toolTip = status.item.toolTip
+        button.setAccessibilityLabel(status.item.accessibilityLabel)
+        button.setAccessibilityValue(status.item.accessibilityValue)
+        button.setAccessibilityHelp(
+            status.canRemediate ? status.item.toolTip : nil
+        )
+    }
+
     private func color(for tone: Tone) -> NSColor {
         switch tone {
-        case .normal:
+        case .normal, .progress, .warning, .error:
             .labelColor
         case .secondary:
             .secondaryLabelColor
-        case .progress:
-            .systemBlue
-        case .warning:
-            .systemOrange
-        case .error:
-            .systemRed
         }
     }
 
@@ -777,7 +929,11 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
     }
 
     @objc
-    private func restartLanguageServer(_ sender: Any?) {
+    private func performLanguageServerAction(_ sender: Any?) {
+        guard model?.languageServer?.canRemediate == true,
+              model?.languageServer?.isRemediationEnabled == true else {
+            return
+        }
         onRestartLanguageServer?()
     }
 }

@@ -8,8 +8,7 @@ final class WorkspaceActivityBarView: NSView {
         .explorer,
         .search,
         .sourceControl,
-        .problems,
-        .symbols
+        .problems
     ]
 
     var onSelectSurface: ((WorkspaceSidebarSurface) -> Void)?
@@ -76,7 +75,7 @@ final class WorkspaceActivityBarView: NSView {
     }
 
     func setNextKeyViewAfterBar(_ view: NSView?) {
-        buttons[Self.orderedSurfaces.last ?? .symbols]?.nextKeyView = view
+        buttons[Self.orderedSurfaces.last ?? .problems]?.nextKeyView = view
     }
 
     private func makeItem(for surface: WorkspaceSidebarSurface) -> NSView {
@@ -206,12 +205,6 @@ final class WorkspaceActivityBarView: NSView {
                 comment: "Activity bar destination for workspace Problems"
             )
             return ("exclamationmark.triangle", label, label)
-        case .symbols:
-            let label = Localized.string(
-                "Symbols",
-                comment: "Activity bar destination for workspace Symbols"
-            )
-            return ("list.bullet.rectangle", label, label)
         }
     }
 }

@@ -59,11 +59,11 @@ actually complete Kod's primary workflows end to end.
 
 - [ ] Activity bar: confirm VoiceOver announces one "Activity" group above
       the sidebar content with
-      Explorer, Search, Source Control, Problems, and Symbols in that order.
+      Explorer, Search, Source Control, and Problems in that order.
       Each destination must announce "Selected" or "Not selected"; the current
       destination must remain distinguishable with Differentiate Without
       Color enabled.
-- [ ] Activity bar keyboard behavior: Tab into the bar, move among all five
+- [ ] Activity bar keyboard behavior: Tab into the bar, move among all four
       destinations with arrow keys, and activate each with Space and Return.
       Activating the selected destination must move focus into its primary
       control rather than collapsing the sidebar.
@@ -81,7 +81,6 @@ actually complete Kod's primary workflows end to end.
       can distinguish which group is active.
 - [ ] Problems panel: confirm each row announces severity as a word
       ("Error"/"Warning"/etc.), not color alone, plus file/line/message.
-- [ ] Symbols panel: confirm each row announces symbol kind + name.
 - [ ] Search panel: run a search, confirm results announce file/line/match
       text, and confirm a cancelled or truncated search state is announced
       (not just shown visually).
@@ -101,8 +100,8 @@ actually complete Kod's primary workflows end to end.
       Confirm the status bar updates after each refresh and says Git is
       unavailable on failure rather than announcing a clean repository.
 - [ ] Exercise every language-server lifecycle state available in the test
-      setup. Confirm the state is spoken as text, and the compact Restart
-      control appears only for actionable states with a clear label and
+      setup. Confirm the state icon is spoken as text and becomes an enabled
+      remediation action only for actionable states, with a clear label and
       tooltip.
 - [ ] Switch active editor splits and select text containing emoji. Confirm
       line/column and selection count follow only the active split and count
@@ -125,7 +124,7 @@ Unplug the mouse/trackpad (or simply do not touch it) and, using only the
 keyboard:
 
 - [ ] Open a workspace, use Quick Open to jump to a file, use Find in File
-      and Go to Line, open the Problems/Symbols/Search sidebars, open a
+      and Go to Line, open the Problems/Search sidebars, open a
       diff/blame view, and toggle a preview — confirm every step is
       reachable via a discoverable menu command or a documented shortcut,
       with visible focus at every stop (never a focus state that only a
@@ -151,17 +150,17 @@ keyboard:
 - [ ] Enable Reduce Transparency and switch between light, dark, and
       increased-contrast appearances. Confirm the activity bar and 30-point
       status bar remain legible, with a visible focus outline and native
-      semantic status colors.
+      monochrome status foregrounds.
 
 ## 5. Localization infrastructure sanity check
 
 - [ ] With a Debug build, use Xcode's "Pseudolocalization" scheme option
       (Edit Scheme → Run → Options → Application Language →
       "Double-Length Pseudolanguage") at the 640-point minimum window width.
-      Confirm the status bar preserves branch, Git, LSP, cursor, and trust;
-      hides line endings, encoding, then duplicate language as needed; and
-      middle-truncates the branch while its full value remains available as
-      help/tooltip text.
+      Confirm the centered status bar preserves branch, Git, file type/LSP
+      icon, cursor, and trust; hides line endings and then encoding as needed;
+      and middle-truncates the branch while its full value remains available
+      as help/tooltip text.
 
 ---
 

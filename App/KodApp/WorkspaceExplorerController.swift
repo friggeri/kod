@@ -27,6 +27,8 @@ final class WorkspaceExplorerController: NSObject {
         /// Hidden-file visibility changed; discovery must be restarted with
         /// these options.
         case changeVisibility(WorkspaceDiscoveryOptions)
+        /// A collapsed directory is opening and needs its immediate children.
+        case expandDirectory(WorkspaceFileEntry)
     }
 
     var onIntent: ((Intent) -> Void)?
@@ -38,6 +40,8 @@ final class WorkspaceExplorerController: NSObject {
     let outlineView = NSOutlineView()
 
     private var nodeCache: [String: WorkspaceTreeNode] = [:]
+    private var loadedDirectoryPaths: Set<String> = [""]
+    private var loadingDirectoryPaths: Set<String> = []
     private let statusLabel = NSTextField(
         labelWithString: Localized.string(
             "Discovering files...",
@@ -160,11 +164,16 @@ final class WorkspaceExplorerController: NSObject {
         case .scanning:
             entriesByParent.removeAll()
             nodeCache.removeAll()
+            loadedDirectoryPaths.removeAll()
+            loadingDirectoryPaths.removeAll()
             outlineView.reloadData()
+            statusLabel.isHidden = false
             statusLabel.stringValue = Localized.string("Discovering files...", comment: "Status label shown in the workspace Explorer while a file scan is in progress")
-        case .completed(let fileCount):
-            statusLabel.stringValue = Localized.string("\(fileCount) files", comment: "Status label reporting the total number of discovered files in the workspace Explorer")
+        case .completed:
+            loadedDirectoryPaths.insert("")
+            statusLabel.isHidden = true
         case .failed(let reason):
+            statusLabel.isHidden = false
             statusLabel.stringValue = Localized.string(
                 "Discovery failed: \(reason)",
                 comment: "Status label shown in the workspace Explorer when the initial file scan fails"
@@ -175,26 +184,70 @@ final class WorkspaceExplorerController: NSObject {
     func apply(_ batch: WorkspaceDiscoveryBatch) {
         for entry in batch.entries {
             let key = Self.parentKey(forRelativePath: entry.relativePath)
+            entriesByParent[key, default: []].removeAll {
+                $0.relativePath == entry.relativePath
+            }
             entriesByParent[key, default: []].append(entry)
+            loadedDirectoryPaths.insert(key)
             nodeCache.removeValue(forKey: entry.relativePath)
         }
-        statusLabel.stringValue = "\(batch.discoveredCount) items discovered"
         outlineView.reloadData()
+    }
+
+    func applyDirectory(
+        _ entries: [WorkspaceFileEntry],
+        relativePath: String
+    ) {
+        for previous in entriesByParent[relativePath] ?? [] {
+            nodeCache.removeValue(forKey: previous.relativePath)
+        }
+        entriesByParent[relativePath] = entries.filter {
+            Self.parentKey(forRelativePath: $0.relativePath) == relativePath
+        }
+        for entry in entries {
+            nodeCache.removeValue(forKey: entry.relativePath)
+        }
+        loadingDirectoryPaths.remove(relativePath)
+        loadedDirectoryPaths.insert(relativePath)
+        reloadDirectory(relativePath)
+    }
+
+    func directoryLoadFailed(relativePath: String) {
+        loadingDirectoryPaths.remove(relativePath)
+    }
+
+    func isDirectoryLoaded(_ relativePath: String) -> Bool {
+        loadedDirectoryPaths.contains(relativePath)
     }
 
     func addOrUpdate(_ entry: WorkspaceFileEntry) {
         let key = Self.parentKey(forRelativePath: entry.relativePath)
+        guard loadedDirectoryPaths.contains(key) else {
+            return
+        }
         entriesByParent[key, default: []].removeAll { $0.relativePath == entry.relativePath }
         entriesByParent[key, default: []].append(entry)
         nodeCache.removeValue(forKey: entry.relativePath)
-        outlineView.reloadData()
+        reloadDirectory(key)
     }
 
     func removeEntry(relativePath: String) {
         let key = Self.parentKey(forRelativePath: relativePath)
         entriesByParent[key]?.removeAll { $0.relativePath == relativePath }
-        nodeCache.removeValue(forKey: relativePath)
-        outlineView.reloadData()
+        let descendantPrefix = relativePath + "/"
+        entriesByParent.keys
+            .filter { $0 == relativePath || $0.hasPrefix(descendantPrefix) }
+            .forEach { entriesByParent.removeValue(forKey: $0) }
+        nodeCache.keys
+            .filter { $0 == relativePath || $0.hasPrefix(descendantPrefix) }
+            .forEach { nodeCache.removeValue(forKey: $0) }
+        loadedDirectoryPaths = loadedDirectoryPaths.filter {
+            $0 != relativePath && !$0.hasPrefix(descendantPrefix)
+        }
+        loadingDirectoryPaths = loadingDirectoryPaths.filter {
+            $0 != relativePath && !$0.hasPrefix(descendantPrefix)
+        }
+        reloadDirectory(key)
     }
 
     /// Whether a live-updated entry is visible under the current discovery
@@ -209,6 +262,68 @@ final class WorkspaceExplorerController: NSObject {
     static func parentKey(forRelativePath relativePath: String) -> String {
         let parent = (relativePath as NSString).deletingLastPathComponent
         return parent == "." ? "" : parent
+    }
+
+    /// Expands every loaded ancestor, selects the open file, and scrolls it
+    /// into view. Callers load the ancestor directories first.
+    @discardableResult
+    func reveal(relativePath: String) -> Bool {
+        let components = relativePath.split(separator: "/").map(String.init)
+        guard !components.isEmpty else {
+            return false
+        }
+
+        var parentPath = ""
+        for component in components.dropLast() {
+            let directoryPath = parentPath.isEmpty
+                ? component
+                : "\(parentPath)/\(component)"
+            guard let directoryNode = node(
+                relativePath: directoryPath,
+                parentPath: parentPath
+            ) else {
+                return false
+            }
+            outlineView.expandItem(directoryNode)
+            parentPath = directoryPath
+        }
+
+        guard let target = node(
+            relativePath: relativePath,
+            parentPath: parentPath
+        ) else {
+            return false
+        }
+        outlineView.noteNumberOfRowsChanged()
+        outlineView.layoutSubtreeIfNeeded()
+        let row = outlineView.row(forItem: target)
+        guard row >= 0 else {
+            return false
+        }
+        outlineView.selectRowIndexes(
+            IndexSet(integer: row),
+            byExtendingSelection: false
+        )
+        outlineView.scrollRowToVisible(row)
+        return true
+    }
+
+    private func node(
+        relativePath: String,
+        parentPath: String
+    ) -> WorkspaceTreeNode? {
+        children(of: parentPath).first {
+            $0.entry.relativePath == relativePath
+        }
+    }
+
+    private func reloadDirectory(_ relativePath: String) {
+        guard !relativePath.isEmpty,
+              let node = nodeCache[relativePath] else {
+            outlineView.reloadData()
+            return
+        }
+        outlineView.reloadItem(node, reloadChildren: true)
     }
 
     // MARK: - Presentation
@@ -311,7 +426,24 @@ extension WorkspaceExplorerController: NSOutlineViewDataSource, NSOutlineViewDel
     }
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-        (item as? WorkspaceTreeNode)?.entry.kind == .directory
+        guard let node = item as? WorkspaceTreeNode,
+              node.entry.kind == .directory else {
+            return false
+        }
+        return !loadedDirectoryPaths.contains(node.entry.relativePath)
+            || !children(of: node.entry.relativePath).isEmpty
+    }
+
+    func outlineViewItemWillExpand(_ notification: Notification) {
+        guard let node = notification.userInfo?["NSObject"] as? WorkspaceTreeNode else {
+            return
+        }
+        let relativePath = node.entry.relativePath
+        guard !loadedDirectoryPaths.contains(relativePath),
+              loadingDirectoryPaths.insert(relativePath).inserted else {
+            return
+        }
+        onIntent?(.expandDirectory(node.entry))
     }
 
     func outlineView(

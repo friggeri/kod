@@ -135,6 +135,64 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
         XCTAssertNotNil(viewport.onHoverExit)
     }
 
+    func testOpeningFileRevealsAndSelectsItInExplorer() async throws {
+        let fixture = try makeFixture()
+        let directory = fixture.root.appendingPathComponent(
+            "Sources/Feature",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let fileURL = directory.appendingPathComponent("Client.swift")
+        try Data("let client = 1\n".utf8).write(to: fileURL)
+        await fixture.controller.session.start()
+        await fixture.controller.session.waitForPendingWork()
+        let group = try XCTUnwrap(
+            fixture.controller.splitContainer.controller(
+                for: fixture.controller.layoutState.activeGroupID
+            )
+        )
+
+        group.openTab(
+            relativePath: "Sources/Feature/Client.swift",
+            pinned: true,
+            snapshot: SourceSnapshot(
+                text: "let client = 1\n",
+                url: fileURL
+            )
+        )
+        await fixture.controller.session.waitForPendingWork()
+
+        XCTAssertTrue(
+            (fixture.controller.entriesByParent[""] ?? []).contains {
+                $0.relativePath == "Sources"
+            }
+        )
+        XCTAssertTrue(
+            (fixture.controller.entriesByParent["Sources"] ?? []).contains {
+                $0.relativePath == "Sources/Feature"
+            }
+        )
+        XCTAssertTrue(
+            (fixture.controller.entriesByParent["Sources/Feature"] ?? []).contains {
+                $0.relativePath == "Sources/Feature/Client.swift"
+            }
+        )
+        XCTAssertEqual(
+            group.currentTabRelativePath,
+            "Sources/Feature/Client.swift"
+        )
+        let selectedNode = fixture.controller.explorer.outlineView.item(
+            atRow: fixture.controller.explorer.outlineView.selectedRow
+        ) as? WorkspaceTreeNode
+        XCTAssertEqual(
+            selectedNode?.entry.relativePath,
+            "Sources/Feature/Client.swift"
+        )
+    }
+
     func testLanguageServerControlsLiveInFullWidthBottomStatusBar() throws {
         let fixture = try makeFixture()
         let window = NSWindow(
@@ -149,9 +207,9 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
         let statusBar = try XCTUnwrap(
             findView(identifier: "workspace.statusBar", in: fixture.controller.view)
         )
-        let restartButton = try XCTUnwrap(
+        let languageServerButton = try XCTUnwrap(
             findView(
-                identifier: "workspace.languageServerRestart",
+                identifier: "workspace.languageServerStatus",
                 in: fixture.controller.view
             )
         )
@@ -159,7 +217,7 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
         XCTAssertEqual(statusBar.frame.minX, fixture.controller.view.bounds.minX, accuracy: 0.5)
         XCTAssertEqual(statusBar.frame.width, fixture.controller.view.bounds.width, accuracy: 0.5)
         XCTAssertEqual(statusBar.frame.minY, fixture.controller.view.bounds.minY, accuracy: 0.5)
-        XCTAssertTrue(restartButton.isDescendant(of: statusBar))
+        XCTAssertTrue(languageServerButton.isDescendant(of: statusBar))
     }
 
     func testHandleChangedPathUpdatesExplorerIndexForNonOpenFiles() async throws {
@@ -285,7 +343,7 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
         )
     }
 
-    func testIgnoredLiveUpdateAppearsWithoutExplorerReveal() throws {
+    func testIgnoredLiveUpdateDoesNotPopulateCollapsedDirectory() throws {
         let fixture = try makeFixture()
         try Data("data/\n".utf8).write(to: fixture.root.appendingPathComponent(".gitignore"))
         try FileManager.default.createDirectory(
@@ -296,7 +354,7 @@ final class WorkspaceViewControllerLiveUpdateTests: XCTestCase {
         try Data("{}".utf8).write(to: ignoredFile)
 
         fixture.controller.handleChangedPath(ignoredFile.path)
-        XCTAssertTrue(
+        XCTAssertFalse(
             (fixture.controller.entriesByParent["data"] ?? []).contains {
                 $0.relativePath == "data/cache.json"
             }

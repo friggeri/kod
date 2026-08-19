@@ -45,6 +45,17 @@ public actor FilenameIndex {
     public func append(_ newEntries: [WorkspaceFileEntry]) {
         for entry in newEntries where entry.kind != .directory {
             let path = entry.relativePath.lowercased()
+            if let existing = exactIndices(
+                for: path,
+                primary: exactPaths,
+                duplicates: duplicatePaths
+            ),
+               existing.contains(where: {
+                   entries[$0].entry.relativePath == entry.relativePath
+                       && !removedIndices.contains($0)
+               }) {
+                continue
+            }
             let basename = entry.url.lastPathComponent.lowercased()
             let stem = entry.url.deletingPathExtension()
                 .lastPathComponent

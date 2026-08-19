@@ -209,7 +209,7 @@ final class EditorLayoutTests: XCTestCase {
         state.activeGroup?.openTab(relativePath: "Sources/A.swift", pinned: true)
         state.wordWrapEnabled = true
         state.minimapEnabled = false
-        state.sidebarSurface = .symbols
+        state.sidebarSurface = .problems
         _ = state.split(orientation: .vertical)
         state.geometry = WorkspaceGeometryState(
             windowFrame: WorkspaceWindowFrame(
@@ -227,6 +227,15 @@ final class EditorLayoutTests: XCTestCase {
 
         XCTAssertEqual(decoded, state)
         XCTAssertNoThrow(try decoded.validate())
+    }
+
+    func testLegacySymbolsSidebarDecodesAsExplorer() throws {
+        let decoded = try JSONDecoder().decode(
+            WorkspaceSidebarSurface.self,
+            from: Data(#""symbols""#.utf8)
+        )
+        XCTAssertEqual(decoded, .explorer)
+        XCTAssertEqual(decoded, .explorer)
     }
 
     func testWorkspaceLayoutStateDecodesLegacyJSONWithoutGeometry() throws {
@@ -648,7 +657,7 @@ final class WorkspaceLayoutStoreTests: XCTestCase {
         let identity = try WorkspaceIdentity(root: root)
         let (store, _, keyValueStore) = makeStore()
         var legacy = WorkspaceLayoutState.singleGroup()
-        legacy.sidebarSurface = .symbols
+        legacy.sidebarSurface = .problems
         legacy.geometry = WorkspaceGeometryState(
             windowFrame: WorkspaceWindowFrame(x: 10, y: 20, width: 900, height: 600),
             sidebarWidth: 240,
@@ -680,7 +689,7 @@ final class WorkspaceLayoutStoreTests: XCTestCase {
         let identity = try WorkspaceIdentity(root: root)
         let (store, _, keyValueStore) = makeStore()
         var railState = WorkspaceLayoutState.singleGroup()
-        railState.sidebarSurface = .symbols
+        railState.sidebarSurface = .problems
         railState.geometry = WorkspaceGeometryState(
             windowFrame: WorkspaceWindowFrame(x: 10, y: 20, width: 900, height: 600),
             sidebarWidth: 284,
@@ -696,7 +705,7 @@ final class WorkspaceLayoutStoreTests: XCTestCase {
             return XCTFail("Expected migrated layout")
         }
         XCTAssertEqual(provenance, .migrated(from: .version(2), toVersion: 3))
-        XCTAssertEqual(migrated.sidebarSurface, .symbols)
+        XCTAssertEqual(migrated.sidebarSurface, .problems)
         XCTAssertEqual(migrated.geometry?.sidebarWidth, 240)
     }
 

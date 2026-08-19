@@ -1,4 +1,5 @@
 import AppKit
+import KodUIComponents
 import WorkspaceCore
 import XCTest
 @testable import Kod
@@ -54,6 +55,13 @@ final class WorkspaceWindowControllerTests: XCTestCase {
             controller.window?.styleMask.contains(.fullSizeContentView) == true
         )
         XCTAssertTrue(controller.window?.delegate === controller)
+        XCTAssertEqual(
+            controller.window?.backgroundColor,
+            ThemeColorAppKitBridge.nsColor(
+                fixture.environment.appearanceCenter.snapshot.theme
+                    .surface.windowBackground
+            )
+        )
     }
 
     func testConcurrentShutdownJoinsInjectedGate() async throws {

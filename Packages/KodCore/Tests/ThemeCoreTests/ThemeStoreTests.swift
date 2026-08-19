@@ -70,6 +70,28 @@ final class ThemeStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testResolvedThemeIgnoresPersistedSelectionAndHighContrast() throws {
+        let (store, _, _) = makeStore()
+        try store.setActiveThemeIdentifier("custom.theme")
+        try store.addImportedTheme(sampleTheme(identifier: "custom.theme"))
+
+        XCTAssertEqual(
+            try store.resolvedActiveTheme(
+                systemIsDark: false,
+                systemIsHighContrast: true
+            ),
+            BundledThemes.light
+        )
+        XCTAssertEqual(
+            try store.resolvedActiveTheme(
+                systemIsDark: true,
+                systemIsHighContrast: true
+            ),
+            BundledThemes.dark
+        )
+    }
+
+    @MainActor
     func testCorruptImportedThemesAreQuarantinedAndCanRebuild() throws {
         let (store, repository, keyValueStore) = makeStore()
         try keyValueStore.setValue(

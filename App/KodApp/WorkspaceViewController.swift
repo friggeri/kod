@@ -490,7 +490,6 @@ final class WorkspaceViewController: NSViewController {
     private var searchSidebarController: SearchSidebarViewController!
     private var problemsViewController: ProblemsViewController!
     private var sourceControlSidebarController: SourceControlSidebarViewController!
-    private var symbolsViewController: SymbolsViewController!
     /// Read-only Git context for this workspace (SPEC 9): `nil` for
     /// non-Git folders, kept fresh from the same FSEvents pipeline that
     /// drives Explorer/index live updates. Owned by the session.
@@ -514,6 +513,7 @@ final class WorkspaceViewController: NSViewController {
         set { explorer.entriesByParent = newValue }
     }
     private var sourceLoadTask: Task<Void, Never>?
+    private var explorerRevealTask: Task<Void, Never>?
     private var appearanceObservation: SettingsObservation?
     private var quickOpenController: QuickOpenPanelController?
     private var commandPaletteController: CommandPaletteController?
@@ -702,6 +702,9 @@ final class WorkspaceViewController: NSViewController {
         session.onDiscoveryBatch = { [weak self] batch in
             self?.apply(batch)
         }
+        session.onFilenameIndexChanged = { [weak self] in
+            self?.quickOpenController?.refreshResults()
+        }
         session.onFileChangeBatch = { [weak self] batch in
             self?.handleWorkspaceChangeBatch(batch)
         }
@@ -828,6 +831,8 @@ final class WorkspaceViewController: NSViewController {
             open(entry)
         case .changeVisibility(let options):
             startDiscovery(options: options)
+        case .expandDirectory(let entry):
+            loadExplorerDirectory(relativePath: entry.relativePath)
         }
     }
 
@@ -1092,11 +1097,6 @@ final class WorkspaceViewController: NSViewController {
     @objc
     func showProblems(_ sender: Any?) {
         selectSidebarSurface(.problems, focus: true)
-    }
-
-    @objc
-    func showSymbols(_ sender: Any?) {
-        selectSidebarSurface(.symbols, focus: true)
     }
 
     /// Toggles the active tab's Source/Preview mode from the window toolbar,
@@ -1442,34 +1442,22 @@ final class WorkspaceViewController: NSViewController {
         let languageStatus = fileURL.flatMap {
             multiLanguageServicesCoordinator.status(forURL: $0)
         }
-        let languageServerItem: WorkspaceStatusBarView.Item
-        let restart: (visible: Bool, enabled: Bool)
+        let languageServerStatus: WorkspaceStatusBarView.LanguageServerStatus?
         if let languageStatus {
-            languageServerItem = WorkspaceStatusBarView.languageServerItem(
-                profileName: languageStatus.languageName,
-                state: languageStatus.state
-            )
-            restart = WorkspaceStatusBarView.restartAvailability(
+            languageServerStatus = WorkspaceStatusBarView.languageServerStatus(
                 profileName: languageStatus.languageName,
                 state: languageStatus.state,
                 isTrusted: trustStore.isTrusted(identity)
             )
         } else if statusDocument != nil {
             let message = Localized.string(
-                "LSP: Unavailable",
-                comment: "Workspace status text when the active file has no configured language server"
+                "No language server configured",
+                comment: "Language server status shown when the active file has no configured server"
             )
-            languageServerItem =
-                WorkspaceStatusBarView.unavailableLanguageServerItem(message)
-            restart = (false, false)
+            languageServerStatus =
+                WorkspaceStatusBarView.unavailableLanguageServerStatus(message)
         } else {
-            let message = Localized.string(
-                "LSP: No active file",
-                comment: "Workspace status text when no editor document is active"
-            )
-            languageServerItem =
-                WorkspaceStatusBarView.unavailableLanguageServerItem(message)
-            restart = (false, false)
+            languageServerStatus = nil
         }
 
         let metadataDocument = statusDocument?.metadataDocument
@@ -1485,9 +1473,7 @@ final class WorkspaceViewController: NSViewController {
         return WorkspaceStatusBarView.Model(
             branch: gitItems.branch,
             git: gitItems.git,
-            languageServer: languageServerItem,
-            showsLanguageServerRestart: restart.visible,
-            enablesLanguageServerRestart: restart.enabled,
+            languageServer: languageServerStatus,
             language: languageName.map(
                 WorkspaceStatusBarView.languageItem
             ),
@@ -1719,8 +1705,8 @@ final class WorkspaceViewController: NSViewController {
                 return
             } catch {
                 // Best-effort navigation: a since-deleted or unreadable
-                // file simply does not navigate; the Problems/Symbols
-                // list itself is unaffected.
+                // file simply does not navigate; the Problems list itself
+                // is unaffected.
                 await diagnosticsLog.record(
                     subsystem: .languageServer,
                     level: .warning,
@@ -1835,6 +1821,7 @@ final class WorkspaceViewController: NSViewController {
             return
         }
 
+        session.startFilenameIndexing()
         let controller = QuickOpenPanelController(
             filenameIndex: filenameIndex,
             onSelect: { [weak self] entry in
@@ -1974,14 +1961,7 @@ final class WorkspaceViewController: NSViewController {
         }
         refreshPreviewSourceToolbar()
         refreshLanguageServerStateUI()
-        refreshSymbolsIfVisible()
-    }
-
-    private func refreshSymbolsIfVisible() {
-        guard isViewLoaded, layoutState.sidebarSurface == .symbols else {
-            return
-        }
-        symbolsViewController?.refresh()
+        revealActiveFileInExplorer()
     }
 
     private func handleSplit(groupID: EditorGroupID, orientation: SplitOrientation) {
@@ -2163,6 +2143,9 @@ final class WorkspaceViewController: NSViewController {
                 controller: controller
             )
             self.refreshVisibleQuickDiff(snapshot: self.gitCoordinator.latestStatus)
+            if self.layoutState.activeGroupID == groupID {
+                self.revealActiveFileInExplorer()
+            }
         }
         controller.onActivate = { [weak self] groupID in
             self?.layoutState.activeGroupID = groupID
@@ -2221,7 +2204,6 @@ final class WorkspaceViewController: NSViewController {
             }
             self.cancelHover()
             self.refreshLanguageServerStateUI()
-            self.refreshSymbolsIfVisible()
         }
         controller.onDocumentClosed = { [weak self] relativePath, documentController in
             self?.multiLanguageServicesCoordinator.handleDocumentClosed(
@@ -2270,6 +2252,8 @@ final class WorkspaceViewController: NSViewController {
         cancelHover()
         definitionNavigationTask?.cancel()
         definitionNavigationTask = nil
+        explorerRevealTask?.cancel()
+        explorerRevealTask = nil
         if isViewLoaded {
             quickDiff.cancelAll()
         }
@@ -2518,35 +2502,12 @@ final class WorkspaceViewController: NSViewController {
         sourceControlController.view.isHidden = true
         refreshSourceControlSidebar()
 
-        let symbolsController = SymbolsViewController(
-            search: { [weak self] query in
-                guard let self,
-                      let statusDocument = self.activeGroupController?
-                        .currentStatusDocument else {
-                    return []
-                }
-                let url = self.activeStatusFileURL(for: statusDocument)
-                return try await self.multiLanguageServicesCoordinator.workspaceSymbols(
-                    forURL: url,
-                    query: query
-                )
-            },
-            onSelectSymbol: { [weak self] symbol in
-                self?.navigate(to: symbol.location)
-            }
-        )
-        symbolsViewController = symbolsController
-        addChild(symbolsController)
-        symbolsController.view.translatesAutoresizingMaskIntoConstraints = false
-        symbolsController.view.isHidden = true
-
         container.addSubview(activityBar)
         container.addSubview(content)
         content.addSubview(explorerContainer)
         content.addSubview(searchController.view)
         content.addSubview(problemsController.view)
         content.addSubview(sourceControlController.view)
-        content.addSubview(symbolsController.view)
         NSLayoutConstraint.activate([
             activityBar.topAnchor.constraint(
                 equalTo: container.safeAreaLayoutGuide.topAnchor
@@ -2563,8 +2524,7 @@ final class WorkspaceViewController: NSViewController {
             explorerContainer,
             searchController.view,
             problemsController.view,
-            sourceControlController.view,
-            symbolsController.view
+            sourceControlController.view
         ].compactMap({ $0 }) {
             NSLayoutConstraint.activate([
                 surfaceView.topAnchor.constraint(
@@ -2606,7 +2566,6 @@ final class WorkspaceViewController: NSViewController {
         searchSidebarController?.view.isHidden = surface != .search
         problemsViewController?.view.isHidden = surface != .problems
         sourceControlSidebarController?.view.isHidden = surface != .sourceControl
-        symbolsViewController?.view.isHidden = surface != .symbols
 
         switch surface {
         case .explorer:
@@ -2617,8 +2576,6 @@ final class WorkspaceViewController: NSViewController {
             sourceControlSidebarController.refreshAppearance()
         case .problems:
             break
-        case .symbols:
-            symbolsViewController.refresh()
         }
 
         activityBarView?.setNextKeyViewAfterBar(primaryFocusView(for: surface))
@@ -2648,8 +2605,6 @@ final class WorkspaceViewController: NSViewController {
             sourceControlSidebarController?.primaryFocusView
         case .problems:
             problemsViewController?.primaryFocusView
-        case .symbols:
-            symbolsViewController?.primaryFocusView
         }
     }
 
@@ -2663,8 +2618,6 @@ final class WorkspaceViewController: NSViewController {
             sourceControlSidebarController.focusPrimaryControl()
         case .problems:
             problemsViewController.focusPrimaryControl()
-        case .symbols:
-            symbolsViewController.focusSearchField()
         }
     }
 
@@ -2702,6 +2655,100 @@ final class WorkspaceViewController: NSViewController {
         }
     }
 
+    private func loadExplorerDirectory(relativePath: String) {
+        session.runTracked(.discovery) { [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                let entries = try await self.session.loadDirectory(
+                    relativePath: relativePath
+                )
+                try Task.checkCancellation()
+                self.explorer.applyDirectory(
+                    entries,
+                    relativePath: relativePath
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                self.explorer.directoryLoadFailed(relativePath: relativePath)
+                self.session.recordHealthIssue(
+                    .discovery,
+                    severity: .degraded,
+                    message: Localized.string(
+                        "An Explorer directory could not be loaded",
+                        comment: "Workspace health summary for a lazy Explorer directory load failure"
+                    ),
+                    reason: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    private func revealActiveFileInExplorer() {
+        guard isViewLoaded,
+              splitContainer != nil,
+              let relativePath = activeGroupController?.currentTabRelativePath else {
+            return
+        }
+        explorerRevealTask?.cancel()
+        explorerRevealTask = session.runTracked(.discovery) { [weak self] in
+            guard let self else {
+                return
+            }
+            await self.revealInExplorer(relativePath: relativePath)
+        }
+    }
+
+    private func revealInExplorer(relativePath: String) async {
+        let components = relativePath.split(separator: "/").map(String.init)
+        guard !components.isEmpty else {
+            return
+        }
+
+        var directoriesToLoad = [""]
+        var currentPath = ""
+        for component in components.dropLast() {
+            currentPath = currentPath.isEmpty
+                ? component
+                : "\(currentPath)/\(component)"
+            directoriesToLoad.append(currentPath)
+        }
+
+        do {
+            for directoryPath in directoriesToLoad
+            where !explorer.isDirectoryLoaded(directoryPath) {
+                let entries = try await session.loadDirectory(
+                    relativePath: directoryPath
+                )
+                try Task.checkCancellation()
+                explorer.applyDirectory(
+                    entries,
+                    relativePath: directoryPath
+                )
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            session.recordHealthIssue(
+                .discovery,
+                severity: .degraded,
+                message: Localized.string(
+                    "The active file could not be revealed in Explorer",
+                    comment: "Workspace health summary for an active-file Explorer reveal failure"
+                ),
+                reason: error.localizedDescription
+            )
+            return
+        }
+
+        guard activeGroupController?.currentTabRelativePath == relativePath else {
+            return
+        }
+        _ = explorer.reveal(relativePath: relativePath)
+    }
+
     private func startDiscovery(
         options: WorkspaceDiscoveryOptions? = nil
     ) {
@@ -2714,6 +2761,9 @@ final class WorkspaceViewController: NSViewController {
     /// session.
     private func discoveryStatusDidChange(_ status: WorkspaceDiscoveryStatus) {
         explorer.applyDiscoveryStatus(status)
+        if case .completed = status {
+            revealActiveFileInExplorer()
+        }
     }
 
     private func apply(_ batch: WorkspaceDiscoveryBatch) {

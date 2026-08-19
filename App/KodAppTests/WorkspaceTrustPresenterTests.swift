@@ -34,7 +34,7 @@ final class WorkspaceTrustPresenterTests: XCTestCase {
             presenter.statusButton.accessibilityLabel(),
             "Restricted mode: language servers and repository tools are disabled."
         )
-        XCTAssertEqual(presenter.statusButton.contentTintColor, .systemOrange)
+        XCTAssertEqual(presenter.statusButton.contentTintColor, .labelColor)
     }
 
     func testTrustedStateRendersRevokeAffordances() throws {
@@ -49,7 +49,7 @@ final class WorkspaceTrustPresenterTests: XCTestCase {
             presenter.statusButton.accessibilityLabel(),
             "This workspace is trusted: language servers and repository tools are enabled."
         )
-        XCTAssertEqual(presenter.statusButton.contentTintColor, .systemGreen)
+        XCTAssertEqual(presenter.statusButton.contentTintColor, .labelColor)
     }
 
     func testBannerActionEmitsTheMatchingIntentForTheRenderedState() throws {

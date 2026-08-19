@@ -230,7 +230,7 @@ extension HierarchyViewController: NSOutlineViewDataSource, NSOutlineViewDelegat
         cell.textField?.stringValue = "\(node.item.name)\(detail)"
         // A distinct accessibility label naming the node's symbol kind as
         // a word ("function", "class", ...), matching the vocabulary
-        // `SymbolsViewController`/`CodeAccessibilityAnnotation` use, so
+        // `CodeAccessibilityAnnotation` uses, so
         // VoiceOver announces what kind of hierarchy node this is rather
         // than only its bare name (SPEC 14).
         cell.textField?.setAccessibilityLabel(

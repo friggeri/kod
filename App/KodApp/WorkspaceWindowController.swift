@@ -1,4 +1,6 @@
 import AppKit
+import KodUIComponents
+import SettingsCore
 import WorkspaceCore
 
 @MainActor
@@ -39,6 +41,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
 
     private let services: Services
     private var toolbarDelegate: WorkspaceToolbarDelegate?
+    private var appearanceObservation: SettingsObservation?
     private var hasPresented = false
     private var hasPreparedForClose = false
     private var shutdownTask: Task<Void, Never>?
@@ -62,6 +65,12 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         window.title = identity.root.lastPathComponent
         window.isReleasedWhenClosed = false
         window.delegate = self
+        appearanceObservation = session.dependencies.appearanceCenter.observe {
+            [weak window] snapshot in
+            window?.backgroundColor = ThemeColorAppKitBridge.nsColor(
+                snapshot.theme.surface.windowBackground
+            )
+        }
     }
 
     @available(*, unavailable)

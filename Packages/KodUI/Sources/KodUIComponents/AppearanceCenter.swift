@@ -128,7 +128,7 @@ public final class AppearanceCenter {
     ) throws(SettingsRepositoryError) -> KodTheme {
         try store.resolvedActiveTheme(
             systemIsDark: systemIsDark(),
-            systemIsHighContrast: systemIsHighContrast()
+            systemIsHighContrast: false
         )
     }
 

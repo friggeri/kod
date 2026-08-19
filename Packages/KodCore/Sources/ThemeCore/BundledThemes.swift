@@ -1,9 +1,8 @@
 import Foundation
 
-/// The four themes Kod ships per SPEC 7.2: one light, one dark, one
-/// high-contrast light, and one high-contrast dark theme. Kod Light and Kod
-/// Dark adapt the PVC 1.0.8 palettes; the dedicated high-contrast themes use
-/// Kod's enhanced-contrast palettes.
+/// Kod's light and dark themes. Legacy high-contrast definitions remain
+/// decodable for persisted data, but the app always follows the system
+/// appearance with one of the two Kod themes.
 public enum BundledThemes {
     /// Every bundled-theme color below is a fixed hex literal; a failure to
     /// parse one is a programming error in this file, not a runtime condition.
@@ -24,7 +23,7 @@ public enum BundledThemes {
         return color
     }
 
-    public static let all: [KodTheme] = [light, dark, highContrastLight, highContrastDark]
+    public static let all: [KodTheme] = [light, dark]
 
     public static func theme(forIdentifier identifier: String) -> KodTheme? {
         all.first { $0.identifier == identifier }
@@ -32,13 +31,11 @@ public enum BundledThemes {
 
     /// The bundled theme that best matches a system appearance, used as the
     /// initial default before a user picks or imports one.
-    public static func defaultTheme(isDark: Bool, isHighContrast: Bool) -> KodTheme {
-        switch (isDark, isHighContrast) {
-        case (false, false): light
-        case (true, false): dark
-        case (false, true): highContrastLight
-        case (true, true): highContrastDark
-        }
+    public static func defaultTheme(
+        isDark: Bool,
+        isHighContrast _: Bool
+    ) -> KodTheme {
+        isDark ? dark : light
     }
 
     public static let light = KodTheme(
@@ -147,7 +144,7 @@ public enum BundledThemes {
             selectionBackground: hex("#4A4D4E")
         ),
         editor: EditorColors(
-            background: hex("#242728"),
+            background: hex("#313435"),
             foreground: hex("#FAFAFA"),
             lineHighlightBackground: hex("#313435"),
             gutterForeground: hex("#616161"),

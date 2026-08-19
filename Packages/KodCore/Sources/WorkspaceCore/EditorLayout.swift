@@ -291,12 +291,34 @@ public enum SplitOrientation: String, Equatable, Codable, Sendable {
     case vertical
 }
 
-public enum WorkspaceSidebarSurface: String, CaseIterable, Hashable, Codable, Sendable {
+public enum WorkspaceSidebarSurface: String, CaseIterable, Hashable, Sendable {
     case explorer
     case search
     case sourceControl
     case problems
-    case symbols
+}
+
+extension WorkspaceSidebarSurface: Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        if rawValue == "symbols" {
+            self = .explorer
+            return
+        }
+        guard let surface = Self(rawValue: rawValue) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown workspace sidebar surface: \(rawValue)"
+            )
+        }
+        self = surface
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 public struct WorkspaceWindowFrame: Equatable, Codable, Sendable {

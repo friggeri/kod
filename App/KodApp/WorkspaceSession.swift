@@ -278,6 +278,21 @@ struct WorkspaceSessionServices {
         WorkspaceScanner().scan(root: root, options: options)
     }
 
+    var scanDirectory: @MainActor (
+        URL,
+        String,
+        WorkspaceDiscoveryOptions
+    ) -> AsyncThrowingStream<WorkspaceDiscoveryBatch, any Error> = {
+        root,
+        relativePath,
+        options in
+        WorkspaceScanner().scanDirectory(
+            root: root,
+            relativePath: relativePath,
+            options: options
+        )
+    }
+
     var makeGitCoordinator: @MainActor (
         WorkspaceDependencies,
         URL,
@@ -339,6 +354,7 @@ final class WorkspaceSession {
 
     var onDiscoveryBatch: ((WorkspaceDiscoveryBatch) -> Void)?
     var onDiscoveryStatus: ((WorkspaceDiscoveryStatus) -> Void)?
+    var onFilenameIndexChanged: (() -> Void)?
     var onFileChangeBatch: ((WorkspaceChangeBatch) -> Void)?
     var onGitStatusChanged: ((GitStatusSnapshot?) -> Void)?
     var onLanguageStateChanged: (() -> Void)?
@@ -358,6 +374,14 @@ final class WorkspaceSession {
     private var startTask: Task<Void, Never>?
     private var shutdownTask: Task<Void, Never>?
     private var discoveryTask: Task<Void, Never>?
+    private var filenameIndexTask: Task<Void, Never>?
+    private var filenameIndexGeneration = 0
+    private var isFilenameIndexComplete = false
+    private var shouldBuildFullFilenameIndex = false
+    private var filenameIndexMutationsDuringScan: Set<String> = []
+    private var directoryLoadTasks: [
+        String: Task<[WorkspaceFileEntry], any Error>
+    ] = [:]
     private var externalReloadTask: Task<Void, Never>?
     private var trackedTasks: [UInt64: Task<Void, Never>] = [:]
     private var nextTrackedTaskValue: UInt64 = 0
@@ -574,6 +598,19 @@ final class WorkspaceSession {
         discovery?.cancel()
         await discovery?.value
 
+        filenameIndexGeneration &+= 1
+        let filenameIndexing = filenameIndexTask
+        filenameIndexTask = nil
+        filenameIndexing?.cancel()
+        await filenameIndexing?.value
+
+        let directoryLoads = Array(directoryLoadTasks.values)
+        directoryLoadTasks.removeAll()
+        directoryLoads.forEach { $0.cancel() }
+        for task in directoryLoads {
+            _ = try? await task.value
+        }
+
         externalReloadTask = nil
         while !trackedTasks.isEmpty {
             let inFlight = trackedTasks
@@ -605,16 +642,30 @@ final class WorkspaceSession {
         for _ in 0..<32 {
             let startup = startTask
             let discovery = discoveryTask
+            let filenameIndexing = filenameIndexTask
+            let directoryLoads = Array(directoryLoadTasks.values)
             let tracked = Array(trackedTasks.values)
-            if startup == nil, discovery == nil, tracked.isEmpty {
+            if startup == nil,
+               discovery == nil,
+               filenameIndexing == nil,
+               directoryLoads.isEmpty,
+               tracked.isEmpty {
                 return
             }
             await startup?.value
             await discovery?.value
+            await filenameIndexing?.value
+            for task in directoryLoads {
+                _ = try? await task.value
+            }
             for task in tracked {
                 await task.value
             }
-            if startTask == nil, discoveryTask == nil, trackedTasks.isEmpty {
+            if startTask == nil,
+               discoveryTask == nil,
+               filenameIndexTask == nil,
+               directoryLoadTasks.isEmpty,
+               trackedTasks.isEmpty {
                 return
             }
         }
@@ -623,6 +674,7 @@ final class WorkspaceSession {
     private func clearEventHandlers() {
         onDiscoveryBatch = nil
         onDiscoveryStatus = nil
+        onFilenameIndexChanged = nil
         onFileChangeBatch = nil
         onGitStatusChanged = nil
         onLanguageStateChanged = nil
@@ -673,9 +725,9 @@ final class WorkspaceSession {
 
     // MARK: - Discovery
 
-    /// Restarts discovery, superseding any scan in flight. Every batch
-    /// and status transition is published; the session holds no
-    /// Explorer-shaped state itself.
+    /// Restarts the shallow Explorer discovery, superseding any directory or
+    /// filename scan in flight. The full filename index is rebuilt only if a
+    /// consumer has requested it already.
     func startDiscovery(options: WorkspaceDiscoveryOptions? = nil) {
         guard isAcceptingWork else {
             return
@@ -684,6 +736,13 @@ final class WorkspaceSession {
             discoveryOptions = options
         }
         discoveryTask?.cancel()
+        directoryLoadTasks.values.forEach { $0.cancel() }
+        directoryLoadTasks.removeAll()
+        filenameIndexGeneration &+= 1
+        filenameIndexTask?.cancel()
+        filenameIndexTask = nil
+        isFilenameIndexComplete = false
+        filenameIndexMutationsDuringScan.removeAll()
         discoveryGeneration += 1
         let generation = discoveryGeneration
         let activeOptions = discoveryOptions
@@ -698,6 +757,9 @@ final class WorkspaceSession {
             )
             if self.discoveryGeneration == generation {
                 self.discoveryTask = nil
+                if self.shouldBuildFullFilenameIndex {
+                    self.startFilenameIndexing()
+                }
             }
         }
     }
@@ -711,7 +773,11 @@ final class WorkspaceSession {
             guard discoveryGeneration == generation else {
                 return
             }
-            for try await batch in services.scan(identity.root, options) {
+            for try await batch in services.scanDirectory(
+                identity.root,
+                "",
+                options
+            ) {
                 try Task.checkCancellation()
                 guard discoveryGeneration == generation else {
                     return
@@ -750,6 +816,131 @@ final class WorkspaceSession {
             publishDiscoveryStatus(
                 .failed(reason: error.localizedDescription)
             )
+        }
+    }
+
+    /// Starts the compact filename index on first use. Workspace startup only
+    /// lists the root; Quick Open asks for this breadth-first scan and receives
+    /// progressively deeper results through `onFilenameIndexChanged`.
+    func startFilenameIndexing() {
+        guard isAcceptingWork else {
+            return
+        }
+        shouldBuildFullFilenameIndex = true
+        guard discoveryTask == nil,
+              filenameIndexTask == nil,
+              !isFilenameIndexComplete else {
+            return
+        }
+        filenameIndexGeneration &+= 1
+        let generation = filenameIndexGeneration
+        let options = discoveryOptions
+        filenameIndexMutationsDuringScan.removeAll()
+        filenameIndexTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            await self.performFilenameIndexing(
+                generation: generation,
+                options: options
+            )
+            if self.filenameIndexGeneration == generation {
+                self.filenameIndexTask = nil
+            }
+        }
+    }
+
+    private func performFilenameIndexing(
+        generation: Int,
+        options: WorkspaceDiscoveryOptions
+    ) async {
+        do {
+            await filenameIndex.removeAll()
+            guard filenameIndexGeneration == generation else {
+                return
+            }
+            for try await batch in services.scan(identity.root, options) {
+                try Task.checkCancellation()
+                guard filenameIndexGeneration == generation else {
+                    return
+                }
+                let entries = batch.entries.filter {
+                    !filenameIndexMutationsDuringScan.contains(
+                        $0.relativePath
+                    )
+                }
+                await filenameIndex.append(entries)
+                guard filenameIndexGeneration == generation else {
+                    return
+                }
+                onFilenameIndexChanged?()
+            }
+            guard filenameIndexGeneration == generation else {
+                return
+            }
+            isFilenameIndexComplete = true
+            filenameIndexMutationsDuringScan.removeAll()
+            onFilenameIndexChanged?()
+        } catch is CancellationError {
+            return
+        } catch {
+            guard filenameIndexGeneration == generation else {
+                return
+            }
+            recordHealthIssue(
+                .discovery,
+                severity: .degraded,
+                message: Localized.string(
+                    "Workspace filename indexing did not finish",
+                    comment: "Health message shown when lazy Quick Open filename indexing fails"
+                ),
+                reason: error.localizedDescription
+            )
+        }
+    }
+
+    /// Loads one collapsed Explorer directory without walking below it.
+    /// Concurrent requests for the same path share one scan.
+    func loadDirectory(
+        relativePath: String
+    ) async throws -> [WorkspaceFileEntry] {
+        guard isAcceptingWork else {
+            throw CancellationError()
+        }
+        if let existing = directoryLoadTasks[relativePath] {
+            return try await existing.value
+        }
+
+        let generation = discoveryGeneration
+        let options = discoveryOptions
+        let task = Task<[WorkspaceFileEntry], any Error> {
+            var entries: [WorkspaceFileEntry] = []
+            for try await batch in services.scanDirectory(
+                identity.root,
+                relativePath,
+                options
+            ) {
+                try Task.checkCancellation()
+                entries.append(contentsOf: batch.entries)
+            }
+            try Task.checkCancellation()
+            guard discoveryGeneration == generation else {
+                throw CancellationError()
+            }
+            return entries
+        }
+        directoryLoadTasks[relativePath] = task
+
+        do {
+            let entries = try await task.value
+            directoryLoadTasks.removeValue(forKey: relativePath)
+            if !shouldBuildFullFilenameIndex {
+                await filenameIndex.append(entries)
+            }
+            return entries
+        } catch {
+            directoryLoadTasks.removeValue(forKey: relativePath)
+            throw error
         }
     }
 
@@ -842,6 +1033,12 @@ final class WorkspaceSession {
         removing relativePaths: [String],
         appending entries: [WorkspaceFileEntry] = []
     ) {
+        if filenameIndexTask != nil {
+            filenameIndexMutationsDuringScan.formUnion(relativePaths)
+            filenameIndexMutationsDuringScan.formUnion(
+                entries.map(\.relativePath)
+            )
+        }
         let filenameIndex = filenameIndex
         runTracked(.discovery) {
             if !relativePaths.isEmpty {

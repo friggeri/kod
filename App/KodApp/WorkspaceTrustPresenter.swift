@@ -170,7 +170,7 @@ final class WorkspaceTrustPresenter: NSObject {
                 comment: "Accessibility help for the status-bar workspace trust control"
             )
             symbolName = "checkmark.shield.fill"
-            statusButton.contentTintColor = .systemGreen
+            statusButton.contentTintColor = .labelColor
         } else {
             stateDescription = Localized.string(
                 "Restricted mode: language servers and repository tools are disabled.",
@@ -181,7 +181,7 @@ final class WorkspaceTrustPresenter: NSObject {
                 comment: "Accessibility help for the status-bar workspace trust control"
             )
             symbolName = "exclamationmark.shield.fill"
-            statusButton.contentTintColor = .systemOrange
+            statusButton.contentTintColor = .labelColor
         }
 
         statusButton.image = NSImage(

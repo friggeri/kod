@@ -258,6 +258,110 @@ final class WorkspaceCoreTests: XCTestCase {
         XCTAssertEqual(classified, .excluded(.gitMetadata))
     }
 
+    func testScannerEmitsBreadthFirstWithRootEntriesBeforeDescendants() async throws {
+        let root = URL(fileURLWithPath: "/virtual-workspace", isDirectory: true)
+        let directory = root.appendingPathComponent("a-directory", isDirectory: true)
+        let rootFile = root.appendingPathComponent("z-root.swift")
+        let nestedFile = directory.appendingPathComponent("nested.swift")
+        let scanner = WorkspaceScanner(
+            directoryEnumerator: FixtureDirectoryEnumerator(
+                children: [
+                    root: [directory, rootFile],
+                    directory: [nestedFile]
+                ]
+            ),
+            metadataProvider: FixtureMetadataProvider(
+                metadata: [
+                    directory: WorkspacePathMetadata(
+                        isDirectory: true,
+                        isSymbolicLink: false,
+                        isHidden: false
+                    ),
+                    rootFile: WorkspacePathMetadata(
+                        isDirectory: false,
+                        isSymbolicLink: false,
+                        isHidden: false
+                    ),
+                    nestedFile: WorkspacePathMetadata(
+                        isDirectory: false,
+                        isSymbolicLink: false,
+                        isHidden: false
+                    )
+                ]
+            ),
+            ignoreFileSource: FixtureIgnoreFileSource(contents: [:])
+        )
+        var paths: [String] = []
+
+        for try await batch in scanner.scan(
+            root: root,
+            options: WorkspaceDiscoveryOptions(batchSize: 1)
+        ) {
+            paths.append(contentsOf: batch.entries.map(\.relativePath))
+        }
+
+        XCTAssertEqual(
+            paths,
+            ["a-directory", "z-root.swift", "a-directory/nested.swift"]
+        )
+
+        var rootPaths: [String] = []
+        for try await batch in scanner.scanDirectory(
+            root: root,
+            relativePath: ""
+        ) {
+            rootPaths.append(contentsOf: batch.entries.map(\.relativePath))
+        }
+        XCTAssertEqual(rootPaths, ["a-directory", "z-root.swift"])
+    }
+
+    func testDirectoryScanListsImmediateChildrenOnly() async throws {
+        let root = URL(fileURLWithPath: "/virtual-workspace", isDirectory: true)
+        let sources = root.appendingPathComponent("Sources", isDirectory: true)
+        let child = sources.appendingPathComponent("main.swift")
+        let nestedDirectory = sources.appendingPathComponent("Nested", isDirectory: true)
+        let grandchild = nestedDirectory.appendingPathComponent("deep.swift")
+        let scanner = WorkspaceScanner(
+            directoryEnumerator: FixtureDirectoryEnumerator(
+                children: [
+                    sources: [child, nestedDirectory],
+                    nestedDirectory: [grandchild]
+                ]
+            ),
+            metadataProvider: FixtureMetadataProvider(
+                metadata: [
+                    child: WorkspacePathMetadata(
+                        isDirectory: false,
+                        isSymbolicLink: false,
+                        isHidden: false
+                    ),
+                    nestedDirectory: WorkspacePathMetadata(
+                        isDirectory: true,
+                        isSymbolicLink: false,
+                        isHidden: false
+                    ),
+                    grandchild: WorkspacePathMetadata(
+                        isDirectory: false,
+                        isSymbolicLink: false,
+                        isHidden: false
+                    )
+                ]
+            ),
+            ignoreFileSource: FixtureIgnoreFileSource(contents: [:])
+        )
+        var paths: [String] = []
+
+        for try await batch in scanner.scanDirectory(
+            root: root,
+            relativePath: "Sources"
+        ) {
+            paths.append(contentsOf: batch.entries.map(\.relativePath))
+        }
+
+        XCTAssertEqual(paths, ["Sources/main.swift", "Sources/Nested"])
+        XCTAssertFalse(paths.contains("Sources/Nested/deep.swift"))
+    }
+
     func testClassifyPathReturnsNilForPathOutsideRoot() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -512,6 +616,20 @@ final class WorkspaceCoreTests: XCTestCase {
         XCTAssertTrue(fuzzy.isEmpty)
         let emptyQuery = await index.search("")
         XCTAssertEqual(emptyQuery.map(\.entry.relativePath), ["Sources/Other.swift"])
+    }
+
+    func testFilenameIndexAppendDeduplicatesExistingPath() async {
+        let index = FilenameIndex()
+        await index.append([entry("Sources/User.swift")])
+        await index.append([entry("Sources/User.swift")])
+
+        let count = await index.count
+        XCTAssertEqual(count, 1)
+        let matches = await index.search("user")
+        XCTAssertEqual(
+            matches.map(\.entry.relativePath),
+            ["Sources/User.swift"]
+        )
     }
 
     func testFilenameIndexRemoveIsANoOpForUnknownPaths() async {

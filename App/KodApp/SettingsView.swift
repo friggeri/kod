@@ -1,28 +1,21 @@
 import CodeViewport
 import FontCore
 import SwiftUI
-import ThemeCore
 
 enum SettingsTab: Hashable {
-    case theme
     case font
     case languages
     case diagnostics
 }
 
-/// Native settings UI for theme and font selection (SPEC 7.2, 7.3): a
-/// theme picker over the four bundled themes plus any VS Code imports,
-/// and font controls for family (filtered to installed monospaced
-/// families), size, weight, ligatures, line height, letter spacing, and
-/// an ordered Unicode fallback chain. Pure SwiftUI state driven by
+/// Native settings UI for font, language, and diagnostics configuration.
+/// Font controls cover family (filtered to installed monospaced families),
+/// size, weight, ligatures, line height, letter spacing, and an ordered
+/// Unicode fallback chain. Pure SwiftUI state driven by
 /// `@Binding`s owned by `SettingsWindowController`, so it is constructible
 /// and previewable without any app-wide singleton.
 struct SettingsView: View {
     @Binding var selectedTab: SettingsTab
-    @Binding var selectedThemeIdentifier: String
-    let availableThemes: [KodTheme]
-    let onImportVSCodeTheme: @MainActor () -> Void
-    let onRemoveImportedTheme: @MainActor (String) -> Void
 
     @Binding var fontSettings: FontSettings
     let availableFamilies: [String]
@@ -37,9 +30,6 @@ struct SettingsView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            themeTab
-                .tabItem { Label("Theme", systemImage: "paintpalette") }
-                .tag(SettingsTab.theme)
             fontTab
                 .tabItem { Label("Font", systemImage: "textformat") }
                 .tag(SettingsTab.font)
@@ -56,62 +46,6 @@ struct SettingsView: View {
         }
         .padding(20)
         .frame(width: 720, height: 540)
-    }
-
-    private var themeTab: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Theme", comment: "Section header above the theme picker in Settings").font(.headline)
-
-            Picker("Active Theme", selection: $selectedThemeIdentifier) {
-                ForEach(availableThemes, id: \.identifier) { theme in
-                    Text(theme.name).tag(theme.identifier)
-                }
-            }
-            .accessibilityIdentifier("settings.themePicker")
-
-            if let theme = availableThemes.first(where: { $0.identifier == selectedThemeIdentifier }) {
-                previewSwatch(for: theme)
-            }
-
-            HStack {
-                Button("Import VS Code Theme...", action: onImportVSCodeTheme)
-                    .accessibilityIdentifier("settings.importVSCodeTheme")
-                Spacer()
-                if isImportedTheme(selectedThemeIdentifier) {
-                    Button("Remove Imported Theme", role: .destructive) {
-                        onRemoveImportedTheme(selectedThemeIdentifier)
-                    }
-                    .accessibilityIdentifier("settings.removeImportedTheme")
-                }
-            }
-
-            Spacer()
-        }
-    }
-
-    private func isImportedTheme(_ identifier: String) -> Bool {
-        !identifier.hasPrefix("kod.")
-    }
-
-    private func previewSwatch(for theme: KodTheme) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(verbatim: "func greet() {").foregroundStyle(color(theme.lexicalStyle(forCapture: "keyword").foreground))
-            Text(verbatim: "    return \"hi\"").foregroundStyle(color(theme.lexicalStyle(forCapture: "string").foreground))
-            Text(verbatim: "}")
-        }
-        .font(.system(.body, design: .monospaced))
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(color(theme.editor.background))
-        .foregroundStyle(color(theme.editor.foreground))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    private func color(_ themeColor: ThemeColor?) -> Color {
-        guard let themeColor else {
-            return .primary
-        }
-        return Color(themeColor.nsColor)
     }
 
     private var fontTab: some View {

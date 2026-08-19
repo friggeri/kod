@@ -37,11 +37,9 @@
 		B0000000000000000000002B /* FontCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000000F /* FontCore */; };
 		B00000000000000000000026 /* WorkspaceViewControllerLiveUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000020 /* WorkspaceViewControllerLiveUpdateTests.swift */; };
 		B0000000000000000000002D /* ProblemsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000022 /* ProblemsViewController.swift */; };
-		B0000000000000000000002E /* SymbolsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000023 /* SymbolsViewController.swift */; };
 		B0000000000000000000002F /* LanguageClient in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000010 /* LanguageClient */; };
 		B00000000000000000000030 /* LanguageClient in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000011 /* LanguageClient */; };
 		B00000000000000000000031 /* ProblemsViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000024 /* ProblemsViewControllerTests.swift */; };
-		B00000000000000000000032 /* SymbolsViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000025 /* SymbolsViewControllerTests.swift */; };
 		B00000000000000000000033 /* SyntaxCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000012 /* SyntaxCore */; };
 		B00000000000000000000034 /* SyntaxCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000013 /* SyntaxCore */; };
 		B00000000000000000000035 /* MultiLanguageServicesCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000026 /* MultiLanguageServicesCoordinator.swift */; };
@@ -158,9 +156,7 @@
 		C00000000000000000000092 /* LanguageSupportServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSupportServiceTests.swift; sourceTree = "<group>"; };
 		C00000000000000000000020 /* WorkspaceViewControllerLiveUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceViewControllerLiveUpdateTests.swift; sourceTree = "<group>"; };
 		C00000000000000000000022 /* ProblemsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProblemsViewController.swift; sourceTree = "<group>"; };
-		C00000000000000000000023 /* SymbolsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymbolsViewController.swift; sourceTree = "<group>"; };
 		C00000000000000000000024 /* ProblemsViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProblemsViewControllerTests.swift; sourceTree = "<group>"; };
-		C00000000000000000000025 /* SymbolsViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymbolsViewControllerTests.swift; sourceTree = "<group>"; };
 		C00000000000000000000026 /* MultiLanguageServicesCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiLanguageServicesCoordinator.swift; sourceTree = "<group>"; };
 		C00000000000000000000027 /* PeekViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeekViewController.swift; sourceTree = "<group>"; };
 		C00000000000000000000028 /* HierarchyViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HierarchyViewController.swift; sourceTree = "<group>"; };
@@ -338,7 +334,6 @@
 				C00000000000000000000090 /* LanguageSupportService.swift */,
 				C00000000000000000000091 /* LanguageSupportSettingsView.swift */,
 				C00000000000000000000022 /* ProblemsViewController.swift */,
-				C00000000000000000000023 /* SymbolsViewController.swift */,
 				C00000000000000000000026 /* MultiLanguageServicesCoordinator.swift */,
 				C00000000000000000000027 /* PeekViewController.swift */,
 				C00000000000000000000028 /* HierarchyViewController.swift */,
@@ -372,7 +367,6 @@
 				C00000000000000000000012 /* KodAppTests.swift */,
 				C00000000000000000000020 /* WorkspaceViewControllerLiveUpdateTests.swift */,
 				C00000000000000000000024 /* ProblemsViewControllerTests.swift */,
-				C00000000000000000000025 /* SymbolsViewControllerTests.swift */,
 				C00000000000000000000029 /* PeekViewControllerTests.swift */,
 				C0000000000000000000002A /* HierarchyViewControllerTests.swift */,
 				C0000000000000000000002B /* MultiLanguageServicesCoordinatorTests.swift */,
@@ -640,7 +634,6 @@
 				B00000000000000000000090 /* LanguageSupportService.swift in Sources */,
 				B00000000000000000000091 /* LanguageSupportSettingsView.swift in Sources */,
 				B0000000000000000000002D /* ProblemsViewController.swift in Sources */,
-				B0000000000000000000002E /* SymbolsViewController.swift in Sources */,
 				B00000000000000000000035 /* MultiLanguageServicesCoordinator.swift in Sources */,
 				B00000000000000000000036 /* PeekViewController.swift in Sources */,
 				B00000000000000000000037 /* HierarchyViewController.swift in Sources */,
@@ -672,7 +665,6 @@
 				B00000000000000000000004 /* KodAppTests.swift in Sources */,
 				B00000000000000000000026 /* WorkspaceViewControllerLiveUpdateTests.swift in Sources */,
 				B00000000000000000000031 /* ProblemsViewControllerTests.swift in Sources */,
-				B00000000000000000000032 /* SymbolsViewControllerTests.swift in Sources */,
 				B00000000000000000000038 /* PeekViewControllerTests.swift in Sources */,
 				B00000000000000000000039 /* HierarchyViewControllerTests.swift in Sources */,
 				B0000000000000000000003A /* MultiLanguageServicesCoordinatorTests.swift in Sources */,

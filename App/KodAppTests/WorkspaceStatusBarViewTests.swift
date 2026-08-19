@@ -83,7 +83,7 @@ final class WorkspaceStatusBarViewTests: XCTestCase {
         XCTAssertTrue(items.branch?.toolTip?.contains(commitID) == true)
     }
 
-    func testEveryLanguageServerStateHasDistinctTextAndExplicitRestartPolicy() {
+    func testEveryLanguageServerStateHasDistinctAccessibleStatusAndRemediationPolicy() {
         let states: [LanguageServerState] = [
             .missing(reason: "missing"),
             .starting,
@@ -95,36 +95,93 @@ final class WorkspaceStatusBarViewTests: XCTestCase {
             .crashed(reason: "crashed"),
             .disabled(reason: "disabled")
         ]
-        let texts = states.map {
-            WorkspaceStatusBarView.languageServerItem(
+        let statuses = states.map {
+            WorkspaceStatusBarView.languageServerStatus(
                 profileName: "Swift",
-                state: $0
-            ).text
+                state: $0,
+                isTrusted: true
+            )
         }
-        XCTAssertEqual(Set(texts).count, states.count)
+        XCTAssertEqual(
+            Set(statuses.map(\.item.accessibilityValue)).count,
+            states.count
+        )
+        XCTAssertTrue(statuses.allSatisfy { !$0.symbolName.isEmpty })
 
         for state in states {
-            let availability = WorkspaceStatusBarView.restartAvailability(
+            let status = WorkspaceStatusBarView.languageServerStatus(
                 profileName: "Swift",
                 state: state,
                 isTrusted: true
             )
             switch state {
             case .missing, .stopped, .crashed, .disabled:
-                XCTAssertTrue(availability.visible)
-                XCTAssertTrue(availability.enabled)
+                XCTAssertTrue(status.canRemediate)
+                XCTAssertTrue(status.isRemediationEnabled)
             case .starting, .indexing, .ready, .busy, .stopping:
-                XCTAssertFalse(availability.visible)
-                XCTAssertFalse(availability.enabled)
+                XCTAssertFalse(status.canRemediate)
+                XCTAssertFalse(status.isRemediationEnabled)
             }
         }
-        let untrusted = WorkspaceStatusBarView.restartAvailability(
+        let untrusted = WorkspaceStatusBarView.languageServerStatus(
             profileName: "Swift",
             state: .crashed(reason: "boom"),
             isTrusted: false
         )
-        XCTAssertTrue(untrusted.visible)
-        XCTAssertFalse(untrusted.enabled)
+        XCTAssertTrue(untrusted.canRemediate)
+        XCTAssertFalse(untrusted.isRemediationEnabled)
+    }
+
+    func testLanguageServerIconReplacesRedundantTextAndRunsRemediation() throws {
+        let statusBar = WorkspaceStatusBarView(trustControl: NSButton())
+        var restartCount = 0
+        statusBar.onRestartLanguageServer = { restartCount += 1 }
+        statusBar.update(
+            WorkspaceStatusBarView.Model(
+                branch: nil,
+                git: nil,
+                languageServer: WorkspaceStatusBarView.languageServerStatus(
+                    profileName: "Swift",
+                    state: .crashed(reason: "boom"),
+                    isTrusted: true
+                ),
+                language: WorkspaceStatusBarView.languageItem("Swift"),
+                encoding: nil,
+                lineEnding: nil,
+                cursor: nil
+            )
+        )
+        let button = try XCTUnwrap(
+            findView(
+                identifier: "workspace.languageServerStatus",
+                in: statusBar
+            ) as? NSButton
+        )
+
+        XCTAssertEqual(button.title, "")
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertEqual(button.accessibilityValue() as? String, "Swift language server: Crashed")
+        button.performClick(nil)
+        XCTAssertEqual(restartCount, 1)
+
+        statusBar.update(
+            WorkspaceStatusBarView.Model(
+                branch: nil,
+                git: nil,
+                languageServer: WorkspaceStatusBarView.languageServerStatus(
+                    profileName: "Swift",
+                    state: .ready,
+                    isTrusted: true
+                ),
+                language: WorkspaceStatusBarView.languageItem("Swift"),
+                encoding: nil,
+                lineEnding: nil,
+                cursor: nil
+            )
+        )
+        XCTAssertFalse(button.isEnabled)
+        button.performClick(nil)
+        XCTAssertEqual(restartCount, 1)
     }
 
     func testCursorUsesOneBasedUTF16PositionAndEmojiSelectionLength() throws {
@@ -157,7 +214,6 @@ final class WorkspaceStatusBarViewTests: XCTestCase {
         XCTAssertTrue(minimumPlan.truncatesBranch)
         XCTAssertFalse(minimumPlan.showsLineEnding)
         XCTAssertFalse(minimumPlan.showsEncoding)
-        XCTAssertFalse(minimumPlan.showsLanguage)
 
         for width in stride(from: CGFloat(1_000), through: 480, by: -20) {
             let plan = WorkspaceStatusBarView.layoutPlan(
@@ -165,10 +221,6 @@ final class WorkspaceStatusBarViewTests: XCTestCase {
                 availableWidth: width
             )
             if !plan.showsEncoding {
-                XCTAssertFalse(plan.showsLineEnding)
-            }
-            if !plan.showsLanguage {
-                XCTAssertFalse(plan.showsEncoding)
                 XCTAssertFalse(plan.showsLineEnding)
             }
         }
@@ -184,20 +236,107 @@ final class WorkspaceStatusBarViewTests: XCTestCase {
         XCTAssertEqual(statusBar.accessibilityLabel(), "Workspace status")
         XCTAssertEqual(statusBar.material, .contentBackground)
         XCTAssertNotNil(findView(identifier: "workspace.status.branch", in: statusBar))
-        XCTAssertFalse(
-            try XCTUnwrap(
-                findView(
-                    identifier: "workspace.languageServerState",
-                    in: statusBar
-                )
-            ).isHidden
+        let languageServerButton = try XCTUnwrap(
+            findView(
+                identifier: "workspace.languageServerStatus",
+                in: statusBar
+            )
         )
+        XCTAssertFalse(languageServerButton.isHidden)
         XCTAssertFalse(
             try XCTUnwrap(
                 findView(identifier: "workspace.status.cursor", in: statusBar)
             ).isHidden
         )
         XCTAssertFalse(trust.isHidden)
+        let content = try XCTUnwrap(
+            findView(identifier: "workspace.status.content", in: statusBar)
+        )
+        XCTAssertEqual(
+            content.frame.midX,
+            statusBar.bounds.midX,
+            accuracy: 0.5
+        )
+        for identifier in [
+            "workspace.status.separatorAfterGit",
+            "workspace.status.separatorAfterFile",
+            "workspace.status.separatorAfterCursor"
+        ] {
+            XCTAssertFalse(
+                try XCTUnwrap(findView(identifier: identifier, in: statusBar))
+                    .isHidden
+            )
+        }
+    }
+
+    func testGroupSeparatorsDoNotDangleWhenStatusGroupsAreAbsent() throws {
+        let statusBar = WorkspaceStatusBarView(trustControl: NSButton())
+        statusBar.update(
+            WorkspaceStatusBarView.Model(
+                branch: nil,
+                git: nil,
+                languageServer: nil,
+                language: nil,
+                encoding: nil,
+                lineEnding: nil,
+                cursor: nil
+            )
+        )
+        statusBar.layoutSubtreeIfNeeded()
+
+        for identifier in [
+            "workspace.status.separatorAfterGit",
+            "workspace.status.separatorAfterFile",
+            "workspace.status.separatorAfterCursor"
+        ] {
+            XCTAssertTrue(
+                try XCTUnwrap(findView(identifier: identifier, in: statusBar))
+                    .isHidden
+            )
+        }
+    }
+
+    func testStatusTonesUseOnlyMonochromeLabelColors() throws {
+        let statusBar = WorkspaceStatusBarView(trustControl: NSButton())
+        let button = try XCTUnwrap(
+            findView(
+                identifier: "workspace.languageServerStatus",
+                in: statusBar
+            ) as? NSButton
+        )
+
+        for tone in [
+            WorkspaceStatusBarView.Tone.normal,
+            .secondary,
+            .progress,
+            .warning,
+            .error
+        ] {
+            statusBar.update(
+                WorkspaceStatusBarView.Model(
+                    branch: nil,
+                    git: nil,
+                    languageServer: WorkspaceStatusBarView.LanguageServerStatus(
+                        item: WorkspaceStatusBarView.Item(
+                            text: "State",
+                            accessibilityLabel: "State",
+                            tone: tone
+                        ),
+                        symbolName: "circle",
+                        canRemediate: false,
+                        isRemediationEnabled: false
+                    ),
+                    language: WorkspaceStatusBarView.languageItem("Swift"),
+                    encoding: nil,
+                    lineEnding: nil,
+                    cursor: nil
+                )
+            )
+            XCTAssertEqual(
+                button.contentTintColor,
+                tone == .secondary ? .secondaryLabelColor : .labelColor
+            )
+        }
     }
 
     func testActiveSplitDocumentAndSelectionDriveLiveMetadata() throws {
@@ -307,12 +446,15 @@ final class WorkspaceStatusBarViewTests: XCTestCase {
                 text: "[12 chaangees !!!]",
                 accessibilityLabel: "Git changes"
             ),
-            languageServer: WorkspaceStatusBarView.Item(
-                text: "[TypeeScript/JaavaaScript: Indeexing !!!]",
-                accessibilityLabel: "Language server status"
+            languageServer: WorkspaceStatusBarView.LanguageServerStatus(
+                item: WorkspaceStatusBarView.Item(
+                    text: "[Indeexing !!!]",
+                    accessibilityLabel: "Language server status"
+                ),
+                symbolName: "magnifyingglass.circle",
+                canRemediate: false,
+                isRemediationEnabled: false
             ),
-            showsLanguageServerRestart: true,
-            enablesLanguageServerRestart: true,
             language: WorkspaceStatusBarView.Item(
                 text: "[TypeeScript/JaavaaScript !!!]",
                 accessibilityLabel: "File language"

@@ -37,7 +37,7 @@ Kod is not an editor. It must never offer an operation that changes source files
 - Support a complete read-only LSP surface: hover, definitions, declarations, type definitions, implementations, references, document symbols, workspace symbols, diagnostics, semantic tokens, inlay hints, call hierarchy, and type hierarchy.
 - Provide editable global language profiles that discover or register user-installed language servers without downloading or installing them.
 - Show Git status, working-tree and staged differences, inline change markers, a file diff view, and blame information without changing Git state.
-- Support installed monospaced fonts and import both VS Code color-theme JSON files and Kod-native themes.
+- Support installed monospaced fonts and a native Kod theme that follows the system appearance.
 - Preview Markdown, images, JSON, and property lists.
 - Meet native macOS accessibility, keyboard, appearance, and restoration expectations.
 
@@ -111,7 +111,7 @@ A standard window contains:
 2. **Sidebar:** mutually exclusive Explorer, Search, Source Control, and Problems views.
 3. **Content area:** one or more split groups containing tabs and a code or preview surface.
 4. **Breadcrumb bar:** path and symbol ancestry for the active code view.
-5. **Status bar:** language, encoding, line ending, cursor/selection location, Git branch as read-only context, and language-server state.
+5. **Status bar:** a centered, visually separated strip for Git context, file type/encoding/line ending with an adjacent language-server state or remediation icon, cursor/selection location, and workspace trust.
 
 The sidebar and status bar may be hidden. Layout changes must not reparse source or restart language servers.
 
@@ -120,7 +120,7 @@ The sidebar and status bar may be hidden. Layout changes must not reparse source
 1. The user opens a folder through the standard macOS open panel, drag and drop, Open Recent, or Finder's Open With action.
 2. Kod canonicalizes the root, detects a Git worktree, and checks workspace trust.
 3. The window becomes usable immediately in syntax/search-only mode.
-4. File discovery, quick-open indexing, Git status, and state restoration run concurrently.
+4. Root file discovery, Git status, and state restoration run concurrently. Full quick-open indexing starts only when Quick Open is first used.
 5. The first time an untrusted workspace is opened, Kod shows a non-modal trust banner. A persistent status-bar indicator shows the current trust state thereafter and opens a confirmation prompt before allowing or revoking trust. No language server or repository-discovered executable starts before approval.
 6. Once trusted, configured language servers start lazily when a matching source file is opened or a workspace-symbol operation requires one.
 
@@ -128,11 +128,12 @@ Opening a workspace must not automatically fetch network content.
 
 ### 5.3 File explorer and quick open
 
-- The Explorer presents a lazily expanded tree, not 100,000 prebuilt row objects.
+- The Explorer lists the workspace root immediately and enumerates a directory's immediate children only when that directory expands.
 - Git-ignored files are shown by default. Kod's global exclusions still apply, and the Explorer exposes only a **Show Hidden Files** checkbox.
 - Symlinks are displayed but are not recursively indexed outside the root by default.
 - Single-click opens a replaceable preview tab; double-click, a navigation jump, or explicit pinning makes the tab persistent.
 - Quick Open searches the in-memory filename index using path-aware fuzzy matching.
+- Quick Open builds that index lazily in breadth-first order, so shallower files become searchable before deeper descendants.
 - Ranking favors contiguous matches, basename matches, recently visited files, and shallower paths while remaining deterministic.
 - Results stream as the query changes and retain selection when stable.
 
@@ -148,7 +149,7 @@ The code surface supports:
 - Command-click navigation, hover information, Peek Definition, Peek References, and result lists.
 - Per-group Back and Forward with the exact file, selection, fold state, and scroll anchor.
 - Horizontal and vertical splits with drag-and-drop tab movement.
-- Automatic system light/dark switching when the selected theme supports both appearances.
+- Automatic switching between Kod Light and Kod Dark with the system appearance.
 
 The surface has no insertion caret and accepts no text-input operation. Printable keys may invoke commands or incremental search but never enter source text.
 
@@ -307,31 +308,20 @@ Tree-sitter grammars and queries are compiled into Kod releases. There is no run
 
 ### 7.2 Themes
 
-Kod ships at least:
+Kod ships Kod Light and Kod Dark. Theme selection is not user-configurable:
+the app resolves the matching Kod theme from the current macOS appearance and
+updates open surfaces when that appearance changes. The dark editor background
+matches the dark window-chrome background.
 
-- One light theme.
-- One dark theme.
-- One high-contrast light theme.
-- One high-contrast dark theme.
-
-Users may import:
-
-- A standalone VS Code color-theme JSON file.
-- A versioned Kod theme JSON file.
-
-Kod does not install VSIX packages. VS Code import supports `colors`, `tokenColors`, and `semanticTokenColors`. Unsupported keys are ignored with an import report rather than treated as success. Workbench colors map to the nearest Kod surface token through a documented mapping table.
-
-The Kod-native format defines:
+The internal Kod theme format defines:
 
 - Metadata and schema version.
-- Light, dark, or high-contrast appearance.
+- Light or dark appearance.
 - Window, sidebar, tab, breadcrumb, status, list, border, focus, and selection colors.
 - Editor base colors.
 - Tree-sitter capture colors and font traits.
 - LSP semantic token type/modifier rules.
 - Diagnostic colors and Git decoration colors for added, modified, deleted, renamed, untracked, ignored, staged-modified, staged-deleted, and conflicting resources. Missing newer Git fields in an older Kod-native or persisted theme inherit compatible legacy colors rather than invalidating the theme.
-
-Theme switching updates the visible UI immediately and invalidates offscreen render caches lazily.
 
 ### 7.3 Fonts
 
@@ -351,9 +341,9 @@ Kod must preserve column alignment for tabs, indentation guides, selections, dia
 
 ### 8.1 Filename index
 
-- Workspace discovery builds a compact, in-memory relative-path index.
+- Quick Open lazily builds a compact, in-memory relative-path index using breadth-first discovery.
 - The index contains path components, file type, ignore state, and recency metadata, not file contents.
-- Initial results are available while discovery continues.
+- Shallower results are available while deeper discovery continues.
 - FSEvents incrementally updates the index.
 - Index memory must scale approximately linearly and remain within the budget in section 12.
 
@@ -542,7 +532,6 @@ Kod stores the following under its Application Support container:
 - Recent workspace identities and trust decisions.
 - Window, split, tab, navigation, fold, and scroll restoration.
 - Global and per-workspace settings.
-- Imported themes.
 - Global language profiles and selected local executable metadata.
 - Bounded diagnostic logs.
 
@@ -641,16 +630,15 @@ Trust is recorded against canonical path and volume identity, is visible in the 
 - VoiceOver exposes sidebar structure, tabs, breadcrumbs, code lines, selection, diagnostics, folds, diff markers, and navigation targets.
 - The code view provides accessibility rotors for headings/symbols, diagnostics, references, and Git changes.
 - Text zoom must reach at least 300 percent without clipping controls.
-- Themes are checked for configurable contrast; bundled high-contrast themes meet WCAG AA for normal text.
+- Kod Light and Kod Dark meet WCAG AA for normal text.
 - Reduce Motion, Increase Contrast, Differentiate Without Color, and system accent behavior are respected.
-- No status is communicated by color alone.
+- No status is communicated by color alone; the status bar uses monochrome foregrounds.
 - User-facing strings are localized through string catalogs from the first release, even if 1.0 initially ships in English.
 
 ## 15. Reliability and error behavior
 
 - Every background subsystem has an explicit state and user-visible failure path.
 - An unreadable file shows the filesystem error and Retry/Reveal actions.
-- Invalid theme imports list rejected fields and preserve the current theme.
 - Search cancellation and result truncation are visible.
 - Unsupported encodings and binary detection are visible.
 - A language-server failure never prevents source display.
@@ -662,7 +650,7 @@ Trust is recorded against canonical path and volume identity, is visible in the 
 
 ### 16.1 Automated coverage
 
-- Unit tests for path identity, ignore rules, encoding, line indexing, byte/UTF-8/UTF-16 mapping, range validation, theme precedence, and Git parsing.
+- Unit tests for path identity, ignore rules, encoding, line indexing, byte/UTF-8/UTF-16 mapping, range validation, system theme resolution, and Git parsing.
 - Property and fuzz tests for Unicode positions, malformed LSP frames, hostile theme JSON, archive extraction, diff parsing, and renderer range math.
 - Golden tests for Tree-sitter captures, semantic-token precedence, themes, diffs, Markdown sanitization, and structured previews.
 - Recorded LSP transcript tests for every launch language and every advertised capability.
@@ -683,7 +671,7 @@ Kod 1.0 is releasable only when all of the following are true:
 6. A full automated user journey produces no change anywhere under the workspace root or in Git state.
 7. Quick Open and workspace search stream deterministic, cancellable results at the target scale.
 8. Git status, diff, inline markers, and blame agree with Git fixtures and execute no helper, hook, fetch, lock, or write.
-9. VS Code theme JSON import, Kod-native themes, installed fonts, fallback fonts, and appearance switching work without restarting.
+9. Kod Light/Dark appearance switching, installed fonts, and fallback fonts work without restarting.
 10. Split groups restore their tabs, history, selections, folds, and scroll anchors.
 11. Markdown, image, JSON, and plist previews pass hostile-input and network-blocking tests.
 12. Untrusted workspaces start no language server or repository-discovered executable.
@@ -726,8 +714,8 @@ Milestones are gated by exit criteria rather than dates.
 
 - Status, inline diff, diff views, and blame.
 - Markdown, image, JSON, and plist previews.
-- VS Code theme import, native theme format, complete font controls.
-- Accessibility rotors and high-contrast polish.
+- Automatic Kod Light/Dark appearance, complete font controls.
+- Accessibility rotors and appearance polish.
 
 **Exit:** All product-scope features are complete and repository immutability remains proven.
 
@@ -768,7 +756,7 @@ This specification incorporates these product decisions:
 - First-class bundled syntax for the supported profile catalog, with Plain Text fallback.
 - In-memory filename indexing and on-demand ripgrep-compatible text search.
 - Git status, inline changes, file diffs, and blame.
-- VS Code color-theme JSON import plus a native Kod theme format.
+- Automatic Kod Light/Dark appearance backed by the native theme format.
 - Installed monospaced fonts with typography and fallback controls.
 - Code/text, Markdown, image, JSON, and plist viewing.
 - macOS 14+, Apple silicon first, Intel best-effort.

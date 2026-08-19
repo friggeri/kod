@@ -8,20 +8,20 @@ import XCTest
 final class WorkspaceActivityBarViewTests: XCTestCase {
     private var windows: [NSWindow] = []
 
-    func testBarExposesFiveOrderedAccessibleDestinations() throws {
+    func testBarExposesFourOrderedAccessibleDestinations() throws {
         let bar = WorkspaceActivityBarView()
         let window = host(bar, size: NSSize(width: 240, height: 40))
 
         XCTAssertEqual(
             WorkspaceActivityBarView.orderedSurfaces,
-            [.explorer, .search, .sourceControl, .problems, .symbols]
+            [.explorer, .search, .sourceControl, .problems]
         )
         XCTAssertEqual(bar.accessibilityLabel(), "Activity")
         XCTAssertEqual(bar.frame.height, 40, accuracy: 0.5)
         let stack = try XCTUnwrap(
             bar.subviews.compactMap { $0 as? NSStackView }.first
         )
-        XCTAssertEqual(stack.arrangedSubviews.count, 5)
+        XCTAssertEqual(stack.arrangedSubviews.count, 4)
         XCTAssertTrue(
             stack.arrangedSubviews.allSatisfy { $0 is KodSymbolButton },
             "selection should use button background only, with no separate underline views"
@@ -37,7 +37,7 @@ final class WorkspaceActivityBarViewTests: XCTestCase {
             "Selected"
         )
         XCTAssertEqual(
-            bar.button(for: .symbols)?.accessibilityValue() as? String,
+            bar.button(for: .problems)?.accessibilityValue() as? String,
             "Not selected"
         )
         _ = window
@@ -48,14 +48,14 @@ final class WorkspaceActivityBarViewTests: XCTestCase {
         var selected: WorkspaceSidebarSurface?
         bar.onSelectSurface = { selected = $0 }
 
-        let symbolsButton = try XCTUnwrap(bar.button(for: .symbols))
-        symbolsButton.performClick(nil)
-        XCTAssertEqual(selected, .symbols)
+        let problemsButton = try XCTUnwrap(bar.button(for: .problems))
+        problemsButton.performClick(nil)
+        XCTAssertEqual(selected, .problems)
 
-        bar.setSelectedSurface(.symbols)
-        XCTAssertEqual(bar.selectedSurface, .symbols)
+        bar.setSelectedSurface(.problems)
+        XCTAssertEqual(bar.selectedSurface, .problems)
         XCTAssertEqual(
-            symbolsButton.accessibilityValue() as? String,
+            problemsButton.accessibilityValue() as? String,
             "Selected"
         )
         XCTAssertEqual(
@@ -95,32 +95,32 @@ final class WorkspaceActivityBarViewTests: XCTestCase {
         let explorerView = try XCTUnwrap(
             findView(identifier: "workspace.explorer", in: controller.view)
         )
-        let symbolsField = try XCTUnwrap(
-            findView(identifier: "symbols.field", in: controller.view)
+        let problemsOutline = try XCTUnwrap(
+            findView(identifier: "problems.outline", in: controller.view)
         )
-        controller.showSymbols(nil)
+        controller.showProblems(nil)
         controller.showExplorer(nil)
         XCTAssertTrue(
             findView(identifier: "workspace.explorer", in: controller.view)
                 === explorerView
         )
         XCTAssertTrue(
-            findView(identifier: "symbols.field", in: controller.view)
-                === symbolsField
+            findView(identifier: "problems.outline", in: controller.view)
+                === problemsOutline
         )
         controller.toggleSidebar(nil)
         XCTAssertTrue(waitUntil { sidebarItem.isCollapsed })
-        controller.showSymbols(nil)
+        controller.showProblems(nil)
 
         XCTAssertTrue(waitUntil { !sidebarItem.isCollapsed })
-        XCTAssertEqual(controller.layoutState.sidebarSurface, .symbols)
+        XCTAssertEqual(controller.layoutState.sidebarSurface, .problems)
         guard case .value(let saved, _) = try controller.layoutStore.load(for: identity) else {
             return XCTFail("Expected persisted layout")
         }
-        XCTAssertEqual(saved.sidebarSurface, .symbols)
+        XCTAssertEqual(saved.sidebarSurface, .problems)
         XCTAssertTrue(
-            findView(identifier: "symbols.field", in: controller.view)
-                === symbolsField
+            findView(identifier: "problems.outline", in: controller.view)
+                === problemsOutline
         )
     }
 

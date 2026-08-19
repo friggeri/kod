@@ -99,24 +99,17 @@ public final class ThemeStore {
         }
     }
 
-    /// The theme that should be active right now: the user's explicit
-    /// choice if it still resolves, otherwise the bundled theme matching
-    /// the current system appearance.
+    /// The Kod theme matching the current system appearance. Persisted theme
+    /// choices are retained for migration compatibility but no longer affect
+    /// presentation.
     public func resolvedActiveTheme(
         systemIsDark: Bool,
-        systemIsHighContrast: Bool
+        systemIsHighContrast _: Bool
     ) throws(SettingsRepositoryError) -> KodTheme {
-        let identifier: String?
-        switch try activeThemeIdentifier() {
-        case .value(let storedIdentifier, _):
-            identifier = storedIdentifier
-        case .absent, .quarantined:
-            identifier = nil
-        }
-        if let identifier, let theme = try theme(forIdentifier: identifier) {
-            return theme
-        }
-        return BundledThemes.defaultTheme(isDark: systemIsDark, isHighContrast: systemIsHighContrast)
+        BundledThemes.defaultTheme(
+            isDark: systemIsDark,
+            isHighContrast: false
+        )
     }
 
     public func observeChanges(

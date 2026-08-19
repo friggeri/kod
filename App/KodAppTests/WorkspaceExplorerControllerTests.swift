@@ -100,12 +100,21 @@ final class WorkspaceExplorerControllerTests: XCTestCase {
 
     func testRemoveEntryDropsItFromTheTree() {
         let controller = makeController()
+        controller.applyDirectory([], relativePath: "nested")
         controller.addOrUpdate(entry("nested/a.txt"))
         XCTAssertEqual((controller.entriesByParent["nested"] ?? []).count, 1)
 
         controller.removeEntry(relativePath: "nested/a.txt")
 
         XCTAssertTrue((controller.entriesByParent["nested"] ?? []).isEmpty)
+    }
+
+    func testLiveUpdateDoesNotPopulateCollapsedDirectory() {
+        let controller = makeController()
+
+        controller.addOrUpdate(entry("nested/a.txt"))
+
+        XCTAssertNil(controller.entriesByParent["nested"])
     }
 
     func testOnlyHiddenEntriesRequireReveal() {
@@ -247,6 +256,77 @@ final class WorkspaceExplorerControllerTests: XCTestCase {
         }
         XCTAssertTrue(options.includeHidden)
         XCTAssertTrue(options.includeIgnored)
+    }
+
+    func testExpandingDirectoryRequestsOnlyItsImmediateChildren() {
+        let controller = makeController()
+        _ = controller.makeView()
+        controller.apply(
+            WorkspaceDiscoveryBatch(
+                entries: [entry("Sources", kind: .directory)],
+                discoveredCount: 1
+            )
+        )
+        var intents: [WorkspaceExplorerController.Intent] = []
+        controller.onIntent = { intents.append($0) }
+        let directory = controller.children(of: "")[0]
+
+        controller.outlineViewItemWillExpand(
+            Notification(
+                name: NSOutlineView.itemWillExpandNotification,
+                object: controller.outlineView,
+                userInfo: ["NSObject": directory]
+            )
+        )
+
+        XCTAssertEqual(intents.count, 1)
+        guard case .expandDirectory(let entry) = intents[0] else {
+            return XCTFail("Expected a directory-expansion intent")
+        }
+        XCTAssertEqual(entry.relativePath, "Sources")
+    }
+
+    func testRevealExpandsAncestorsAndSelectsOpenFile() {
+        let controller = makeController()
+        _ = controller.makeView()
+        controller.apply(
+            WorkspaceDiscoveryBatch(
+                entries: [entry("Sources", kind: .directory)],
+                discoveredCount: 1
+            )
+        )
+        controller.applyDirectory(
+            [entry("Sources/App", kind: .directory)],
+            relativePath: "Sources"
+        )
+        controller.applyDirectory(
+            [entry("Sources/App/main.swift")],
+            relativePath: "Sources/App"
+        )
+
+        XCTAssertTrue(controller.reveal(relativePath: "Sources/App/main.swift"))
+        XCTAssertEqual(
+            (controller.outlineView.item(
+                atRow: controller.outlineView.selectedRow
+            ) as? WorkspaceTreeNode)?.entry.relativePath,
+            "Sources/App/main.swift"
+        )
+    }
+
+    func testCompletedDiscoveryHidesFileCountStatus() throws {
+        let controller = makeController()
+        let container = controller.makeView()
+        let status = try XCTUnwrap(
+            findView(
+                identifier: "workspace.discoveryStatus",
+                in: container
+            ) as? NSTextField
+        )
+
+        controller.applyDiscoveryStatus(.completed(fileCount: 42))
+
+        XCTAssertTrue(status.isHidden)
+        XCTAssertFalse(status.stringValue.contains("42"))
     }
 
     func testExplorerViewKeepsItsAccessibilityIdentifiersAndContextMenu() throws {
