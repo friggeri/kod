@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#111316">
+  <title>Page not found — Kod</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/assets/favicon.png" sizes="64x64">
+  <link rel="stylesheet" href="/assets/site.css">
+  <style>
+    .not-found {
+      display: grid;
+      min-height: 100vh;
+      place-items: center;
+      padding: 32px;
+      text-align: center;
+    }
+    .not-found-inner {
+      max-width: 560px;
+    }
+    .not-found img {
+      width: 88px;
+      margin: 0 auto 28px;
+      filter: drop-shadow(0 18px 24px rgb(0 0 0 / 30%));
+    }
+    .not-found .eyebrow {
+      justify-content: center;
+    }
+    .not-found h1 {
+      margin: 0;
+      color: var(--ink-strong);
+      font-size: clamp(3rem, 9vw, 5.5rem);
+      font-weight: 570;
+      letter-spacing: -0.06em;
+      line-height: 1;
+    }
+    .not-found p:not(.eyebrow) {
+      margin: 22px 0 30px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main class="not-found">
+    <div class="not-found-inner">
+      <img src="/assets/app-icon.png" width="88" height="88" alt="">
+      <p class="eyebrow">404 · Not found</p>
+      <h1>This file is not in the workspace.</h1>
+      <p>The page may have moved, or the address may be incorrect.</p>
+      <a class="button button-primary" href="/">Return to kod.dev</a>
+    </div>
+  </main>
+</body>
+</html>

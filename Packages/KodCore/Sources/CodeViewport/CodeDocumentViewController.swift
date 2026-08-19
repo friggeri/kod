@@ -23,7 +23,6 @@ public final class CodeDocumentViewController: NSViewController {
 
     private var findState = FindStateModel()
     private var isFindBarVisible = false
-    private var hoverPopover: NSPopover?
     private var diagnosticMarkers: [CodeMinimapDiagnosticMarker] = []
 
     public var minimapEnabled = true {
@@ -351,58 +350,6 @@ public final class CodeDocumentViewController: NSViewController {
             gitChanges: viewport.activeGutterChanges
         )
         minimapView.updateSelection(viewport.selectedUTF8Range)
-    }
-
-    public func presentHover(_ contents: String, atViewportRect anchorRect: NSRect) {
-        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, viewport.window != nil else {
-            dismissHover()
-            return
-        }
-
-        hoverPopover?.close()
-
-        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        let measured = (trimmed as NSString).boundingRect(
-            with: NSSize(width: 500, height: 1_000),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font]
-        )
-        let contentSize = NSSize(
-            width: min(520, max(220, ceil(measured.width) + 24)),
-            height: min(260, max(44, ceil(measured.height) + 20))
-        )
-
-        let textView = NSTextView(frame: NSRect(origin: .zero, size: contentSize))
-        textView.string = trimmed
-        textView.font = font
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 8, height: 6)
-        textView.textContainer?.widthTracksTextView = true
-
-        let scrollView = NSScrollView(frame: NSRect(origin: .zero, size: contentSize))
-        scrollView.documentView = textView
-        scrollView.hasVerticalScroller = measured.height + 20 > contentSize.height
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-
-        let contentController = NSViewController()
-        contentController.view = scrollView
-
-        let popover = NSPopover()
-        popover.behavior = .semitransient
-        popover.animates = false
-        popover.contentSize = contentSize
-        popover.contentViewController = contentController
-        hoverPopover = popover
-        popover.show(relativeTo: anchorRect, of: viewport, preferredEdge: .maxY)
-    }
-
-    public func dismissHover() {
-        hoverPopover?.close()
-        hoverPopover = nil
     }
 
     // MARK: - Find in File

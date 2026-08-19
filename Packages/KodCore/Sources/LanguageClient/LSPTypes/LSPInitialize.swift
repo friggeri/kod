@@ -28,7 +28,10 @@ public struct ClientCapabilities: Encodable, Sendable {
     public struct TextDocument: Encodable, Sendable {
         public struct Hover: Encodable, Sendable {
             public let dynamicRegistration = false
-            public let contentFormat = ["plaintext", "markdown"]
+            /// LSP treats this array as preference ordered. Markdown must be
+            /// first so capable servers do not downgrade rich hover content
+            /// to the plaintext fallback.
+            public let contentFormat = ["markdown", "plaintext"]
         }
         public struct Definition: Encodable, Sendable {
             public let dynamicRegistration = false

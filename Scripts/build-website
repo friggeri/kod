@@ -1,0 +1,78 @@
+#!/bin/sh
+
+set -eu
+
+repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+output_dir="$repository_root/Artifacts/website"
+arm64_download_url=${KOD_ARM64_DOWNLOAD_URL:-}
+x86_64_download_url=${KOD_X86_64_DOWNLOAD_URL:-}
+release_tag=${KOD_RELEASE_TAG:-}
+
+if [ "$#" -ne 0 ]; then
+    printf '%s\n' "Scripts/build-website does not accept a custom output path." >&2
+    exit 64
+fi
+
+if [ -z "$arm64_download_url" ] || [ -z "$x86_64_download_url" ] || [ -z "$release_tag" ]; then
+    printf '%s\n' "KOD_ARM64_DOWNLOAD_URL, KOD_X86_64_DOWNLOAD_URL, and KOD_RELEASE_TAG are required." >&2
+    exit 64
+fi
+
+case "$arm64_download_url" in
+    https://github.com/friggeri/kod/releases/download/*-arm64.dmg)
+        ;;
+    *)
+        printf '%s\n' "KOD_ARM64_DOWNLOAD_URL must target an arm64 DMG in a friggeri/kod GitHub release." >&2
+        exit 64
+        ;;
+esac
+
+case "$x86_64_download_url" in
+    https://github.com/friggeri/kod/releases/download/*-x86_64.dmg)
+        ;;
+    *)
+        printf '%s\n' "KOD_X86_64_DOWNLOAD_URL must target an x86_64 DMG in a friggeri/kod GitHub release." >&2
+        exit 64
+        ;;
+esac
+
+case "$release_tag" in
+    *[!A-Za-z0-9._-]*|'')
+        printf '%s\n' "KOD_RELEASE_TAG contains unsupported characters." >&2
+        exit 64
+        ;;
+esac
+
+escape_sed_replacement() {
+    printf '%s' "$1" | sed 's/[&|\\]/\\&/g'
+}
+
+arm64_replacement=$(escape_sed_replacement "$arm64_download_url")
+x86_64_replacement=$(escape_sed_replacement "$x86_64_download_url")
+release_tag_replacement=$(escape_sed_replacement "$release_tag")
+
+rm -rf "$output_dir"
+mkdir -p "$output_dir"
+cp -R "$repository_root/website/." "$output_dir/"
+rm "$output_dir/README.md"
+mkdir -p "$output_dir/assets"
+cp "$repository_root/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-512.png" \
+    "$output_dir/assets/app-icon.png"
+cp "$repository_root/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-32@2x.png" \
+    "$output_dir/assets/favicon.png"
+cp "$repository_root/App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-256.png" \
+    "$output_dir/assets/apple-touch-icon.png"
+
+sed \
+    -e "s|__KOD_ARM64_DOWNLOAD_URL__|$arm64_replacement|g" \
+    -e "s|__KOD_X86_64_DOWNLOAD_URL__|$x86_64_replacement|g" \
+    -e "s|__KOD_RELEASE_TAG__|$release_tag_replacement|g" \
+    "$output_dir/index.html" > "$output_dir/index.html.tmp"
+mv "$output_dir/index.html.tmp" "$output_dir/index.html"
+
+if grep -R -n '__KOD_[A-Z0-9_]*__' "$output_dir"; then
+    printf '%s\n' "Unresolved website build placeholders remain." >&2
+    exit 1
+fi
+
+printf '%s\n' "==> Built kod.dev artifact in $output_dir"

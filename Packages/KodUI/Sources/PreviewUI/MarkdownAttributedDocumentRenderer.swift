@@ -100,7 +100,7 @@ final class MarkdownPreviewLayoutManager: NSLayoutManager {
 }
 
 final class MarkdownRoundedTextBlock: NSTextBlock {
-    let cornerRadius: CGFloat = 7
+    var cornerRadius: CGFloat = 7
 
     override func drawBackground(
         withFrame frameRect: NSRect,
@@ -232,6 +232,86 @@ enum MarkdownImagePresentationState: String {
     case remoteLoadingUnavailable
 }
 
+enum MarkdownAttributedPresentationStyle {
+    case document
+    case compact
+
+    fileprivate var metrics: MarkdownAttributedPresentationMetrics {
+        switch self {
+        case .document:
+            .document
+        case .compact:
+            .compact
+        }
+    }
+}
+
+private struct MarkdownAttributedPresentationMetrics {
+    let defaultProsePointSize: CGFloat
+    let headingBefore: CGFloat
+    let primaryHeadingAfter: CGFloat
+    let secondaryHeadingAfter: CGFloat
+    let paragraphAfter: CGFloat
+    let compactParagraphAfter: CGFloat
+    let bodyLineHeight: CGFloat
+    let ruleBefore: CGFloat
+    let ruleAfter: CGFloat
+    let blockAfter: CGFloat
+    let codeLineHeight: CGFloat
+    let listIndent: CGFloat
+    let codeHorizontalPadding: CGFloat
+    let codeVerticalPadding: CGFloat
+    let codeCornerRadius: CGFloat
+    let tableHorizontalPadding: CGFloat
+    let tableVerticalPadding: CGFloat
+    let tableBottomMargin: CGFloat
+    let tableLineHeight: CGFloat
+
+    static let document = MarkdownAttributedPresentationMetrics(
+        defaultProsePointSize: 16,
+        headingBefore: 24,
+        primaryHeadingAfter: 16,
+        secondaryHeadingAfter: 12,
+        paragraphAfter: 16,
+        compactParagraphAfter: 4,
+        bodyLineHeight: 1.5,
+        ruleBefore: 10,
+        ruleAfter: 14,
+        blockAfter: 16,
+        codeLineHeight: 1.45,
+        listIndent: 22,
+        codeHorizontalPadding: 14,
+        codeVerticalPadding: 10,
+        codeCornerRadius: 7,
+        tableHorizontalPadding: 12,
+        tableVerticalPadding: 7,
+        tableBottomMargin: 16,
+        tableLineHeight: 1.35
+    )
+
+    static let compact = MarkdownAttributedPresentationMetrics(
+        defaultProsePointSize: 13,
+        headingBefore: 8,
+        primaryHeadingAfter: 6,
+        secondaryHeadingAfter: 5,
+        paragraphAfter: 7,
+        compactParagraphAfter: 2,
+        bodyLineHeight: 1.3,
+        ruleBefore: 3,
+        ruleAfter: 5,
+        blockAfter: 7,
+        codeLineHeight: 1.25,
+        listIndent: 18,
+        codeHorizontalPadding: 8,
+        codeVerticalPadding: 5,
+        codeCornerRadius: 5,
+        tableHorizontalPadding: 8,
+        tableVerticalPadding: 4,
+        tableBottomMargin: 7,
+        tableLineHeight: 1.25
+    )
+}
+
 /// Converts PreviewCore's safe render model into a native TextKit document.
 /// No HTML or CSS is interpreted and this type never performs I/O.
 @MainActor
@@ -243,6 +323,7 @@ struct MarkdownAttributedDocumentRenderer {
     let loadedImages: [String: NSImage]
     let failedImageDestinations: Set<String>
     private let resolvedCodeFont: ResolvedFont
+    private let metrics: MarkdownAttributedPresentationMetrics
 
     init(
         document: MarkdownRenderDocument,
@@ -250,7 +331,8 @@ struct MarkdownAttributedDocumentRenderer {
         theme: KodTheme,
         fontSettings: FontSettings,
         loadedImages: [String: NSImage] = [:],
-        failedImageDestinations: Set<String> = []
+        failedImageDestinations: Set<String> = [],
+        presentationStyle: MarkdownAttributedPresentationStyle = .document
     ) {
         self.document = document
         self.resourcePolicy = resourcePolicy
@@ -259,13 +341,13 @@ struct MarkdownAttributedDocumentRenderer {
         self.loadedImages = loadedImages
         self.failedImageDestinations = failedImageDestinations
         self.resolvedCodeFont = FontResolver.resolve(fontSettings)
+        self.metrics = presentationStyle.metrics
     }
 
-    private static let defaultProsePointSize: CGFloat = 16
     private static let headingScaleFactors: [CGFloat] = [2, 1.5, 1.25, 1, 0.875, 0.85]
 
     private var prosePointSize: CGFloat {
-        Self.defaultProsePointSize * CGFloat(fontSettings.pointSize / FontSettings.default.pointSize)
+        metrics.defaultProsePointSize * CGFloat(fontSettings.pointSize / FontSettings.default.pointSize)
     }
     private var proseFont: NSFont { .systemFont(ofSize: prosePointSize) }
     private var configuredCodeFont: NSFont { resolvedCodeFont.nsFont }
@@ -326,8 +408,8 @@ struct MarkdownAttributedDocumentRenderer {
                 into: output,
                 context: context,
                 font: headingFont,
-                before: level == 1 ? 0 : 24,
-                after: level <= 2 ? 16 : 12,
+                before: level == 1 ? 0 : metrics.headingBefore,
+                after: level <= 2 ? metrics.primaryHeadingAfter : metrics.secondaryHeadingAfter,
                 lineHeightMultiple: 1.25,
                 extraBlock: separatorBlock,
                 headingLevel: level
@@ -340,7 +422,10 @@ struct MarkdownAttributedDocumentRenderer {
                 context: context,
                 font: proseFont,
                 before: 0,
-                after: context.compactParagraphs ? 4 : 16
+                after: context.compactParagraphs
+                    ? metrics.compactParagraphAfter
+                    : metrics.paragraphAfter,
+                lineHeightMultiple: metrics.bodyLineHeight
             )
 
         case .blockquote(let blocks):
@@ -365,7 +450,11 @@ struct MarkdownAttributedDocumentRenderer {
 
         case .thematicBreak:
             let line = NSMutableAttributedString(string: "\u{200B}\n")
-            let style = paragraphStyle(before: 10, after: 14, blocks: context.quoteBlocks + [makeRuleBlock()])
+            let style = paragraphStyle(
+                before: metrics.ruleBefore,
+                after: metrics.ruleAfter,
+                blocks: context.quoteBlocks + [makeRuleBlock()]
+            )
             line.addAttributes([
                 .font: proseFont,
                 .paragraphStyle: style,
@@ -381,7 +470,14 @@ struct MarkdownAttributedDocumentRenderer {
                 string: text.replacingOccurrences(of: "\n", with: "\u{2028}"),
                 attributes: codeTextAttributes(font: codeFont, foregroundColor: mutedColor)
             )
-            appendParagraph(content, into: output, context: context, before: 0, after: 16)
+            appendParagraph(
+                content,
+                into: output,
+                context: context,
+                before: 0,
+                after: metrics.blockAfter,
+                lineHeightMultiple: metrics.bodyLineHeight
+            )
 
         case .image(let destination, _, let altText):
             let run = MarkdownRenderRun(text: altText, isImage: true, link: destination)
@@ -391,7 +487,8 @@ struct MarkdownAttributedDocumentRenderer {
                 context: context,
                 font: proseFont,
                 before: 0,
-                after: 16
+                after: metrics.blockAfter,
+                lineHeightMultiple: metrics.bodyLineHeight
             )
         }
     }
@@ -437,7 +534,7 @@ struct MarkdownAttributedDocumentRenderer {
         font: NSFont,
         before: CGFloat,
         after: CGFloat,
-        lineHeightMultiple: CGFloat = 1.5,
+        lineHeightMultiple: CGFloat? = nil,
         extraBlock: NSTextBlock? = nil,
         headingLevel: Int? = nil
     ) {
@@ -455,7 +552,7 @@ struct MarkdownAttributedDocumentRenderer {
             context: context,
             before: before,
             after: after,
-            lineHeightMultiple: lineHeightMultiple,
+            lineHeightMultiple: lineHeightMultiple ?? metrics.bodyLineHeight,
             extraBlock: extraBlock
         )
     }
@@ -466,7 +563,7 @@ struct MarkdownAttributedDocumentRenderer {
         context: RenderContext,
         before: CGFloat,
         after: CGFloat,
-        lineHeightMultiple: CGFloat = 1.5,
+        lineHeightMultiple: CGFloat? = nil,
         extraBlock: NSTextBlock? = nil
     ) {
         let paragraph = NSMutableAttributedString()
@@ -486,11 +583,11 @@ struct MarkdownAttributedDocumentRenderer {
         let style = paragraphStyle(
             before: before,
             after: after,
-            lineHeightMultiple: lineHeightMultiple,
+            lineHeightMultiple: lineHeightMultiple ?? metrics.bodyLineHeight,
             blocks: blocks
         )
         if context.listDepth > 0 {
-            let indent = CGFloat(context.listDepth) * 22
+            let indent = CGFloat(context.listDepth) * metrics.listIndent
             style.firstLineHeadIndent = context.pendingListPrefix == nil ? indent : indent - 18
             style.headIndent = indent
             style.tabStops = [NSTextTab(textAlignment: .left, location: indent)]
@@ -645,8 +742,8 @@ struct MarkdownAttributedDocumentRenderer {
             into: output,
             context: context,
             before: 0,
-            after: 16,
-            lineHeightMultiple: 1.45,
+            after: metrics.blockAfter,
+            lineHeightMultiple: metrics.codeLineHeight,
             extraBlock: makeCodeBlock()
         )
     }
@@ -690,10 +787,10 @@ struct MarkdownAttributedDocumentRenderer {
                     columnSpan: 1
                 )
                 tableBlock.setWidth(0.5, type: .absoluteValueType, for: .border)
-                tableBlock.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
-                tableBlock.setWidth(12, type: .absoluteValueType, for: .padding, edge: .maxX)
-                tableBlock.setWidth(7, type: .absoluteValueType, for: .padding, edge: .minY)
-                tableBlock.setWidth(7, type: .absoluteValueType, for: .padding, edge: .maxY)
+                tableBlock.setWidth(metrics.tableHorizontalPadding, type: .absoluteValueType, for: .padding, edge: .minX)
+                tableBlock.setWidth(metrics.tableHorizontalPadding, type: .absoluteValueType, for: .padding, edge: .maxX)
+                tableBlock.setWidth(metrics.tableVerticalPadding, type: .absoluteValueType, for: .padding, edge: .minY)
+                tableBlock.setWidth(metrics.tableVerticalPadding, type: .absoluteValueType, for: .padding, edge: .maxY)
                 tableBlock.setBorderColor(borderColor)
                 if rowIndex == 0 {
                     tableBlock.backgroundColor = tableHeaderBackgroundColor
@@ -701,12 +798,12 @@ struct MarkdownAttributedDocumentRenderer {
                     tableBlock.backgroundColor = tableStripeBackgroundColor
                 }
                 if rowIndex == allRows.count - 1 {
-                    tableBlock.setWidth(16, type: .absoluteValueType, for: .margin, edge: .maxY)
+                    tableBlock.setWidth(metrics.tableBottomMargin, type: .absoluteValueType, for: .margin, edge: .maxY)
                 }
                 let style = paragraphStyle(
                     before: 0,
                     after: 0,
-                    lineHeightMultiple: 1.35,
+                    lineHeightMultiple: metrics.tableLineHeight,
                     blocks: context.quoteBlocks + [tableBlock]
                 )
                 if columnIndex < alignments.count {
@@ -739,11 +836,12 @@ struct MarkdownAttributedDocumentRenderer {
 
     private func makeCodeBlock() -> NSTextBlock {
         let block = MarkdownRoundedTextBlock()
+        block.cornerRadius = metrics.codeCornerRadius
         block.backgroundColor = codeBlockBackgroundColor
-        block.setWidth(14, type: .absoluteValueType, for: .padding, edge: .minX)
-        block.setWidth(14, type: .absoluteValueType, for: .padding, edge: .maxX)
-        block.setWidth(10, type: .absoluteValueType, for: .padding, edge: .minY)
-        block.setWidth(10, type: .absoluteValueType, for: .padding, edge: .maxY)
+        block.setWidth(metrics.codeHorizontalPadding, type: .absoluteValueType, for: .padding, edge: .minX)
+        block.setWidth(metrics.codeHorizontalPadding, type: .absoluteValueType, for: .padding, edge: .maxX)
+        block.setWidth(metrics.codeVerticalPadding, type: .absoluteValueType, for: .padding, edge: .minY)
+        block.setWidth(metrics.codeVerticalPadding, type: .absoluteValueType, for: .padding, edge: .maxY)
         block.setContentWidth(100, type: .percentageValueType)
         return block
     }

@@ -1,5 +1,6 @@
 import AppKit
 import CodeViewport
+import EditorUI
 import Foundation
 import LanguageClient
 import SourceModel
@@ -49,7 +50,9 @@ final class LanguageHoverController {
     }
 
     private let dwellDuration: Duration
+    private let hoverExitGraceDuration: Duration
     private let cacheCapacity: Int
+    private let hoverPresenter: LanguageHoverPopoverPresenter
     private let hoverRequest: HoverRequest
     private let definitionRequest: DefinitionRequest
 
@@ -67,17 +70,30 @@ final class LanguageHoverController {
     private var hoverTask: Task<Void, Never>?
     private var definitionTask: Task<Void, Never>?
     private var presentationTask: Task<Void, Never>?
+    private var hoverContentTask: Task<Void, Never>?
+    private var hoverExitTask: Task<Void, Never>?
+    private var sourceAnchorHovered = false
 
     init(
         dwellDuration: Duration = .milliseconds(75),
+        hoverExitGraceDuration: Duration = .milliseconds(120),
         cacheCapacity: Int = 256,
+        hoverPresenter: LanguageHoverPopoverPresenter = LanguageHoverPopoverPresenter(),
         hoverRequest: @escaping HoverRequest,
         definitionRequest: @escaping DefinitionRequest
     ) {
         self.dwellDuration = dwellDuration
+        self.hoverExitGraceDuration = hoverExitGraceDuration
         self.cacheCapacity = max(1, cacheCapacity)
+        self.hoverPresenter = hoverPresenter
         self.hoverRequest = hoverRequest
         self.definitionRequest = definitionRequest
+        hoverPresenter.onPointerEntered = { [weak self] in
+            self?.popoverPointerEntered()
+        }
+        hoverPresenter.onPointerExited = { [weak self] in
+            self?.popoverPointerExited()
+        }
     }
 
     func update(
@@ -94,6 +110,8 @@ final class LanguageHoverController {
             cancel(for: controller)
             return
         }
+        hoverExitTask?.cancel()
+        hoverExitTask = nil
 
         let key = AnchorKey(
             providerIdentifier: providerIdentifier,
@@ -104,11 +122,13 @@ final class LanguageHoverController {
             utf8Range: targetRange
         )
         if currentController === controller, currentKey == key {
+            sourceAnchorHovered = true
             latestAnchorRect = anchorRect
             return
         }
 
         cancel()
+        sourceAnchorHovered = true
         interactionGeneration &+= 1
         let generation = interactionGeneration
         currentController = controller
@@ -117,7 +137,7 @@ final class LanguageHoverController {
         hoverState = .pending
         dwellElapsed = dwellDuration == .zero
         hoverWasApplied = false
-        controller.dismissHover()
+        hoverPresenter.dismiss()
         controller.viewport.setHoveredLinkUTF8Range(nil)
 
         let cachedEntry = cachedEntry(for: key)
@@ -287,6 +307,10 @@ final class LanguageHoverController {
         cache.count
     }
 
+    var hasActiveInteraction: Bool {
+        currentKey != nil
+    }
+
     func cancel(for controller: CodeDocumentViewController? = nil) {
         if let controller, currentController !== controller {
             return
@@ -295,16 +319,29 @@ final class LanguageHoverController {
         hoverTask?.cancel()
         definitionTask?.cancel()
         presentationTask?.cancel()
+        hoverContentTask?.cancel()
+        hoverExitTask?.cancel()
         hoverTask = nil
         definitionTask = nil
         presentationTask = nil
-        currentController?.dismissHover()
+        hoverContentTask = nil
+        hoverExitTask = nil
+        hoverPresenter.dismiss()
         currentController?.viewport.setHoveredLinkUTF8Range(nil)
         currentController = nil
         currentKey = nil
         hoverState = .pending
         dwellElapsed = false
         hoverWasApplied = false
+        sourceAnchorHovered = false
+    }
+
+    func hoverExited(for controller: CodeDocumentViewController) {
+        guard currentController === controller else {
+            return
+        }
+        sourceAnchorHovered = false
+        scheduleHoverExit()
     }
 
     private func applyHoverIfReady(
@@ -320,14 +357,39 @@ final class LanguageHoverController {
         }
         hoverWasApplied = true
         if let hover {
-            controller.presentHover(
-                hover.contents.value,
-                atViewportRect: latestAnchorRect
-            )
+            hoverContentTask = Task { @MainActor [weak self, weak controller] in
+                guard let self, let controller else {
+                    return
+                }
+                let contentController = await hoverPresenter.makeContent(
+                    for: hover.contents,
+                    theme: controller.theme,
+                    fontSettings: controller.fontSettings
+                )
+                guard !Task.isCancelled,
+                      isCurrent(
+                          key: key,
+                          generation: generation,
+                          controller: controller
+                      ) else {
+                    return
+                }
+                hoverContentTask = nil
+                if let contentController {
+                    hoverPresenter.present(
+                        contentController,
+                        atViewportRect: latestAnchorRect,
+                        in: controller
+                    )
+                } else {
+                    hoverPresenter.dismiss()
+                }
+                onHoverApplied?(key, hover)
+            }
         } else {
-            controller.dismissHover()
+            hoverPresenter.dismiss()
+            onHoverApplied?(key, nil)
         }
-        onHoverApplied?(key, hover)
     }
 
     private func isCurrent(
@@ -340,6 +402,48 @@ final class LanguageHoverController {
             && interactionGeneration == generation
             && controller.snapshot.version == key.snapshotVersion
             && controller.snapshot.url.standardizedFileURL == key.documentURL
+    }
+
+    private func popoverPointerEntered() {
+        guard currentController != nil else {
+            return
+        }
+        hoverExitTask?.cancel()
+        hoverExitTask = nil
+    }
+
+    private func popoverPointerExited() {
+        guard currentController != nil, !sourceAnchorHovered else {
+            return
+        }
+        scheduleHoverExit()
+    }
+
+    private func scheduleHoverExit() {
+        hoverExitTask?.cancel()
+        guard let key = currentKey, let controller = currentController else {
+            return
+        }
+        let generation = interactionGeneration
+        hoverExitTask = Task { @MainActor [weak self, weak controller] in
+            guard let self, let controller else {
+                return
+            }
+            do {
+                try await Task.sleep(for: hoverExitGraceDuration)
+            } catch {
+                return
+            }
+            guard !sourceAnchorHovered,
+                  isCurrent(
+                      key: key,
+                      generation: generation,
+                      controller: controller
+                  ) else {
+                return
+            }
+            cancel(for: controller)
+        }
     }
 
     private func cachedEntry(for key: AnchorKey) -> CacheEntry? {

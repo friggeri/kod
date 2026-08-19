@@ -1,0 +1,112 @@
+#!/bin/sh
+
+set -eu
+
+repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+site_dir="$repository_root/Artifacts/website"
+
+if [ "$#" -ne 0 ]; then
+    printf '%s\n' "Scripts/verify-website does not accept a custom artifact path." >&2
+    exit 64
+fi
+
+require_file() {
+    if [ ! -s "$site_dir/$1" ]; then
+        printf '%s\n' "Missing or empty website artifact: $site_dir/$1" >&2
+        exit 1
+    fi
+}
+
+require_file "index.html"
+require_file "404.html"
+require_file "robots.txt"
+require_file "sitemap.xml"
+require_file "assets/site.css"
+require_file "assets/app-icon.png"
+require_file "assets/favicon.png"
+require_file "assets/apple-touch-icon.png"
+require_file "assets/images/kod-window.svg"
+require_file "assets/images/social-card.png"
+require_file "assets/images/previews/markdown-preview.png"
+require_file "assets/images/previews/image-preview.png"
+require_file "assets/images/previews/json-preview.png"
+
+if [ -e "$site_dir/README.md" ]; then
+    printf '%s\n' "The implementation README must not be included in the deployed artifact." >&2
+    exit 1
+fi
+
+if grep -R -n '__KOD_[A-Z0-9_]*__' "$site_dir"; then
+    printf '%s\n' "Unresolved website build placeholders remain." >&2
+    exit 1
+fi
+
+if grep -E -n '(<script[^>]+src="https?://|<img[^>]+src="https?://|<link[^>]+rel="(stylesheet|icon|apple-touch-icon)"[^>]+href="https?://)' \
+    "$site_dir/index.html" "$site_dir/404.html"; then
+    printf '%s\n' "The landing page loads a third-party runtime resource." >&2
+    exit 1
+fi
+
+script_count=$(grep -c '<script' "$site_dir/index.html")
+if [ "$script_count" -ne 1 ] || ! grep -q '<script type="application/ld+json">' "$site_dir/index.html"; then
+    printf '%s\n' "The only allowed script element is the SoftwareApplication JSON-LD block." >&2
+    exit 1
+fi
+
+if command -v jq >/dev/null 2>&1; then
+    if ! sed -n '/<script type="application\/ld+json">/,/<\/script>/p' "$site_dir/index.html" \
+        | sed '1d; $d' \
+        | jq -e . >/dev/null; then
+        printf '%s\n' "The SoftwareApplication JSON-LD block is invalid." >&2
+        exit 1
+    fi
+fi
+
+if ! grep -Eq 'https://github\.com/friggeri/kod/releases/download/.+-arm64\.dmg' "$site_dir/index.html" \
+    || ! grep -Eq 'https://github\.com/friggeri/kod/releases/download/.+-x86_64\.dmg' "$site_dir/index.html"; then
+    printf '%s\n' "The generated site is missing direct architecture-specific DMG links." >&2
+    exit 1
+fi
+
+if grep -E -i -n '(google-analytics|googletagmanager|gtag\(|plausible|umami|localStorage|document\.cookie)' \
+    "$site_dir/index.html" "$site_dir/404.html" "$site_dir/assets/site.css"; then
+    printf '%s\n' "The website contains analytics, cookies, or client-side storage." >&2
+    exit 1
+fi
+
+if grep -E -n '(@import|url\([^)]*https?://|animation:|transition:)' "$site_dir/assets/site.css"; then
+    printf '%s\n' "The stylesheet contains a remote dependency or decorative motion." >&2
+    exit 1
+fi
+
+for anchor in $(grep -o 'href="#[^"]*"' "$site_dir/index.html" | sed 's/^href="#//; s/"$//' | sort -u); do
+    if ! grep -q "id=\"$anchor\"" "$site_dir/index.html"; then
+        printf '%s\n' "Internal anchor has no matching target: #$anchor" >&2
+        exit 1
+    fi
+done
+
+for resource in $(grep -E -h -o '(src|href)="[^"]+"' "$site_dir/index.html" "$site_dir/404.html" \
+    | sed -E 's/^(src|href)="//; s/"$//' \
+    | grep -E '^[A-Za-z0-9._/-]+$' \
+    | sort -u); do
+    relative_resource=${resource#/}
+    if [ "$relative_resource" != "$resource" ] && [ -z "$relative_resource" ]; then
+        continue
+    fi
+    if [ ! -f "$site_dir/$relative_resource" ]; then
+        printf '%s\n' "Referenced first-party resource does not exist: $resource" >&2
+        exit 1
+    fi
+done
+
+if ! file "$site_dir/assets/images/social-card.png" | grep -q '1200 x 630'; then
+    printf '%s\n' "The social preview must be a 1200 x 630 PNG." >&2
+    exit 1
+fi
+
+if command -v xmllint >/dev/null 2>&1; then
+    xmllint --noout "$site_dir/assets/images/kod-window.svg" "$site_dir/sitemap.xml"
+fi
+
+printf '%s\n' "==> Verified kod.dev static artifact"

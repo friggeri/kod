@@ -155,6 +155,7 @@ let package = Package(
                 .product(name: "CodeViewport", package: "KodCore"),
                 .product(name: "FontCore", package: "KodCore"),
                 .product(name: "GitCore", package: "KodCore"),
+                .product(name: "LanguageClient", package: "KodCore"),
                 .product(name: "PreviewCore", package: "KodCore"),
                 .product(name: "SourceIO", package: "KodCore"),
                 .product(name: "SourceModel", package: "KodCore"),

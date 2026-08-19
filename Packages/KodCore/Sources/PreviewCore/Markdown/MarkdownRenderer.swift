@@ -5,14 +5,9 @@ import SyntaxCore
 import ThemeCore
 
 /// Maps a fenced code block's info-string language token to one of Kod's
-/// compiled-in Tree-sitter grammars (SPEC 10.1: "Syntax highlighting in
-/// fenced code uses Kod's built-in Tree-sitter grammars"), accepting the
-/// common aliases Markdown authors actually type (```js`, ```ts, ```py,
-/// ```rs`, ...) in addition to the canonical names. Returns `nil` — plain,
-/// unhighlighted code text — for anything outside SPEC 4.2's seven launch
-/// languages; this is an explicit, documented limitation, not a silent
-/// failure, and the code block itself always still renders as ordinary
-/// monospaced text.
+/// compiled-in Tree-sitter grammars, accepting the aliases Markdown authors
+/// and language servers commonly emit. Unknown languages still render as
+/// ordinary monospaced text.
 enum MarkdownFenceLanguage {
     static func syntaxLanguage(forFenceLanguage language: String?) -> SyntaxLanguage? {
         guard let language else {
@@ -27,6 +22,18 @@ enum MarkdownFenceLanguage {
         case "css": return .css
         case "python", "py", "py3": return .python
         case "rust", "rs": return .rust
+        case "bash", "sh", "shell", "shellscript", "zsh": return .shell
+        case "markdown", "md": return .markdown
+        case "json", "jsonc": return .json
+        case "yaml", "yml": return .yaml
+        case "toml": return .toml
+        case "c", "h": return .c
+        case "go", "golang": return .go
+        case "java": return .java
+        case "ruby", "rb": return .ruby
+        case "lua": return .lua
+        case "graphql", "gql": return .graphql
+        case "xml", "svg", "xsd", "xsl", "xslt", "plist": return .xml
         default: return nil
         }
     }

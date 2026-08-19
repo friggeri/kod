@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#111316">
+  <title>Kod — Native code viewer for macOS</title>
+  <meta name="description" content="Kod is a native macOS code viewer for navigating and understanding local codebases with search, language intelligence, Git context, and built-in previews.">
+  <link rel="canonical" href="https://kod.dev/">
+  <link rel="icon" href="assets/favicon.png" sizes="64x64">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="256x256">
+  <link rel="stylesheet" href="assets/site.css">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Kod">
+  <meta property="og:title" content="Kod — Native code viewer for macOS">
+  <meta property="og:description" content="Navigate and understand local codebases with fast search, language intelligence, and Git context.">
+  <meta property="og:url" content="https://kod.dev/">
+  <meta property="og:image" content="https://kod.dev/assets/images/social-card.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Kod, a native code viewer for macOS">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Kod — Native code viewer for macOS">
+  <meta name="twitter:description" content="Navigate and understand local codebases with fast search, language intelligence, and Git context.">
+  <meta name="twitter:image" content="https://kod.dev/assets/images/social-card.png">
+
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Kod",
+      "description": "A native macOS code viewer for navigating and understanding local codebases with search, language intelligence, Git context, and built-in previews.",
+      "url": "https://kod.dev/",
+      "downloadUrl": "__KOD_ARM64_DOWNLOAD_URL__",
+      "softwareVersion": "__KOD_RELEASE_TAG__",
+      "operatingSystem": "macOS 14 or later",
+      "applicationCategory": "DeveloperApplication",
+      "isAccessibleForFree": true,
+      "codeRepository": "https://github.com/friggeri/kod"
+    }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <header class="site-header">
+    <div class="site-shell">
+      <nav class="primary-nav" aria-label="Primary navigation">
+        <a class="brand" href="#top" aria-label="Kod home">
+          <img src="assets/app-icon.png" width="36" height="36" alt="">
+          <span>Kod</span>
+        </a>
+
+        <div class="nav-links">
+          <a href="#product">Product</a>
+          <a href="#capabilities">Capabilities</a>
+          <a href="#previews">Previews</a>
+        </div>
+
+        <div class="nav-actions">
+          <a class="text-link nav-github" href="https://github.com/friggeri/kod">GitHub</a>
+          <a class="button button-compact button-light" href="__KOD_ARM64_DOWNLOAD_URL__">
+            Download
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 2v8m0 0 3-3m-3 3L5 7M3 13h10"/>
+            </svg>
+          </a>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main-content">
+    <section class="hero section" id="top" aria-labelledby="hero-title">
+      <div class="site-shell hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="status-dot"></span>For local folders and Git repositories</p>
+          <h1 id="hero-title">Kod is a native code viewer for macOS.</h1>
+          <p class="hero-lede">Navigate and understand local code with fast search, language intelligence, Git context, and native previews in one focused Mac app.</p>
+
+          <div class="download-group" aria-label="Download Kod">
+            <a class="button button-primary" href="__KOD_ARM64_DOWNLOAD_URL__">
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M10 2.5v10m0 0 3.75-3.75M10 12.5 6.25 8.75M4 16h12"/>
+              </svg>
+              Download for Apple silicon
+            </a>
+            <details class="download-menu">
+              <summary>Other downloads</summary>
+              <div class="download-popover">
+                <a href="__KOD_X86_64_DOWNLOAD_URL__">
+                  <span>
+                    <strong>Intel Mac</strong>
+                    <small>macOS 14 or later</small>
+                  </span>
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M8 2v8m0 0 3-3m-3 3L5 7M3 13h10"/>
+                  </svg>
+                </a>
+                <a href="https://github.com/friggeri/kod/releases">
+                  <span>
+                    <strong>All releases</strong>
+                    <small>Checksums and release notes</small>
+                  </span>
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M6 3h7v7M13 3 5 11M3 6v7h7"/>
+                  </svg>
+                </a>
+              </div>
+            </details>
+          </div>
+
+          <p class="system-note">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="2.25" y="3" width="11.5" height="8" rx="1.25"/>
+              <path d="M5 13h6M8 11v2"/>
+            </svg>
+            Requires macOS 14 or later
+          </p>
+        </div>
+
+        <div class="hero-visual" id="product" aria-label="Kod product preview">
+          <div class="visual-accent" aria-hidden="true"></div>
+          <img class="hero-icon" src="assets/app-icon.png" width="512" height="512" alt="">
+          <div class="product-window">
+            <img src="assets/images/kod-window.svg" width="1200" height="760" alt="Illustration of Kod showing a repository explorer, Swift source code, language information, and Git changes">
+          </div>
+          <div class="product-callout callout-search">
+            <kbd>⌘P</kbd>
+            <span>Quick Open</span>
+          </div>
+          <div class="product-callout callout-preview">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="2.25" y="2.25" width="11.5" height="11.5" rx="1.5"/>
+              <path d="M5 6h6M5 8.5h4M5 11h5"/>
+            </svg>
+            <span>Native file previews</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="site-shell trust-row" aria-label="Product principles">
+        <div>
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M10 2.25 16 4.7v4.4c0 3.85-2.5 6.85-6 8.15-3.5-1.3-6-4.3-6-8.15V4.7L10 2.25Z"/>
+            <path d="m7.25 9.75 1.7 1.7 3.8-3.8"/>
+          </svg>
+          <span>Purpose-built viewer</span>
+        </div>
+        <div>
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <rect x="3" y="4" width="14" height="11" rx="2"/>
+            <path d="M6 8.25 8.25 10.5 6 12.75M10.5 12.75h3.5"/>
+          </svg>
+          <span>Native AppKit</span>
+        </div>
+        <div>
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M5 3.5h7l3 3v10H5z"/>
+            <path d="M12 3.5v3h3M7.5 10h5M7.5 13h4"/>
+          </svg>
+          <span>Local workspaces</span>
+        </div>
+        <div>
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M3 10s2.5-4.25 7-4.25S17 10 17 10s-2.5 4.25-7 4.25S3 10 3 10Z"/>
+            <circle cx="10" cy="10" r="1.75"/>
+            <path d="m3.5 3.5 13 13"/>
+          </svg>
+          <span>No telemetry</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="capabilities section" id="capabilities" aria-labelledby="capabilities-title">
+      <div class="site-shell">
+        <div class="section-heading">
+          <p class="eyebrow">Understand the whole repository</p>
+          <h2 id="capabilities-title">Move from a filename to the reason it exists.</h2>
+          <p>Kod combines fast navigation, deep language information, and change context in one focused viewing workflow.</p>
+        </div>
+
+        <div class="capability-grid">
+          <article class="capability-card capability-find">
+            <div class="card-number">01</div>
+            <div class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <circle cx="10.5" cy="10.5" r="5.75"/>
+                <path d="m14.75 14.75 5 5M4.5 4.5h4M4.5 7.5h2"/>
+              </svg>
+            </div>
+            <h3>Find anything</h3>
+            <p>Jump to files and symbols with Quick Open, or stream workspace search results without waiting for a persistent index.</p>
+            <ul class="feature-list">
+              <li>Path-aware file search</li>
+              <li>Text and regular-expression search</li>
+              <li>Document and workspace symbols</li>
+            </ul>
+            <div class="card-visual search-visual" aria-hidden="true">
+              <div class="mini-search">
+                <svg viewBox="0 0 16 16"><circle cx="6.75" cy="6.75" r="3.25"/><path d="m9.2 9.2 3.4 3.4"/></svg>
+                <span>workspace index</span>
+                <kbd>⌘P</kbd>
+              </div>
+              <div class="result-row active"><span class="file-icon swift">S</span><span>WorkspaceIndex.swift</span><small>WorkspaceCore</small></div>
+              <div class="result-row"><span class="file-icon">S</span><span>WorkspaceSession.swift</span><small>KodApp</small></div>
+              <div class="result-row"><span class="file-icon">S</span><span>SearchIndex.swift</span><small>SearchCore</small></div>
+            </div>
+          </article>
+
+          <article class="capability-card capability-follow">
+            <div class="card-number">02</div>
+            <div class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <circle cx="6" cy="5.5" r="2.25"/>
+                <circle cx="18" cy="12" r="2.25"/>
+                <circle cx="7" cy="18.5" r="2.25"/>
+                <path d="M8.2 6.2c4.1.8 3 5.3 7.6 5.8M8.8 17.4c2.8-1.2 3.4-3.9 7-4.7"/>
+              </svg>
+            </div>
+            <h3>Follow the code</h3>
+            <p>Move through definitions, references, implementations, diagnostics, and call relationships with optional local language servers.</p>
+            <ul class="feature-list">
+              <li>Hover and semantic information</li>
+              <li>Definitions, references, and hierarchy</li>
+              <li>Diagnostics and inlay information</li>
+            </ul>
+            <div class="card-visual language-visual" aria-hidden="true">
+              <div class="code-row"><span>14</span><code><i class="kw">func</i> symbol(<i class="arg">named</i> name: String) -&gt; Symbol? {</code></div>
+              <div class="code-row focus"><span>15</span><code>&nbsp;&nbsp;symbols.first { $0.name == name }</code></div>
+              <div class="code-row"><span>16</span><code>}</code></div>
+              <div class="hover-card">
+                <strong>WorkspaceIndex.symbol(named:)</strong>
+                <small>Returns the first matching workspace symbol.</small>
+              </div>
+            </div>
+          </article>
+
+          <article class="capability-card capability-context">
+            <div class="card-number">03</div>
+            <div class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <circle cx="7" cy="5" r="2"/>
+                <circle cx="17" cy="19" r="2"/>
+                <circle cx="7" cy="19" r="2"/>
+                <path d="M7 7v10M9 7.5c6.5.6 2 8.2 6.2 9.8M13.5 8.5 15 7l1.5 1.5"/>
+              </svg>
+            </div>
+            <h3>See change context</h3>
+            <p>Understand what changed and why with status, inline markers, staged and working-tree diffs, and blame—without changing Git state.</p>
+            <ul class="feature-list">
+              <li>Source control overview</li>
+              <li>Quick Diff and full file diffs</li>
+              <li>Line-by-line blame context</li>
+            </ul>
+            <div class="card-visual git-visual" aria-hidden="true">
+              <div class="diff-header"><span>WorkspaceIndex.swift</span><small>3 changes</small></div>
+              <div class="diff-line neutral"><span>18</span><i></i></div>
+              <div class="diff-line removed"><span>19</span><i></i></div>
+              <div class="diff-line added"><span>19</span><i></i></div>
+              <div class="diff-line added"><span>20</span><i></i></div>
+              <div class="diff-line neutral"><span>21</span><i></i></div>
+            </div>
+          </article>
+        </div>
+
+      </div>
+    </section>
+
+    <section class="previews section" id="previews" aria-labelledby="previews-title">
+      <div class="site-shell preview-panel">
+        <div class="preview-copy">
+          <p class="eyebrow">More than source files</p>
+          <h2 id="previews-title">See the files that explain the code.</h2>
+          <p>Render GitHub Flavored Markdown, inspect images, and navigate JSON or property lists in native views without leaving the workspace.</p>
+          <ul class="preview-formats" aria-label="Supported preview formats">
+            <li><i></i>Markdown</li>
+            <li><i></i>Images</li>
+            <li><i></i>JSON</li>
+            <li><i></i>Property lists</li>
+          </ul>
+        </div>
+
+        <div class="preview-showcase">
+          <figure class="preview-shot preview-shot-markdown">
+            <figcaption><span><i></i>Markdown</span><small>KodUI README.md</small></figcaption>
+            <img src="assets/images/previews/markdown-preview.png" width="1800" height="1240" loading="lazy" decoding="async" alt="Kod rendering the KodUI README as formatted Markdown with headings, prose, and a code block">
+          </figure>
+          <figure class="preview-shot preview-shot-image">
+            <figcaption><span><i></i>Images</span><small>PNG preview</small></figcaption>
+            <img src="assets/images/previews/image-preview.png" width="1800" height="1240" loading="lazy" decoding="async" alt="Kod displaying a PNG image with fit, zoom, and checkerboard controls">
+          </figure>
+          <figure class="preview-shot preview-shot-json">
+            <figcaption><span><i></i>Structured data</span><small>JSON · plist</small></figcaption>
+            <img src="assets/images/previews/json-preview.png" width="1800" height="1240" loading="lazy" decoding="async" alt="Kod displaying searchable, expandable JSON keys and values">
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="final-cta section" aria-labelledby="download-title">
+      <div class="site-shell cta-panel">
+        <div>
+          <p class="eyebrow">For macOS 14 or later</p>
+          <h2 id="download-title">Open a repository. Start understanding it.</h2>
+          <p>Kod gets you to the first file quickly, then adds syntax, search, Git context, and language intelligence as they become available.</p>
+        </div>
+        <div class="cta-actions">
+          <a class="button button-primary" href="__KOD_ARM64_DOWNLOAD_URL__">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M10 2.5v10m0 0 3.75-3.75M10 12.5 6.25 8.75M4 16h12"/>
+            </svg>
+            Download for Apple silicon
+          </a>
+          <a class="button button-secondary" href="__KOD_X86_64_DOWNLOAD_URL__">Download for Intel</a>
+          <small>Latest release: __KOD_RELEASE_TAG__</small>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-shell footer-grid">
+      <div class="footer-brand">
+        <img src="assets/app-icon.png" width="32" height="32" alt="">
+        <span>Kod</span>
+      </div>
+      <p>A native macOS code viewer for understanding local codebases.</p>
+      <nav aria-label="Footer navigation">
+        <a href="https://github.com/friggeri/kod">GitHub</a>
+        <a href="https://github.com/friggeri/kod/releases">Releases</a>
+        <a href="https://github.com/friggeri/kod/blob/main/docs/privacy.md">Privacy</a>
+        <a href="https://github.com/friggeri/kod/blob/main/docs/support.md">Support</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,117 @@
+name: Deploy kod.dev
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/pages.yml"
+      - "App/KodApp/Assets.xcassets/AppIcon.appiconset/AppIcon-512.png"
+      - "Scripts/build-website"
+      - "Scripts/verify-website"
+      - "website/**"
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_ready: ${{ steps.release.outputs.deploy_ready }}
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Resolve the latest release downloads
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_json="$RUNNER_TEMP/latest-release.json"
+          if ! gh api "repos/$GITHUB_REPOSITORY/releases/latest" > "$release_json" 2>/dev/null; then
+            echo "deploy_ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No published release exists yet. The site will be validated but not deployed."
+            exit 0
+          fi
+
+          arm64_count=$(jq '[.assets[] | select(.name | test("^Kod-.+-arm64\\.dmg$"))] | length' "$release_json")
+          x86_64_count=$(jq '[.assets[] | select(.name | test("^Kod-.+-x86_64\\.dmg$"))] | length' "$release_json")
+
+          if [ "$arm64_count" -ne 1 ] || [ "$x86_64_count" -ne 1 ]; then
+            echo "::error::The latest release must contain exactly one Kod-*-arm64.dmg and one Kod-*-x86_64.dmg asset."
+            exit 1
+          fi
+
+          arm64_url=$(jq -r '.assets[] | select(.name | test("^Kod-.+-arm64\\.dmg$")) | .browser_download_url' "$release_json")
+          x86_64_url=$(jq -r '.assets[] | select(.name | test("^Kod-.+-x86_64\\.dmg$")) | .browser_download_url' "$release_json")
+          release_tag=$(jq -r '.tag_name' "$release_json")
+
+          {
+            echo "deploy_ready=true"
+            echo "arm64_url=$arm64_url"
+            echo "x86_64_url=$x86_64_url"
+            echo "release_tag=$release_tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build the static site
+        env:
+          DEPLOY_READY: ${{ steps.release.outputs.deploy_ready }}
+          RELEASE_ARM64_URL: ${{ steps.release.outputs.arm64_url }}
+          RELEASE_X86_64_URL: ${{ steps.release.outputs.x86_64_url }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$DEPLOY_READY" = "true" ]; then
+            export KOD_ARM64_DOWNLOAD_URL="$RELEASE_ARM64_URL"
+            export KOD_X86_64_DOWNLOAD_URL="$RELEASE_X86_64_URL"
+            export KOD_RELEASE_TAG="$RELEASE_TAG"
+          else
+            export KOD_ARM64_DOWNLOAD_URL="https://github.com/friggeri/kod/releases/download/v0.0.0/Kod-v0.0.0-arm64.dmg"
+            export KOD_X86_64_DOWNLOAD_URL="https://github.com/friggeri/kod/releases/download/v0.0.0/Kod-v0.0.0-x86_64.dmg"
+            export KOD_RELEASE_TAG="v0.0.0"
+          fi
+
+          Scripts/build-website
+
+      - name: Verify the generated artifact
+        run: Scripts/verify-website
+
+      - name: Configure GitHub Pages
+        if: steps.release.outputs.deploy_ready == 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Upload the Pages artifact
+        if: steps.release.outputs.deploy_ready == 'true'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: Artifacts/website
+
+  deploy:
+    if: needs.build.outputs.deploy_ready == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

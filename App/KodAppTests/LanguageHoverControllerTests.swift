@@ -1,5 +1,6 @@
 import AppKit
 import CodeViewport
+import EditorUI
 import Foundation
 import LanguageClient
 import SourceModel
@@ -43,10 +44,10 @@ final class LanguageHoverControllerTests: XCTestCase {
         )
     }
 
-    private func makeHover(_ value: String) throws -> Hover {
+    private func makeHover(_ value: String, kind: String = "plaintext") throws -> Hover {
         let data = try JSONSerialization.data(withJSONObject: [
             "contents": [
-                "kind": "plaintext",
+                "kind": kind,
                 "value": value
             ]
         ])
@@ -75,6 +76,59 @@ final class LanguageHoverControllerTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(5))
         }
         XCTAssertTrue(condition(), file: file, line: line)
+    }
+
+    func testWorkspaceLocalLinksAreConfinedAfterCanonicalization() throws {
+        let container = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WorkspaceLocalLinkResolverTests-\(UUID().uuidString)")
+        let root = container.appendingPathComponent("root", isDirectory: true)
+        let outside = container.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: outside,
+            withIntermediateDirectories: true
+        )
+        try Data("secret".utf8).write(to: outside.appendingPathComponent("secret.txt"))
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("escape"),
+            withDestinationURL: outside
+        )
+        defer { try? FileManager.default.removeItem(at: container) }
+
+        XCTAssertEqual(
+            WorkspaceLocalLinkResolver.relativePath(
+                for: "./Docs/Guide.md#usage",
+                root: root
+            ),
+            "Docs/Guide.md"
+        )
+        XCTAssertNil(
+            WorkspaceLocalLinkResolver.relativePath(
+                for: "../outside/secret.txt",
+                root: root
+            )
+        )
+        XCTAssertNil(
+            WorkspaceLocalLinkResolver.relativePath(
+                for: "%2E%2E/outside/secret.txt",
+                root: root
+            )
+        )
+        XCTAssertNil(
+            WorkspaceLocalLinkResolver.relativePath(
+                for: "escape/secret.txt",
+                root: root
+            )
+        )
+        XCTAssertNil(
+            WorkspaceLocalLinkResolver.relativePath(
+                for: "https://example.com",
+                root: root
+            )
+        )
     }
 
     func testRequestsDispatchImmediatelyAndMovementWithinTokenIsCoalesced() async throws {
@@ -174,6 +228,44 @@ final class LanguageHoverControllerTests: XCTestCase {
         subject.cancel()
     }
 
+    func testPopoverPointerKeepsHoverAliveAfterLeavingSourceAnchor() async throws {
+        let controller = makeController()
+        let range = try XCTUnwrap(controller.viewport.hoverTargetUTF8Range(at: 0))
+        let hover = try makeHover("alpha hover")
+        let presenter = LanguageHoverPopoverPresenter(
+            contentBuilder: { _, _, _ in nil }
+        )
+        var hoverApplications = 0
+        let subject = LanguageHoverController(
+            dwellDuration: .zero,
+            hoverExitGraceDuration: .milliseconds(25),
+            hoverPresenter: presenter,
+            hoverRequest: { _, _ in hover },
+            definitionRequest: { _, _ in [] }
+        )
+        subject.onHoverApplied = { _, _ in hoverApplications += 1 }
+        subject.update(
+            controller: controller,
+            providerIdentifier: "typescript",
+            utf8Offset: range.lowerBound,
+            targetRange: range,
+            anchorRect: .zero
+        )
+        await waitUntil { hoverApplications == 1 }
+
+        presenter.onPointerExited?()
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertTrue(subject.hasActiveInteraction)
+
+        subject.hoverExited(for: controller)
+        presenter.onPointerEntered?()
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertTrue(subject.hasActiveInteraction)
+
+        presenter.onPointerExited?()
+        await waitUntil { !subject.hasActiveInteraction }
+    }
+
     func testDefinitionAppliesWithoutWaitingForHover() async throws {
         let controller = makeController()
         let range = try XCTUnwrap(controller.viewport.hoverTargetUTF8Range(at: 0))
@@ -256,6 +348,64 @@ final class LanguageHoverControllerTests: XCTestCase {
         await alphaGate.open()
         try await Task.sleep(for: .milliseconds(30))
         XCTAssertEqual(appliedValues, ["beta hover"])
+        subject.cancel()
+    }
+
+    func testLateRenderedContentCannotAppearForPreviousToken() async throws {
+        let controller = makeController()
+        let alphaRange = try XCTUnwrap(controller.viewport.hoverTargetUTF8Range(at: 0))
+        let betaRange = try XCTUnwrap(controller.viewport.hoverTargetUTF8Range(at: 6))
+        let alphaHover = try makeHover("**alpha**", kind: "markdown")
+        let betaHover = try makeHover("**beta**", kind: "markdown")
+        let alphaRenderGate = HoverTestGate()
+        var renderValues: [String] = []
+        var renderKinds: [String] = []
+        let presenter = LanguageHoverPopoverPresenter(
+            contentBuilder: { markup, _, _ in
+                renderValues.append(markup.value)
+                renderKinds.append(markup.kind)
+                if markup.value == "**alpha**" {
+                    await alphaRenderGate.wait()
+                }
+                return nil
+            }
+        )
+        var appliedValues: [String] = []
+        let subject = LanguageHoverController(
+            dwellDuration: .zero,
+            hoverPresenter: presenter,
+            hoverRequest: { _, offset in
+                offset == alphaRange.lowerBound ? alphaHover : betaHover
+            },
+            definitionRequest: { _, _ in [] }
+        )
+        subject.onHoverApplied = { _, hover in
+            if let hover {
+                appliedValues.append(hover.contents.value)
+            }
+        }
+
+        subject.update(
+            controller: controller,
+            providerIdentifier: "typescript",
+            utf8Offset: alphaRange.lowerBound,
+            targetRange: alphaRange,
+            anchorRect: .zero
+        )
+        await waitUntil { renderValues == ["**alpha**"] }
+        subject.update(
+            controller: controller,
+            providerIdentifier: "typescript",
+            utf8Offset: betaRange.lowerBound,
+            targetRange: betaRange,
+            anchorRect: .zero
+        )
+        await waitUntil { appliedValues == ["**beta**"] }
+
+        await alphaRenderGate.open()
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(appliedValues, ["**beta**"])
+        XCTAssertEqual(renderKinds, ["markdown", "markdown"])
         subject.cancel()
     }
 

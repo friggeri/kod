@@ -42,6 +42,34 @@ final class MarkdownRendererTests: XCTestCase {
         XCTAssertEqual(runs, [], "an unrecognized fence language must fall back to plain, unhighlighted text")
     }
 
+    func testFenceAliasesCoverEveryBundledLanguageFamily() {
+        let aliases: [(String, SyntaxLanguage)] = [
+            ("ts", .typescript),
+            ("jsx", .javascript),
+            ("py", .python),
+            ("rs", .rust),
+            ("shellscript", .shell),
+            ("md", .markdown),
+            ("jsonc", .json),
+            ("yml", .yaml),
+            ("toml", .toml),
+            ("h", .c),
+            ("golang", .go),
+            ("java", .java),
+            ("rb", .ruby),
+            ("lua", .lua),
+            ("gql", .graphql),
+            ("plist", .xml)
+        ]
+        for (alias, expected) in aliases {
+            XCTAssertEqual(
+                MarkdownFenceLanguage.syntaxLanguage(forFenceLanguage: alias),
+                expected,
+                alias
+            )
+        }
+    }
+
     func testTableRendersHeaderAndRows() async {
         let source = "| A | B |\n| - | - |\n| 1 | 2 |"
         let document = MarkdownParser.parse(source)

@@ -1,0 +1,196 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Kod application window</title>
+  <desc id="desc">A stylized Kod workspace with a repository explorer, Swift source, language information, and Git changes.</desc>
+
+  <rect width="1200" height="760" fill="#17191d"/>
+  <rect x="0.5" y="0.5" width="1199" height="759" rx="20" fill="none" stroke="#42464d"/>
+
+  <path d="M20 0h1160a20 20 0 0 1 20 20v35H0V20A20 20 0 0 1 20 0Z" fill="#24272c"/>
+  <path d="M0 55h1200" stroke="#34383e"/>
+  <circle cx="23" cy="27" r="6" fill="#ff5f57"/>
+  <circle cx="43" cy="27" r="6" fill="#febc2e"/>
+  <circle cx="63" cy="27" r="6" fill="#28c840"/>
+  <text x="600" y="32" fill="#a9acb1" font-family="Avenir Next, Arial, sans-serif" font-size="13" text-anchor="middle">kod</text>
+
+  <rect x="0" y="55" width="1200" height="58" fill="#1d2024"/>
+  <path d="M0 113h1200" stroke="#30343a"/>
+  <g fill="none" stroke="#94989f" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6">
+    <path d="m28 76-8 8 8 8M20 84h17"/>
+    <path d="m54 76 8 8-8 8M62 84H45" opacity=".35"/>
+    <path d="M87 77h13l5 5v9H87zM100 77v5h5"/>
+  </g>
+  <text x="121" y="88" fill="#8e9299" font-family="Avenir Next, Arial, sans-serif" font-size="12">kod</text>
+  <text x="155" y="88" fill="#565a61" font-family="Avenir Next, Arial, sans-serif" font-size="12">/</text>
+  <text x="170" y="88" fill="#8e9299" font-family="Avenir Next, Arial, sans-serif" font-size="12">Packages</text>
+  <text x="226" y="88" fill="#565a61" font-family="Avenir Next, Arial, sans-serif" font-size="12">/</text>
+  <text x="241" y="88" fill="#c3c5c8" font-family="Avenir Next, Arial, sans-serif" font-size="12">WorkspaceIndex.swift</text>
+  <rect x="1020" y="70" width="158" height="28" rx="7" fill="#24272c" stroke="#393d44"/>
+  <path d="M1039 78a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm4 9 4 4" fill="none" stroke="#7e8289" stroke-linecap="round" stroke-width="1.3"/>
+  <text x="1057" y="88" fill="#74787f" font-family="Avenir Next, Arial, sans-serif" font-size="11">Quick Open</text>
+  <rect x="1140" y="77" width="27" height="15" rx="4" fill="#30343a"/>
+  <text x="1153.5" y="88" fill="#8d9198" font-family="SFMono-Regular, Menlo, monospace" font-size="8" text-anchor="middle">⌘P</text>
+
+  <rect x="0" y="113" width="278" height="612" fill="#191b1f"/>
+  <path d="M278 113v612" stroke="#30343a"/>
+
+  <rect x="0" y="113" width="42" height="612" fill="#16181b"/>
+  <path d="M42 113v612" stroke="#2a2d32"/>
+  <g fill="none" stroke="#73777e" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.35">
+    <path d="M14 132h13l3 3v14H14zM27 132v4h4"/>
+    <path d="M15 172a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm6-2 6 6"/>
+    <circle cx="18" cy="202" r="3"/><circle cx="29" cy="214" r="3"/><circle cx="18" cy="226" r="3"/><path d="M18 205v18M21 203c9 0 1 9 6 9"/>
+    <path d="M14 247h16v15H14zM18 251h8M18 255h8"/>
+  </g>
+  <rect x="40" y="126" width="2" height="28" fill="#3fa8f5"/>
+
+  <text x="58" y="141" fill="#b6b9bd" font-family="Avenir Next, Arial, sans-serif" font-size="11" font-weight="600" letter-spacing=".8">EXPLORER</text>
+  <path d="M55 157h207" stroke="#2a2d32"/>
+  <path d="m60 177 4 4 4-4" fill="none" stroke="#73777e" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="77" y="182" fill="#c1c3c7" font-family="Avenir Next, Arial, sans-serif" font-size="11" font-weight="600">KOD</text>
+
+  <g font-family="Avenir Next, Arial, sans-serif" font-size="11">
+    <path d="m72 204 4 4 4-4" fill="none" stroke="#6f737a" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M88 199h11l3 3h10v11H88z" fill="#35393f"/>
+    <text x="119" y="210" fill="#9ea1a7">Packages</text>
+
+    <path d="m86 230 4 4 4-4" fill="none" stroke="#6f737a" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M102 225h11l3 3h10v11h-24z" fill="#35393f"/>
+    <text x="133" y="236" fill="#9ea1a7">KodCore</text>
+
+    <path d="m100 256 4 4 4-4" fill="none" stroke="#6f737a" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M116 251h11l3 3h10v11h-24z" fill="#35393f"/>
+    <text x="147" y="262" fill="#9ea1a7">Sources</text>
+
+    <path d="m114 282 4 4 4-4" fill="none" stroke="#6f737a" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M130 277h11l3 3h10v11h-24z" fill="#35393f"/>
+    <text x="161" y="288" fill="#9ea1a7">WorkspaceCore</text>
+
+    <rect x="43" y="299" width="234" height="27" fill="#252a30"/>
+    <path d="M145 304h10l4 4v13h-14zM155 304v5h4" fill="none" stroke="#ed4774" stroke-linejoin="round"/>
+    <text x="168" y="318" fill="#e0e2e4">WorkspaceIndex.swift</text>
+    <text x="263" y="318" fill="#f3bd51" text-anchor="end">M</text>
+
+    <path d="M145 334h10l4 4v13h-14zM155 334v5h4" fill="none" stroke="#ed4774" stroke-linejoin="round"/>
+    <text x="168" y="348" fill="#969aa1">WorkspaceState.swift</text>
+
+    <path d="M145 364h10l4 4v13h-14zM155 364v5h4" fill="none" stroke="#ed4774" stroke-linejoin="round"/>
+    <text x="168" y="378" fill="#969aa1">WorkspaceTrust.swift</text>
+
+    <path d="m100 405 4-4 4 4" fill="none" stroke="#6f737a" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M116 394h11l3 3h10v11h-24z" fill="#35393f"/>
+    <text x="147" y="405" fill="#8d9198">SearchCore</text>
+
+    <path d="m100 433 4-4 4 4" fill="none" stroke="#6f737a" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M116 422h11l3 3h10v11h-24z" fill="#35393f"/>
+    <text x="147" y="433" fill="#8d9198">GitCore</text>
+  </g>
+
+  <rect x="278" y="113" width="922" height="39" fill="#1b1e22"/>
+  <path d="M278 152h922" stroke="#2e3238"/>
+  <rect x="278" y="113" width="190" height="39" fill="#22252a"/>
+  <path d="M278 151h190" stroke="#3fa8f5" stroke-width="2"/>
+  <path d="M294 124h10l4 4v13h-14zM304 124v5h4" fill="none" stroke="#ed4774" stroke-linejoin="round"/>
+  <text x="317" y="137" fill="#d5d7da" font-family="Avenir Next, Arial, sans-serif" font-size="11">WorkspaceIndex.swift</text>
+  <circle cx="450" cy="133" r="2.5" fill="#f3bd51"/>
+
+  <rect x="278" y="152" width="922" height="31" fill="#181a1e"/>
+  <path d="M278 183h922" stroke="#292d32"/>
+  <text x="296" y="172" fill="#767a81" font-family="Avenir Next, Arial, sans-serif" font-size="10">WorkspaceCore</text>
+  <text x="385" y="172" fill="#4f535a" font-family="Avenir Next, Arial, sans-serif" font-size="10">›</text>
+  <text x="399" y="172" fill="#8d9198" font-family="Avenir Next, Arial, sans-serif" font-size="10">WorkspaceIndex</text>
+  <text x="493" y="172" fill="#4f535a" font-family="Avenir Next, Arial, sans-serif" font-size="10">›</text>
+  <text x="507" y="172" fill="#b3b6bb" font-family="Avenir Next, Arial, sans-serif" font-size="10">symbol(named:)</text>
+
+  <rect x="278" y="183" width="922" height="542" fill="#17191d"/>
+  <rect x="278" y="183" width="54" height="542" fill="#16181b"/>
+  <path d="M332 183v542" stroke="#25282d"/>
+  <rect x="1151" y="183" width="49" height="542" fill="#15171a"/>
+  <path d="M1151 183v542" stroke="#25282d"/>
+
+  <g font-family="SFMono-Regular, Menlo, monospace" font-size="12">
+    <g fill="#4f535a" text-anchor="end">
+      <text x="316" y="217">1</text><text x="316" y="240">2</text><text x="316" y="263">3</text>
+      <text x="316" y="286">4</text><text x="316" y="309">5</text><text x="316" y="332">6</text>
+      <text x="316" y="355">7</text><text x="316" y="378">8</text><text x="316" y="401">9</text>
+      <text x="316" y="424">10</text><text x="316" y="447">11</text><text x="316" y="470">12</text>
+      <text x="316" y="493">13</text><text x="316" y="516">14</text><text x="316" y="539">15</text>
+      <text x="316" y="562">16</text><text x="316" y="585">17</text><text x="316" y="608">18</text>
+      <text x="316" y="631">19</text><text x="316" y="654">20</text><text x="316" y="677">21</text>
+    </g>
+
+    <text x="352" y="217" fill="#ed4774">import</text><text x="405" y="217" fill="#c7c9cd">Foundation</text>
+    <text x="352" y="263" fill="#ed4774">struct</text><text x="405" y="263" fill="#71b8ed">WorkspaceIndex</text><text x="510" y="263" fill="#c7c9cd">{</text>
+    <text x="374" y="286" fill="#ed4774">private let</text><text x="456" y="286" fill="#c7c9cd">files:</text><text x="508" y="286" fill="#f3bd51">[SourceFile]</text>
+    <text x="374" y="309" fill="#ed4774">private let</text><text x="456" y="309" fill="#c7c9cd">symbols:</text><text x="523" y="309" fill="#f3bd51">[WorkspaceSymbol]</text>
+
+    <text x="374" y="355" fill="#ed4774">init</text><text x="403" y="355" fill="#c7c9cd">(files:</text><text x="455" y="355" fill="#f3bd51">[SourceFile]</text><text x="548" y="355" fill="#c7c9cd">, symbols:</text><text x="623" y="355" fill="#f3bd51">[WorkspaceSymbol]</text><text x="747" y="355" fill="#c7c9cd">) {</text>
+    <text x="396" y="378" fill="#a276ef">self</text><text x="426" y="378" fill="#c7c9cd">.files = files</text>
+    <text x="396" y="401" fill="#a276ef">self</text><text x="426" y="401" fill="#c7c9cd">.symbols = symbols</text>
+    <text x="374" y="424" fill="#c7c9cd">}</text>
+
+    <text x="374" y="470" fill="#ed4774">func</text><text x="408" y="470" fill="#71b8ed">symbol</text><text x="451" y="470" fill="#c7c9cd">(</text><text x="460" y="470" fill="#f3bd51">named</text><text x="499" y="470" fill="#c7c9cd"> name:</text><text x="550" y="470" fill="#f3bd51">String</text><text x="596" y="470" fill="#c7c9cd">) -&gt;</text><text x="635" y="470" fill="#f3bd51">WorkspaceSymbol?</text><text x="746" y="470" fill="#c7c9cd"> {</text>
+    <rect x="332" y="477" width="819" height="24" fill="#1d2329"/>
+    <rect x="332" y="477" width="3" height="24" fill="#93d752"/>
+    <text x="396" y="493" fill="#c7c9cd">symbols.first { $0.name == name }</text>
+    <text x="374" y="516" fill="#c7c9cd">}</text>
+
+    <text x="374" y="562" fill="#ed4774">func</text><text x="408" y="562" fill="#71b8ed">files</text><text x="438" y="562" fill="#c7c9cd">(matching query:</text><text x="551" y="562" fill="#f3bd51">String</text><text x="597" y="562" fill="#c7c9cd">) -&gt;</text><text x="635" y="562" fill="#f3bd51">[SourceFile]</text><text x="726" y="562" fill="#c7c9cd"> {</text>
+    <text x="396" y="585" fill="#c7c9cd">files.filter {</text>
+    <text x="418" y="608" fill="#c7c9cd">$0.relativePath.localizedStandardContains(query)</text>
+    <text x="396" y="631" fill="#c7c9cd">}</text>
+    <text x="374" y="654" fill="#c7c9cd">}</text>
+    <text x="352" y="677" fill="#c7c9cd">}</text>
+  </g>
+
+  <path d="M332 477h3v24h-3z" fill="#93d752"/>
+  <path d="M332 546h3v46h-3z" fill="#3fa8f5" opacity=".8"/>
+
+  <g opacity=".82">
+    <rect x="1161" y="204" width="25" height="2" rx="1" fill="#53575e"/>
+    <rect x="1165" y="212" width="18" height="2" rx="1" fill="#ed4774"/>
+    <rect x="1160" y="220" width="27" height="2" rx="1" fill="#53575e"/>
+    <rect x="1164" y="228" width="19" height="2" rx="1" fill="#f3bd51"/>
+    <rect x="1161" y="236" width="25" height="2" rx="1" fill="#53575e"/>
+    <rect x="1163" y="252" width="21" height="2" rx="1" fill="#53575e"/>
+    <rect x="1160" y="260" width="28" height="2" rx="1" fill="#3fa8f5"/>
+    <rect x="1165" y="268" width="17" height="2" rx="1" fill="#53575e"/>
+    <rect x="1161" y="284" width="25" height="2" rx="1" fill="#53575e"/>
+    <rect x="1164" y="292" width="19" height="2" rx="1" fill="#a276ef"/>
+    <rect x="1160" y="300" width="28" height="2" rx="1" fill="#53575e"/>
+    <rect x="1162" y="316" width="23" height="2" rx="1" fill="#53575e"/>
+    <rect x="1160" y="324" width="27" height="2" rx="1" fill="#93d752"/>
+    <rect x="1165" y="332" width="17" height="2" rx="1" fill="#53575e"/>
+    <rect x="1161" y="348" width="25" height="2" rx="1" fill="#53575e"/>
+    <rect x="1164" y="356" width="20" height="2" rx="1" fill="#ed4774"/>
+    <rect x="1160" y="364" width="27" height="2" rx="1" fill="#53575e"/>
+    <rect x="1162" y="380" width="23" height="2" rx="1" fill="#53575e"/>
+    <rect x="1160" y="388" width="28" height="2" rx="1" fill="#3fa8f5"/>
+    <rect x="1165" y="396" width="17" height="2" rx="1" fill="#53575e"/>
+    <rect x="1158" y="464" width="31" height="54" rx="3" fill="#3fa8f5" opacity=".18" stroke="#3fa8f5"/>
+  </g>
+
+  <g>
+    <rect x="720" y="509" width="355" height="128" rx="11" fill="#22252a" stroke="#464a52"/>
+    <text x="739" y="533" fill="#d7d9dc" font-family="SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600">WorkspaceIndex.symbol(named:)</text>
+    <path d="M739 546h317" stroke="#393d43"/>
+    <text x="739" y="568" fill="#8f939a" font-family="Avenir Next, Arial, sans-serif" font-size="11">Returns the first workspace symbol whose name matches.</text>
+    <text x="739" y="592" fill="#656970" font-family="SFMono-Regular, Menlo, monospace" font-size="10">func symbol(named name: String) -&gt; WorkspaceSymbol?</text>
+    <rect x="739" y="606" width="68" height="18" rx="5" fill="#29313a"/>
+    <text x="773" y="618" fill="#75b7ea" font-family="Avenir Next, Arial, sans-serif" font-size="9" text-anchor="middle">Go to definition</text>
+  </g>
+
+  <rect x="0" y="725" width="1200" height="35" fill="#1b1e22"/>
+  <path d="M0 725h1200" stroke="#30343a"/>
+  <g font-family="Avenir Next, Arial, sans-serif" font-size="10">
+    <path d="M18 738a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm3 5 4 4" fill="none" stroke="#8b8f96" stroke-linecap="round"/>
+    <text x="31" y="747" fill="#8b8f96">main</text>
+    <path d="M74 737v11M70 741l4-4 4 4" fill="none" stroke="#72767d" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="87" y="747" fill="#8b8f96">0</text>
+    <circle cx="116" cy="743" r="3" fill="none" stroke="#93d752"/>
+    <text x="126" y="747" fill="#8b8f96">LSP Ready</text>
+    <text x="1000" y="747" fill="#74787f">Swift</text>
+    <text x="1045" y="747" fill="#74787f">UTF-8</text>
+    <text x="1090" y="747" fill="#74787f">LF</text>
+    <text x="1120" y="747" fill="#94989f">Ln 15, Col 5</text>
+  </g>
+</svg>

@@ -30,6 +30,33 @@ private extension NSToolbarItem.Identifier {
     )
 }
 
+enum WorkspaceLocalLinkResolver {
+    static func relativePath(for destination: String, root: URL) -> String? {
+        guard let components = URLComponents(string: destination),
+              components.scheme == nil,
+              components.host == nil else {
+            return nil
+        }
+        let path = components.percentEncodedPath.removingPercentEncoding
+            ?? components.path
+        guard !path.isEmpty, !path.hasPrefix("/") else {
+            return nil
+        }
+
+        let canonicalRoot = root.standardizedFileURL.resolvingSymlinksInPath()
+        let candidate = canonicalRoot
+            .appendingPathComponent(path)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let rootPath = canonicalRoot.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard candidate.path.hasPrefix(prefix) else {
+            return nil
+        }
+        return String(candidate.path.dropFirst(prefix.count))
+    }
+}
+
 private final class WorkspaceTitleOverlayView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
@@ -494,7 +521,24 @@ final class WorkspaceViewController: NSViewController {
     private var peekPanelController: PeekPanelController?
     private var hierarchyPanelController: HierarchyPanelController?
     private var definitionNavigationTask: Task<Void, Never>?
+    private lazy var languageHoverPresenter = LanguageHoverPopoverPresenter(
+        isWorkspaceTrusted: { [weak self] in
+            guard let self else {
+                return false
+            }
+            return self.trustStore.isTrusted(self.identity)
+        },
+        openLocalRelativePath: { [weak self] relativePath, documentController in
+            guard let self else {
+                return
+            }
+            self.splitContainer?.allGroupControllers
+                .first { $0.currentDocumentController === documentController }?
+                .onOpenLocalRelativePath?(relativePath)
+        }
+    )
     private lazy var languageHoverController = LanguageHoverController(
+        hoverPresenter: languageHoverPresenter,
         hoverRequest: { [weak self] snapshot, utf8Offset in
             guard let self else {
                 throw CancellationError()
@@ -1017,6 +1061,7 @@ final class WorkspaceViewController: NSViewController {
         }
         quickDiff.refreshTheme()
         reloadVisibleExplorerDecorations()
+        cancelHover()
     }
 
     /// Refreshes the gutter decorations of every visible editor. Guarded
@@ -1532,7 +1577,7 @@ final class WorkspaceViewController: NSViewController {
             guard let controller else {
                 return
             }
-            self?.cancelHover(for: controller)
+            self?.languageHoverController.hoverExited(for: controller)
         }
     }
 
@@ -2076,6 +2121,12 @@ final class WorkspaceViewController: NSViewController {
         }
         controller.onOpenLocalRelativePath = { [weak self, weak controller] relativePath in
             guard let self, let controller else {
+                return
+            }
+            guard let relativePath = WorkspaceLocalLinkResolver.relativePath(
+                for: relativePath,
+                root: self.identity.root
+            ) else {
                 return
             }
             self.sourceLoadTask?.cancel()
