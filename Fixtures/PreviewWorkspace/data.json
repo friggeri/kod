@@ -1,0 +1,30 @@
+{
+  "fixture": "JSON structured preview",
+  "version": 1,
+  "enabled": true,
+  "optionalValue": null,
+  "dimensions": {
+    "width": 640,
+    "height": 400,
+    "scale": 1.5
+  },
+  "palette": [
+    "#0f172a",
+    "#1d4ed8",
+    "#06b6d4",
+    "#f59e0b"
+  ],
+  "samples": [
+    {
+      "id": "alpha",
+      "format": "PNG",
+      "animated": false
+    },
+    {
+      "id": "motion",
+      "format": "GIF",
+      "animated": true
+    }
+  ],
+  "message": "Keys remain in source order and every scalar type is represented."
+}

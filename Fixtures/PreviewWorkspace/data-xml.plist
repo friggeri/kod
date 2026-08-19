@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+    <key>Fixture</key>
+    <string>XML property list preview</string>
+    <key>Version</key>
+    <integer>1</integer>
+    <key>Enabled</key>
+    <true/>
+    <key>Opacity</key>
+    <real>0.75</real>
+    <key>GeneratedAt</key>
+    <date>2026-08-19T17:28:04Z</date>
+    <key>Payload</key>
+    <data>S29kIHByZXZpZXcgZml4dHVyZQ==</data>
+    <key>Formats</key>
+    <array>
+        <string>PNG</string>
+        <string>JPEG</string>
+        <string>GIF</string>
+        <string>HEIC</string>
+        <string>TIFF</string>
+        <string>SVG</string>
+    </array>
+    <key>Metadata</key>
+    <dict>
+        <key>Width</key>
+        <integer>640</integer>
+        <key>Height</key>
+        <integer>400</integer>
+        <key>ReadOnly</key>
+        <true/>
+    </dict>
+</dict>
+</plist>

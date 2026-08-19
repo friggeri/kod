@@ -1,11 +1,11 @@
 import Foundation
 
-/// Why an SVG source was rejected before Kod would ever hand it to a
-/// renderer.
+/// Why an SVG source could not be safely presented.
 public enum SVGDiagnostic: Equatable, Sendable {
     case sourceTooLarge(byteCount: Int, limit: Int)
     case notSVG
     case noRootElement
+    case renderingFailed
 
     public var message: String {
         switch self {
@@ -15,6 +15,8 @@ public enum SVGDiagnostic: Equatable, Sendable {
             "Not a recognized SVG document (no <svg> root element)."
         case .noRootElement:
             "SVG document has no readable root <svg> element after sanitization."
+        case .renderingFailed:
+            "SVG document could not be rendered by the system image renderer."
         }
     }
 }

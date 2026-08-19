@@ -83,8 +83,8 @@ final class EditorTabRuntimeTests: XCTestCase {
             return "source"
         case .sourceWithPreview:
             return "sourceWithPreview"
-        case .imagePreview:
-            return "imagePreview"
+        case .previewOnly:
+            return "previewOnly"
         case .diff:
             return "diff"
         case .quickDiff:
@@ -155,18 +155,18 @@ final class EditorTabRuntimeTests: XCTestCase {
         XCTAssertEqual(runtime.previewSourceControlState, .showingPreview)
     }
 
-    func testImagePreviewRuntimeHasNoSourceSideAndIgnoresTheToggle() async throws {
-        let runtime = EditorTabRuntime(relativePath: "icon.png")
+    func testPreviewOnlyRuntimeHasNoSourceSideAndIgnoresTheToggle() async throws {
+        let runtime = EditorTabRuntime(relativePath: "data-binary.plist")
         let preview = try await makePreview()
 
-        XCTAssertTrue(runtime.showImagePreview(preview, kind: .image(.png)).isEmpty)
+        XCTAssertTrue(runtime.showPreviewOnly(preview, kind: .structuredData).isEmpty)
 
-        XCTAssertEqual(caseName(runtime.content), "imagePreview")
-        XCTAssertTrue(runtime.isImageOnly)
+        XCTAssertEqual(caseName(runtime.content), "previewOnly")
+        XCTAssertTrue(runtime.isPreviewOnly)
         XCTAssertTrue(runtime.displayedController === preview)
-        XCTAssertNil(runtime.sourceDocument, "binary image bytes have no source view at all")
+        XCTAssertNil(runtime.sourceDocument, "binary preview bytes have no source view at all")
         XCTAssertEqual(runtime.previewSourceControlState, .previewOnly)
-        XCTAssertEqual(runtime.statusDocument.contentKind, .image)
+        XCTAssertEqual(runtime.statusDocument.contentKind, .previewOnly)
         XCTAssertNil(runtime.statusDocument.metadataDocument)
 
         runtime.togglePrefersPreview()
@@ -175,13 +175,13 @@ final class EditorTabRuntimeTests: XCTestCase {
         XCTAssertEqual(runtime.previewSourceControlState, .previewOnly)
     }
 
-    func testImagePreviewReportsAnyDiscardedSourceDocumentClosed() async throws {
+    func testPreviewOnlyContentReportsAnyDiscardedSourceDocumentClosed() async throws {
         let runtime = EditorTabRuntime(relativePath: "icon.png")
         let document = makeDocument(path: "/workspace/icon.png")
         runtime.showSource(document)
         let preview = try await makePreview()
 
-        let discarded = runtime.showImagePreview(preview, kind: .image(.png))
+        let discarded = runtime.showPreviewOnly(preview, kind: .image(.png))
 
         XCTAssertEqual(discarded.count, 1)
         XCTAssertTrue(discarded.first === document)
@@ -423,8 +423,8 @@ final class EditorGroupTabRuntimeTests: XCTestCase {
             return "source"
         case .sourceWithPreview:
             return "sourceWithPreview"
-        case .imagePreview:
-            return "imagePreview"
+        case .previewOnly:
+            return "previewOnly"
         case .diff:
             return "diff"
         case .quickDiff:

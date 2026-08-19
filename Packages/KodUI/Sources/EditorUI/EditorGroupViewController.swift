@@ -228,6 +228,9 @@ public final class EditorGroupViewController: NSViewController {
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
 
         contentHost.translatesAutoresizingMaskIntoConstraints = false
+        contentHost.identifier = NSUserInterfaceItemIdentifier("editorGroup.contentHost")
+        contentHost.wantsLayer = true
+        contentHost.layer?.masksToBounds = true
         contentHost.setContentHuggingPriority(.defaultLow, for: .horizontal)
         contentHost.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         contentHost.addSubview(placeholderLabel)
@@ -236,8 +239,8 @@ public final class EditorGroupViewController: NSViewController {
             placeholderLabel.centerYAnchor.constraint(equalTo: contentHost.centerYAnchor)
         ])
 
-        container.addSubview(headerRow)
         container.addSubview(contentHost)
+        container.addSubview(headerRow, positioned: .above, relativeTo: contentHost)
         NSLayoutConstraint.activate([
             headerRow.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
             headerRow.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 6),
@@ -965,23 +968,18 @@ public final class EditorGroupViewController: NSViewController {
             } catch {
                 // `SourceSnapshotLoader` only ever throws here for a file
                 // that is not valid text (SPEC 11.4) — which is exactly
-                // what a PNG/JPEG/GIF/HEIC/TIFF/SVG image is. Recover by
-                // reading its raw bytes and, if they are a recognized
-                // image format, showing the SPEC 10.2 image preview
+                // what a raster image or binary property list is. Recover
+                // by reading its raw bytes and building a preview-only tab
                 // instead of leaving the content host blank.
-                await self.tryShowImagePreviewAfterSnapshotFailure(runtime: runtime, tabID: tabID)
+                await self.tryShowPreviewAfterSnapshotFailure(runtime: runtime, tabID: tabID)
             }
         }
     }
 
-    /// Recovery path for `loadAndShow`'s snapshot-load failure: reads the
-    /// tab's raw bytes independent of any text-decoding requirement, and —
-    /// only if they are a recognized image format — builds and shows an
-    /// image-only preview tab with no `CodeDocumentViewController` at all
-    /// (there is no meaningful "Source" view for binary image bytes). Any
-    /// other failure (a genuinely unsupported/corrupt file) leaves the
-    /// content host untouched, exactly as before this method existed.
-    private func tryShowImagePreviewAfterSnapshotFailure(
+    /// Recovery path for `loadAndShow`'s snapshot-load failure: reads raw
+    /// bytes independent of text decoding and builds a preview-only tab for
+    /// formats that are meaningful without a textual source side.
+    private func tryShowPreviewAfterSnapshotFailure(
         runtime: EditorTabRuntime,
         tabID: EditorTabID
     ) async {
@@ -996,7 +994,10 @@ public final class EditorGroupViewController: NSViewController {
             pathExtension: (relativePath as NSString).pathExtension,
             contentPrefix: data.prefix(4_096)
         )
-        guard case .image = kind else {
+        switch kind {
+        case .image, .structuredData:
+            break
+        case .markdown, .none:
             return
         }
         guard let preview = await PreviewViewController.make(
@@ -1014,7 +1015,7 @@ public final class EditorGroupViewController: NSViewController {
             return
         }
         notifyDocumentsClosed(
-            runtime.showImagePreview(preview, kind: kind),
+            runtime.showPreviewOnly(preview, kind: kind),
             path: relativePath
         )
         if state.selectedTabID == tabID {
@@ -1023,11 +1024,9 @@ public final class EditorGroupViewController: NSViewController {
         }
     }
 
-    /// Detects the tab's `PreviewKind` from `snapshot`'s already-decoded
-    /// bytes (text-based formats only — Markdown and JSON/plist are always
-    /// valid UTF-8, so they load through the normal `SourceSnapshot` path
-    /// with no special-casing) and hands the build to the runtime, which
-    /// owns the task and the generation that invalidates it. A
+    /// Detects the tab's `PreviewKind` from a text snapshot (Markdown, JSON,
+    /// XML plist, or SVG) and hands the build to the runtime. Binary images
+    /// and binary plists take the raw-data recovery path above instead. A
     /// newly-detected previewable tab defaults into preview mode (SPEC 10:
     /// previewing is the point of this feature); for content that is not a
     /// recognized preview format the runtime simply keeps showing source.
@@ -1077,7 +1076,7 @@ public final class EditorGroupViewController: NSViewController {
     public func togglePreviewSource(_ sender: Any?) {
         guard let tabID = state.selectedTabID,
               let runtime = runtimes[tabID],
-              !runtime.isImageOnly else {
+              !runtime.isPreviewOnly else {
             return
         }
         runtime.togglePrefersPreview()
@@ -1113,7 +1112,7 @@ public final class EditorGroupViewController: NSViewController {
             return .source
         case .sourceWithPreview:
             return runtime.prefersPreview ? .preview : .source
-        case .imagePreview:
+        case .previewOnly:
             return .preview
         case .diff:
             return .diff
@@ -1141,15 +1140,10 @@ public final class EditorGroupViewController: NSViewController {
         runtimes[tabID]?.previewKind
     }
 
-    /// Opens `relativePath` as a preview-only image tab (SPEC 10.2),
-    /// creating the tab if it does not already exist. Used by
-    /// `WorkspaceViewController` when `SourceSnapshotLoader` has already
-    /// failed for this path with `.unsupportedEncoding` (SPEC 11.4: not
-    /// valid UTF-8 text) and its raw bytes turned out to be a recognized
-    /// image format — this is the one path that lets an image Explorer/
-    /// Quick-Open click actually show something instead of the silent
-    /// no-op that error previously produced.
-    public func openImagePreviewTab(
+    /// Opens `relativePath` as a preview-only tab, creating it if needed.
+    /// Used when source decoding fails but raw bytes identify a supported
+    /// image or binary property list.
+    public func openPreviewOnlyTab(
         relativePath: String,
         pinned: Bool,
         kind: PreviewKind,
@@ -1163,7 +1157,7 @@ public final class EditorGroupViewController: NSViewController {
         }
         let runtime = runtimes.runtime(for: tabID, relativePath: relativePath)
         notifyDocumentsClosed(
-            runtime.showImagePreview(preview, kind: kind),
+            runtime.showPreviewOnly(preview, kind: kind),
             path: runtime.relativePath
         )
         state.selectedTabID = tabID

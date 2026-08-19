@@ -137,7 +137,7 @@ final class EditorGroupPreviewIntegrationTests: XCTestCase {
         initialState.selectedTabID = tabID
 
         let controller = EditorGroupViewController(groupID: EditorGroupID(), state: initialState)
-        let imageData = try EditorPreviewTestImageFixture.makePNG(width: 6, height: 6)
+        let imageData = try EditorPreviewTestImageFixture.makePNG(width: 640, height: 400)
         controller.loadSnapshot = { _ in
             // A PNG is not valid UTF-8 text; `SourceSnapshotLoader` would
             // genuinely throw `.unsupportedEncoding` here in production —
@@ -152,10 +152,58 @@ final class EditorGroupPreviewIntegrationTests: XCTestCase {
         host(controller) // triggers viewDidLoad -> restoreIfNeeded -> loadAndShow
 
         try await waitUntil { controller.previewController(forTabID: tabID) != nil }
+        controller.view.window?.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(controller.displayedContentKind(forTabID: tabID), .preview)
         XCTAssertEqual(controller.previewKind(forTabID: tabID), .image(.png))
         XCTAssertNil(controller.currentDocumentController, "a binary image tab must never get a CodeDocumentViewController")
+
+        let tabBar = try XCTUnwrap(findView(identifier: "editorGroup.tabBar", in: controller.view))
+        let header = try XCTUnwrap(findView(identifier: "editorGroup.header", in: controller.view))
+        let contentHost = try XCTUnwrap(findView(identifier: "editorGroup.contentHost", in: controller.view))
+        let tabTitle = try XCTUnwrap(findView(identifier: "tab.title.icon.png", in: controller.view))
+        let preview = try XCTUnwrap(controller.previewController(forTabID: tabID))
+        let tabBarFrame = tabBar.convert(tabBar.bounds, to: controller.view)
+        let previewFrame = preview.view.convert(preview.view.bounds, to: controller.view)
+        let contentHostIndex = try XCTUnwrap(controller.view.subviews.firstIndex { $0 === contentHost })
+        let headerIndex = try XCTUnwrap(controller.view.subviews.firstIndex { $0 === header })
+        XCTAssertEqual(tabBarFrame.height, 32, accuracy: 0.5)
+        XCTAssertFalse(tabTitle.isHidden)
+        XCTAssertTrue(contentHost.layer?.masksToBounds == true)
+        XCTAssertGreaterThan(headerIndex, contentHostIndex, "the tab rail must composite above preview content")
+        XCTAssertTrue(
+            tabBarFrame.intersection(previewFrame).isEmpty,
+            "image preview content must stay below the tab rail"
+        )
+    }
+
+    func testBinaryPlistOpensAsPreviewOnlyTabViaRawDataFallback() async throws {
+        var initialState = EditorGroupState()
+        let tabID = initialState.openTab(relativePath: "data-binary.plist", pinned: true)
+        initialState.selectedTabID = tabID
+
+        let controller = EditorGroupViewController(groupID: EditorGroupID(), state: initialState)
+        let plistData = try PropertyListSerialization.data(
+            fromPropertyList: ["Name": "Kod", "Enabled": true],
+            format: .binary,
+            options: 0
+        )
+        controller.loadSnapshot = { _ in
+            throw SourceIOError.unsupportedEncoding(
+                URL(fileURLWithPath: "/workspace/data-binary.plist")
+            )
+        }
+        controller.loadRawData = { _ in plistData }
+        host(controller)
+
+        try await waitUntil { controller.previewController(forTabID: tabID) != nil }
+
+        XCTAssertEqual(controller.displayedContentKind(forTabID: tabID), .preview)
+        XCTAssertEqual(controller.previewKind(forTabID: tabID), .structuredData)
+        XCTAssertNotNil(controller.previewController(forTabID: tabID)?.structuredDataController)
+        XCTAssertNil(controller.currentDocumentController)
+        XCTAssertEqual(controller.previewSourceControlState, .previewOnly)
     }
 
     // MARK: - Helpers

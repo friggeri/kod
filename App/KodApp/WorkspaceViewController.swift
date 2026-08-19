@@ -2268,11 +2268,8 @@ final class WorkspaceViewController: NSViewController {
         session.persistLayout(layoutState)
     }
 
-    /// Reads a workspace-relative path's raw bytes, independent of
-    /// `SourceSnapshot`'s text-decoding requirement — used only for
-    /// SPEC 10.2 image previews (a PNG/JPEG/GIF/HEIC/TIFF file is not
-    /// valid UTF-8 text, so `SourceSnapshotLoader` correctly refuses to
-    /// load one at all).
+    /// Reads a workspace-relative path's raw bytes independently of
+    /// `SourceSnapshot` text decoding, for image and binary-plist previews.
     private func loadRawFileData(relativePath: String) async throws -> Data {
         let url = identity.root.appendingPathComponent(relativePath)
         return try await Task.detached(priority: .userInitiated) {
@@ -2280,12 +2277,10 @@ final class WorkspaceViewController: NSViewController {
         }.value
     }
 
-    /// Attempts to build a SPEC 10.2 image preview for `relativePath`
-    /// from its raw bytes, returning `nil` if the bytes are not a
-    /// recognized image format (or cannot be read at all) — the caller's
-    /// recovery path for a `SourceSnapshotLoader` failure, never called
-    /// speculatively for a file that already loaded as text.
-    private func tryMakeImagePreview(forRelativePath relativePath: String) async -> PreviewViewController? {
+    /// Attempts to build a preview directly from raw bytes after source
+    /// decoding failed. Only formats with a meaningful preview-only mode
+    /// (images and structured data such as binary plists) are admitted.
+    private func tryMakePreviewOnly(forRelativePath relativePath: String) async -> PreviewViewController? {
         guard let data = try? await loadRawFileData(relativePath: relativePath) else {
             return nil
         }
@@ -2293,7 +2288,10 @@ final class WorkspaceViewController: NSViewController {
             pathExtension: (relativePath as NSString).pathExtension,
             contentPrefix: data.prefix(4_096)
         )
-        guard case .image = kind else {
+        switch kind {
+        case .image, .structuredData:
+            break
+        case .markdown, .none:
             return nil
         }
         return await PreviewViewController.make(
@@ -2990,11 +2988,10 @@ final class WorkspaceViewController: NSViewController {
                 }
                 // `SourceSnapshotLoader` only ever throws here for a file
                 // that is not valid text (SPEC 11.4) — recover by reading
-                // its raw bytes and, if they are a recognized image
-                // format (SPEC 10.2), showing the built-in image preview
+                // its raw bytes and showing a supported preview-only format
                 // instead of an error alert.
-                if let preview = await self.tryMakeImagePreview(forRelativePath: entry.relativePath) {
-                    groupController.openImagePreviewTab(
+                if let preview = await self.tryMakePreviewOnly(forRelativePath: entry.relativePath) {
+                    groupController.openPreviewOnlyTab(
                         relativePath: entry.relativePath,
                         pinned: true,
                         kind: preview.kind,

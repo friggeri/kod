@@ -12,7 +12,7 @@ public struct EditorStatusDocument {
         case loading
         case source
         case preview
-        case image
+        case previewOnly
         case diff
         case quickDiff
         case tombstone
@@ -42,7 +42,7 @@ public struct EditorStatusDocument {
 /// controller map, a preview map, a full-diff map, two quick-diff maps, a
 /// detected-kind map, and "is in preview mode"/"is image-only" ID sets).
 /// Every state a tab can be in is one case here, so an impossible
-/// combination — a quick diff with no document, an image preview that also
+/// combination — a quick diff with no document, a preview-only tab that also
 /// claims a source view, a tombstone still holding live content — cannot be
 /// represented at all.
 @MainActor
@@ -67,9 +67,9 @@ enum EditorTabContent {
     case loading
     case source(CodeDocumentViewController)
     case sourceWithPreview(document: CodeDocumentViewController, preview: PreviewViewController)
-    /// SPEC 10.2: raw image bytes are not valid UTF-8 text, so there is no
-    /// `CodeDocumentViewController` and no meaningful "Source" side at all.
-    case imagePreview(PreviewViewController)
+    /// Raw image and binary-plist bytes are not valid UTF-8 text, so there is
+    /// no `CodeDocumentViewController` and no meaningful "Source" side.
+    case previewOnly(PreviewViewController)
     /// A full-file Git diff layered over the source view it was opened
     /// from. The source is retained rather than discarded so returning to
     /// it neither reloads the file nor makes the language service churn
@@ -108,7 +108,7 @@ extension EditorTabContent {
             return SourceSide(document: document, preview: preview)
         case .diff(_, let retainedSource), .quickDiff(_, _, let retainedSource):
             return retainedSource
-        case .loading, .imagePreview, .tombstone:
+        case .loading, .previewOnly, .tombstone:
             return nil
         }
     }
@@ -122,14 +122,14 @@ extension EditorTabContent {
             return document
         case .sourceWithPreview(let document, _):
             return document
-        case .loading, .imagePreview, .diff, .quickDiff, .tombstone:
+        case .loading, .previewOnly, .diff, .quickDiff, .tombstone:
             return nil
         }
     }
 
     var preview: PreviewViewController? {
         switch self {
-        case .sourceWithPreview(_, let preview), .imagePreview(let preview):
+        case .sourceWithPreview(_, let preview), .previewOnly(let preview):
             return preview
         case .diff(_, let retainedSource), .quickDiff(_, _, let retainedSource):
             return retainedSource?.preview
@@ -182,7 +182,7 @@ extension EditorTabContent {
             return .diff(controller, retainedSource: side)
         case .quickDiff(let document, let controller, _):
             return .quickDiff(document: document, controller: controller, retainedSource: side)
-        case .loading, .source, .sourceWithPreview, .imagePreview, .tombstone:
+        case .loading, .source, .sourceWithPreview, .previewOnly, .tombstone:
             guard let side else {
                 return .loading
             }
@@ -245,7 +245,7 @@ final class EditorTabRuntime {
             return document
         case .sourceWithPreview(let document, let preview):
             return prefersPreview ? preview : document
-        case .imagePreview(let preview):
+        case .previewOnly(let preview):
             return preview
         case .diff(let controller, _):
             return controller
@@ -316,10 +316,10 @@ final class EditorTabRuntime {
                 metadataDocument: document,
                 cursorDocument: prefersPreview ? nil : document
             )
-        case .imagePreview:
+        case .previewOnly:
             return EditorStatusDocument(
                 relativePath: relativePath,
-                contentKind: .image,
+                contentKind: .previewOnly,
                 metadataDocument: nil,
                 cursorDocument: nil
             )
@@ -351,10 +351,9 @@ final class EditorTabRuntime {
         content.quickDiffController != nil
     }
 
-    /// Whether this tab has no source side at all and can only ever show its
-    /// preview (SPEC 10.2 images).
-    var isImageOnly: Bool {
-        guard case .imagePreview = content else {
+    /// Whether this tab has no source side at all and can only show a preview.
+    var isPreviewOnly: Bool {
+        guard case .previewOnly = content else {
             return false
         }
         return true
@@ -378,7 +377,7 @@ final class EditorTabRuntime {
         switch content {
         case .diff, .quickDiff:
             return .unavailable
-        case .imagePreview:
+        case .previewOnly:
             return .previewOnly
         case .loading, .tombstone, .source, .sourceWithPreview:
             guard content.preview != nil else {
@@ -476,12 +475,13 @@ final class EditorTabRuntime {
         )
     }
 
-    /// Replaces this tab's content with a preview-only image (SPEC 10.2).
+    /// Replaces this tab's content with a preview built directly from raw
+    /// bytes (an image or binary property list).
     /// Any source view is genuinely discarded here — a file whose bytes are
     /// no longer text has no source side — so it is returned for closing.
     @discardableResult
-    func showImagePreview(_ preview: PreviewViewController, kind: PreviewKind) -> [CodeDocumentViewController] {
-        let discarded = transition(to: .imagePreview(preview))
+    func showPreviewOnly(_ preview: PreviewViewController, kind: PreviewKind) -> [CodeDocumentViewController] {
+        let discarded = transition(to: .previewOnly(preview))
         previewKind = kind
         prefersPreview = true
         return discarded
@@ -610,7 +610,7 @@ final class EditorTabRuntime {
     /// Flips between the preview and source sides (SPEC 5.7). A no-op for a
     /// tab that can only ever show a preview.
     func togglePrefersPreview() {
-        guard !isImageOnly else {
+        guard !isPreviewOnly else {
             return
         }
         prefersPreview.toggle()
