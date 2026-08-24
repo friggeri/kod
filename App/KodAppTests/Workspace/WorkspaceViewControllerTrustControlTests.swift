@@ -383,16 +383,6 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         try await waitForPromptUpdate()
         XCTAssertFalse(banner.isHidden)
 
-        service.beginEditingProfile(identifier: "shellscript")
-        var unresolvedDraft = try XCTUnwrap(service.requestedProfileDraft)
-        unresolvedDraft.displayName = "Shell Scripts"
-        _ = try service.save(draft: unresolvedDraft)
-        try await waitForPromptUpdate()
-        XCTAssertFalse(
-            banner.isHidden,
-            "Editing a profile without resolving its missing server must keep the prompt visible"
-        )
-
         let findServerButton = try XCTUnwrap(
             findView(
                 identifier: "workspace.missingLanguageServer.findServer",
@@ -674,89 +664,6 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         XCTAssertTrue(tooltip.contains("Markdown"))
     }
 
-    func testMissingServerBannerFallsBackToTheDirectoryForACustomProfile() async throws {
-        let repository = makeRepository()
-        let overrideStore = LanguageServerOverrideStore(
-            repository: repository
-        )
-        let profileStore = try LanguageProfileStore(
-            defaultProfiles: [],
-            repository: repository,
-            overrideStore: overrideStore
-        )
-        let service = LanguageSupportService(
-            profileStore: profileStore,
-            overrideStore: overrideStore,
-            discovery: { profile, _ in
-                throw LanguageServerDiscoveryError.notFound(
-                    languageName: profile.displayName,
-                    attemptedSources: []
-                )
-            }
-        )
-        var customProfile = LanguageProfile(
-            identifier: "custom-widget",
-            displayName: "Widget",
-            origin: .custom,
-            defaultRevision: 1,
-            associations: [
-                LanguageFileAssociation(
-                    identifier: "files",
-                    fileExtensions: ["widget"],
-                    syntax: .plainText
-                )
-            ],
-            languageServer: LanguageServerConfiguration(
-                defaultLanguageID: "widget",
-                executableCandidates: [
-                    LanguageServerExecutableCandidate(
-                        identifier: "widget-lsp",
-                        executableNames: ["widget-lsp"],
-                        arguments: []
-                    )
-                ]
-            )
-        )
-        customProfile = try profileStore.createCustomProfile(customProfile)
-
-        let (controller, trustStore, _, _) = try makeFixture(
-            languageSupportService: service
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentViewController = controller
-        controller.viewDidAppear()
-        try trustStore.trust(controller.identity)
-
-        controller.multiLanguageServicesCoordinator.onMissingServer?(
-            customProfile
-        )
-        try await waitForPromptUpdate()
-
-        let banner = try XCTUnwrap(
-            findView(
-                identifier: "workspace.missingLanguageServerBanner",
-                in: controller.view
-            )
-        )
-        XCTAssertFalse(banner.isHidden)
-
-        // A custom profile can never resolve shipped installation
-        // guidance (even if it reused a default-sounding identifier), so
-        // the banner keeps the generic public LSP directory fallback.
-        let findServerButton = try XCTUnwrap(
-            findView(
-                identifier: "workspace.missingLanguageServer.findServer",
-                in: controller.view
-            ) as? NSButton
-        )
-        XCTAssertEqual(findServerButton.title, "Find a Server...")
-    }
-
     func testRevokingTrustDuringServerDiscoveryDoesNotShowAStalePrompt() async throws {
         let repository = makeRepository()
         let overrideStore = LanguageServerOverrideStore(
@@ -807,7 +714,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         XCTAssertTrue(banner.isHidden)
     }
 
-    func testUnknownExtensionPromptCreatesAPrefilledCustomProfile() async throws {
+    func testUnknownExtensionPromptOffersAContextualLanguageRequest() async throws {
         let repository = makeRepository()
         let overrideStore = LanguageServerOverrideStore(
             repository: repository
@@ -860,38 +767,23 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
                 in: controller.view
             ) as? NSButton
         )
-        XCTAssertEqual(chooseButton.title, "Add Profile...")
+        XCTAssertEqual(chooseButton.title, "Request Language...")
 
-        // An unknown file extension has no profile at all (default or
-        // custom), so it must always keep the generic public LSP
-        // directory fallback rather than "Installation Help...".
         let findServerButton = try XCTUnwrap(
             findView(
                 identifier: "workspace.missingLanguageServer.findServer",
                 in: controller.view
             ) as? NSButton
         )
-        XCTAssertEqual(findServerButton.title, "Find a Server...")
-
-        chooseButton.performClick(nil)
-
-        let draft = try XCTUnwrap(service.requestedProfileDraft)
-        XCTAssertEqual(draft.displayName, "WIDGET")
-        XCTAssertEqual(draft.associations.count, 1)
-        XCTAssertEqual(draft.associations[0].fileExtensions, "widget")
-        XCTAssertNil(draft.associations[0].syntaxLanguage)
-        XCTAssertFalse(draft.languageServerEnabled)
-        XCTAssertFalse(
-            banner.isHidden,
-            "Opening Settings must not dismiss an unresolved prompt"
+        XCTAssertTrue(findServerButton.isHidden)
+        let settingsButton = try XCTUnwrap(
+            findView(
+                identifier: "workspace.missingLanguageServer.openSettings",
+                in: controller.view
+            ) as? NSButton
         )
-
-        _ = try service.save(draft: draft)
-        try await waitForPromptUpdate()
-        XCTAssertTrue(
-            banner.isHidden,
-            "Saving a matching profile resolves the unknown-file prompt"
-        )
+        XCTAssertTrue(settingsButton.isHidden)
+        XCTAssertFalse(banner.isHidden)
     }
 
     func testPreviewSourceControlLivesInFixedWindowToolbarSlot() async throws {

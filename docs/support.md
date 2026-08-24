@@ -1,30 +1,18 @@
 # Support
 
-## Getting a support bundle
+## Collecting support information
 
-If you run into a problem with Kod and want to file an issue or ask for
-help, the most useful thing you can attach is a support bundle:
+The current Settings window does not expose the internal diagnostics log or
+support-bundle export. When filing an issue, include the Kod version/build,
+macOS version, workspace trust state, steps to reproduce, and any visible
+status or error text. For a crash, attach the standard macOS crash report
+described below.
 
-1. Open **Kod → Settings… → Diagnostics**.
-2. Review the bounded, redacted event log shown there — it lists recent
-   background-subsystem events (language server, Git, search, preview)
-   with severity, subsystem, and a redacted message.
-   If more events occurred than the log's bounded capacity, a "N events
-   dropped" indicator is shown so you know the log is not silently
-   incomplete.
-3. Click **Export Support Bundle…** and choose where to save it.
-
-The resulting file is a single JSON document containing:
-
-- An app/OS/architecture manifest.
-- The redacted event log (see [privacy.md](privacy.md) for exactly what
-  is redacted and how).
-- A summary of any corrupted-and-rebuilt settings/theme/layout metadata
-  (see "Corrupt settings recovery" below) — the fact that something was
-  reset, and why, but never the corrupt bytes themselves.
-
-It never contains source file contents, your repository's contents, or
-anything from outside Kod's own external metadata.
+Kod still keeps its bounded, redacted runtime event log internally, and
+`DiagnosticsCore` retains the support-bundle generator and redaction rules
+documented in [privacy.md](privacy.md). Removing the Settings screen does not
+weaken those runtime privacy boundaries or delete previously persisted
+crash-reporting preferences.
 
 ## Corrupt settings recovery
 
@@ -33,9 +21,9 @@ layout state outside your repository (never inside it). If any of that
 stored metadata becomes corrupted (e.g. from an interrupted write or a
 future Kod version's incompatible format), Kod does not silently ignore
 it and does not keep failing to load it on every subsequent launch:
-the corrupt data is removed so Kod can rebuild fresh defaults
-immediately, and a record (which setting, when, why — never the corrupt
-bytes) is kept for the support bundle above.
+the corrupt data is removed so Kod can rebuild fresh defaults immediately,
+and a diagnostic record (which setting, when, why — never the corrupt bytes)
+is retained outside the workspace.
 
 ## Crash reports
 
@@ -49,9 +37,8 @@ transmit it.
 
 ## Language support
 
-Open **Kod → Settings… → Languages** to inspect the active language server's
-absolute path, version, source, fixed arguments, architecture, runtime
-dependency, and schema-network behavior.
+Open **Kod → Settings…**, browse the Languages section in the permanent
+sidebar, and select a language to inspect its server status and Command.
 
 Syntax highlighting is bundled independently. Language-server executables are
 not bundled in current builds, so an `LSP missing` status does not mean that
@@ -61,21 +48,15 @@ If a server is missing:
 
 1. Trust the workspace if you want language intelligence; syntax highlighting
    remains available without trust.
-2. Use **Choose Executable…** to select a local executable you installed,
-   or **Use Auto-Detected** to return to profile candidate discovery.
-3. For a default (non-custom) profile, Settings may show a **Suggested
-   Installation** area with the exact command for that server (e.g. `npm
-   install -g pyright`), a **Copy … Command** button, and a link to that
-   server's official installation documentation. Kod only copies the command
-   text to the pasteboard and never runs a package manager, shell command,
-   update, or removal on your behalf — you always run the copied command
-   yourself. The same known-server case changes the workspace missing-server
-   banner's action to **Installation Help…**, opening that documentation
-   directly.
-4. Otherwise, use **Find a Language Server…** to open the public LSP
-   implementors directory. Kod does not install or endorse listed servers.
-5. Check **Kod → Settings… → Diagnostics** for bounded server stderr and
-   lifecycle events if launch still fails.
+2. Select the affected language and enter the executable plus arguments in its
+   **Command** field. The executable must be an absolute local executable path.
+   Clear the field to return to automatic discovery.
+3. Use the selected language's **Installation** section to copy a supported
+   install command or open the official guide. **Installation Help…** in the
+   workspace missing-server banner opens the same documentation. Kod never
+   runs a package manager, shell command, update, or removal on your behalf.
+4. If launch still fails, include the displayed server state and error text
+   in the issue.
 
 Shell intelligence works without ShellCheck, but lint diagnostics are more
 limited when ShellCheck is absent. Kod does not silently install ShellCheck.
@@ -102,10 +83,8 @@ Please include:
 
 - Your macOS version and Kod version/build.
 - Whether the workspace involved was trusted or untrusted.
-- A support bundle (see above), if the issue is reproducible.
+- Any visible status or error text relevant to the failure.
 - Steps to reproduce.
 
-Do not include actual source file contents from a private repository in
-a public issue; the support bundle deliberately never contains any, so
-there is no need to manually attach source snippets unless you choose to
-for your own diagnostic purposes.
+Do not include actual source file contents from a private repository in a
+public issue unless you deliberately choose to share a minimal reproducer.

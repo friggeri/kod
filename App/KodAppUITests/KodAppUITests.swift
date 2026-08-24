@@ -25,6 +25,142 @@ final class KodAppUITests: XCTestCase {
         XCTAssertTrue(openFile.isEnabled)
     }
 
+    func testSettingsSidebarNavigatesBetweenFontAndLanguages() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.windows["Kod"].waitForExistence(timeout: 5))
+
+        app.typeKey(",", modifierFlags: .command)
+
+        let settingsWindow = app.windows["settings.window"]
+        XCTAssertTrue(
+            settingsWindow.waitForExistence(timeout: 5),
+            app.debugDescription
+        )
+
+        XCTAssertFalse(
+            settingsWindow.searchFields[
+                "settings.languageSupport.search"
+            ].exists
+        )
+        let cRow = settingsWindow.descendants(matching: .any)[
+            "settings.languageSupport.c.row"
+        ]
+        XCTAssertTrue(cRow.waitForExistence(timeout: 5))
+        cRow.click()
+        XCTAssertTrue(
+            settingsWindow.staticTexts["Status"]
+                .waitForExistence(timeout: 5),
+            settingsWindow.debugDescription
+        )
+        XCTAssertFalse(settingsWindow.buttons["Toggle Sidebar"].exists)
+
+        let fontRow = settingsWindow.descendants(matching: .any)[
+            "settings.font.row"
+        ]
+        XCTAssertTrue(fontRow.waitForExistence(timeout: 5))
+        fontRow.click()
+        XCTAssertTrue(
+            settingsWindow.descendants(matching: .any)["settings.ligatures"]
+                .waitForExistence(timeout: 5),
+            settingsWindow.debugDescription
+        )
+        let fontSizeStepper = settingsWindow.steppers["Font size"]
+        XCTAssertTrue(fontSizeStepper.waitForExistence(timeout: 5))
+        let initialFontSize = String(describing: fontSizeStepper.value)
+        let increment = fontSizeStepper.descendants(
+            matching: .incrementArrow
+        ).firstMatch
+        let decrement = fontSizeStepper.descendants(
+            matching: .decrementArrow
+        ).firstMatch
+        XCTAssertTrue(increment.exists)
+        XCTAssertTrue(decrement.exists)
+        let changingArrow = increment.isEnabled ? increment : decrement
+        let restoringArrow = increment.isEnabled ? decrement : increment
+        changingArrow.click()
+        let fontSizeChanged = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                String(describing: fontSizeStepper.value) != initialFontSize
+            },
+            object: nil
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [fontSizeChanged], timeout: 2),
+            .completed
+        )
+        restoringArrow.click()
+        XCTAssertFalse(settingsWindow.radioButtons["Font"].exists)
+        XCTAssertFalse(settingsWindow.radioButtons["Languages"].exists)
+        XCTAssertFalse(settingsWindow.radioButtons["Diagnostics"].exists)
+    }
+
+    func testLanguageSidebarShowsStatusAndSelectionWithoutSearch() {
+        let app = XCUIApplication()
+        app.launch()
+        app.typeKey(",", modifierFlags: .command)
+
+        let settingsWindow = app.windows["settings.window"]
+        XCTAssertTrue(
+            settingsWindow.waitForExistence(timeout: 5),
+            app.debugDescription
+        )
+
+        XCTAssertFalse(
+            settingsWindow.searchFields[
+                "settings.languageSupport.search"
+            ].exists
+        )
+        let cRow = settingsWindow.descendants(matching: .any)[
+            "settings.languageSupport.c.row"
+        ]
+        XCTAssertTrue(cRow.waitForExistence(timeout: 5))
+        cRow.click()
+        XCTAssertTrue(
+            settingsWindow.staticTexts["Status"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            settingsWindow.descendants(matching: .any)[
+                "settings.languageSupport.css.row"
+            ].waitForExistence(timeout: 5)
+        )
+    }
+
+    func testLanguageDetailContainsOnlyServerConfiguration() {
+        let app = XCUIApplication()
+        app.launch()
+        app.typeKey(",", modifierFlags: .command)
+
+        let settingsWindow = app.windows["settings.window"]
+        XCTAssertTrue(settingsWindow.waitForExistence(timeout: 5))
+        let cRow = settingsWindow.descendants(matching: .any)[
+            "settings.languageSupport.c.row"
+        ]
+        XCTAssertTrue(cRow.waitForExistence(timeout: 5))
+        cRow.click()
+
+        XCTAssertTrue(
+            settingsWindow.staticTexts["Status"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertFalse(
+            settingsWindow.buttons[
+                "settings.languageSupport.editFileTypes"
+            ].exists
+        )
+        XCTAssertFalse(
+            settingsWindow.checkBoxes[
+                "settings.languageSupport.serverEnabled"
+            ].exists
+        )
+        let command = settingsWindow.textFields[
+            "settings.languageSupport.command"
+        ]
+        XCTAssertTrue(command.exists, settingsWindow.debugDescription)
+        XCTAssertEqual(command.label, "Command")
+    }
+
     func testOpeningAndTypingNeverChangesSourceFile() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

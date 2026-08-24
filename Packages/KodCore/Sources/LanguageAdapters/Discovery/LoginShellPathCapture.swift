@@ -24,42 +24,19 @@ public enum LoginShellPathCapture {
             return nil
         }
 
-        let process = Process()
-        process.executableURL = shellURL
-        // Fixed, constant command text Kod authors and ships — never
-        // interpolated from any external source.
-        process.arguments = ["-l", "-i", "-c", "printf '%s%s%s' '\(beginMarker)' \"$PATH\" '\(endMarker)'"]
-        let stdoutPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
+        guard let result = BoundedProcessProbe.run(
+            executableURL: shellURL,
+            arguments: [
+                "-l",
+                "-i",
+                "-c",
+                "printf '%s%s%s' '\(beginMarker)' \"$PATH\" '\(endMarker)'"
+            ],
+            timeout: timeout
+        ), result.exitStatus == 0 else {
             return nil
         }
-
-        // A dedicated `Thread` (not `DispatchQueue.global()`) races the
-        // wait against `timeout`: the login shell can legitimately be
-        // slow (network-mounted home directories, heavy rc-file
-        // plugins), so this keeps the timeout safety net, but avoids
-        // relying on Swift's shared concurrent dispatch queue, which
-        // can itself be saturated under heavy parallel process/test
-        // load and make a fixed timeout here flaky rather than
-        // protective.
-        let didFinish = DispatchSemaphore(value: 0)
-        Thread.detachNewThread {
-            process.waitUntilExit()
-            didFinish.signal()
-        }
-        guard didFinish.wait(timeout: .now() + timeout) == .success else {
-            process.terminate()
-            return nil
-        }
-
-        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(decoding: data, as: UTF8.self)
+        let output = String(decoding: result.output, as: UTF8.self)
         guard let beginRange = output.range(of: beginMarker),
               let endRange = output.range(of: endMarker, range: beginRange.upperBound..<output.endIndex) else {
             return nil

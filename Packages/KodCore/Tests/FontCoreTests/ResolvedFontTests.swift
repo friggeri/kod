@@ -34,6 +34,11 @@ final class ResolvedFontTests: XCTestCase {
         XCTAssertEqual(FontResolver.resolve(offSettings).ligatureAttributeValue, 0)
     }
 
+    func testResolverLeavesGlyphFallbackToTheSystem() {
+        let resolved = FontResolver.resolve(FontSettings(familyName: "Menlo"))
+        XCTAssertNil(resolved.nsFont.fontDescriptor.object(forKey: .cascadeList))
+    }
+
     func testDiscoveryReturnsKnownMonospacedFamilies() {
         let families = MonospacedFontDiscovery.availableMonospacedFamilies()
         XCTAssertTrue(families.contains("Menlo") || families.contains("Monaco"))

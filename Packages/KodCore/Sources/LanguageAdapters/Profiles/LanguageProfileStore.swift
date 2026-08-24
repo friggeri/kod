@@ -11,9 +11,7 @@ public enum LanguageProfileStoreError: Error, Sendable, Equatable {
     case duplicateProfileIdentifier(String)
     case profileNotFound(String)
     case defaultProfileExpected(String)
-    case customProfileExpected(String)
     case immutableIdentity
-    case modificationOrderExhausted
 }
 
 extension LanguageProfileStoreError: LocalizedError {
@@ -25,12 +23,8 @@ extension LanguageProfileStoreError: LocalizedError {
             "Language profile \(identifier) was not found."
         case .defaultProfileExpected(let identifier):
             "Language profile \(identifier) is not a default profile."
-        case .customProfileExpected(let identifier):
-            "Language profile \(identifier) is not a custom profile."
         case .immutableIdentity:
             "A language profile's identifier, origin, and default revision cannot be changed."
-        case .modificationOrderExhausted:
-            "Language profile modification ordering is exhausted."
         }
     }
 }
@@ -41,7 +35,7 @@ private struct PersistedLanguageProfileRecord: Codable, Sendable {
 }
 
 private struct PersistedLanguageProfileState: Codable, Sendable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 3
 
     var schemaVersion: Int
     var nextModifiedOrder: UInt64
@@ -68,14 +62,21 @@ private struct PersistedLanguageProfileState: Codable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
-        guard schemaVersion == Self.currentSchemaVersion else {
+        let decodedSchemaVersion = try container.decode(
+            Int.self,
+            forKey: .schemaVersion
+        )
+        guard (1...Self.currentSchemaVersion).contains(
+            decodedSchemaVersion
+        ) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .schemaVersion,
                 in: container,
-                debugDescription: "Unsupported language profile schema version \(schemaVersion)"
+                debugDescription:
+                    "Unsupported language profile schema version \(decodedSchemaVersion)"
             )
         }
+        schemaVersion = Self.currentSchemaVersion
         nextModifiedOrder = try container.decode(
             UInt64.self,
             forKey: .nextModifiedOrder
@@ -97,10 +98,6 @@ private struct PersistedLanguageProfileState: Codable, Sendable {
                 guard identifiers.insert(record.profile.identifier).inserted else {
                     throw LanguageProfileStoreError
                         .duplicateProfileIdentifier(record.profile.identifier)
-                }
-                guard record.profile.origin == .default || record.isCustomized else {
-                    throw LanguageProfileStoreError
-                        .customProfileExpected(record.profile.identifier)
                 }
                 return record
             }
@@ -158,8 +155,8 @@ public final class LanguageProfileStore {
         self.persistenceKey = persistenceKey
         self.overrideStore = overrideStore
 
-        let validatedDefaults = try defaultProfiles.map { profile in
-            let profile = try profile.validated()
+        let validatedDefaults = try defaultProfiles.map { proposedProfile in
+            let profile = try proposedProfile.validated()
             guard profile.origin == .default else {
                 throw LanguageProfileStoreError
                     .defaultProfileExpected(profile.identifier)
@@ -252,97 +249,44 @@ public final class LanguageProfileStore {
     }
 
     @discardableResult
-    public func createCustomProfile(
-        _ proposedProfile: LanguageProfile
-    ) throws -> LanguageProfile {
-        var profile = try proposedProfile.validated()
-        guard profile.origin == .custom else {
-            throw LanguageProfileStoreError
-                .customProfileExpected(profile.identifier)
-        }
-        guard recordsByIdentifier[profile.identifier] == nil else {
-            throw LanguageProfileStoreError
-                .duplicateProfileIdentifier(profile.identifier)
-        }
-        profile.lastModifiedOrder = try takeNextModifiedOrder()
-        try commit(
-            replacing: profile.identifier,
-            with: PersistedLanguageProfileRecord(
-                profile: profile,
-                isCustomized: true
-            )
-        )
-        return profile
-    }
-
-    @discardableResult
     public func updateProfile(
         _ proposedProfile: LanguageProfile
     ) throws -> LanguageProfile {
-        var profile = try proposedProfile.validated()
-        guard let existing = recordsByIdentifier[profile.identifier] else {
-            throw LanguageProfileStoreError.profileNotFound(profile.identifier)
+        let proposedProfile = try proposedProfile.validated()
+        guard let existing = recordsByIdentifier[
+            proposedProfile.identifier
+        ] else {
+            throw LanguageProfileStoreError.profileNotFound(
+                proposedProfile.identifier
+            )
         }
-        guard profile.origin == existing.profile.origin,
-              profile.defaultRevision == existing.profile.defaultRevision else {
+        guard proposedProfile.origin == existing.profile.origin,
+              proposedProfile.defaultRevision
+                == existing.profile.defaultRevision else {
             throw LanguageProfileStoreError.immutableIdentity
         }
-        profile.lastModifiedOrder = try takeNextModifiedOrder()
+        guard var profile = defaultProfilesByIdentifier[
+            proposedProfile.identifier
+        ] else {
+            throw LanguageProfileStoreError.defaultProfileExpected(
+                proposedProfile.identifier
+            )
+        }
+        let selectedExecutable = proposedProfile.languageServer?
+            .selectedExecutable
+        if var configuration = profile.languageServer {
+            configuration.selectedExecutable = selectedExecutable
+            profile.languageServer = configuration
+        }
+        profile.lastModifiedOrder = existing.profile.lastModifiedOrder
         try commit(
             replacing: profile.identifier,
             with: PersistedLanguageProfileRecord(
                 profile: profile,
-                isCustomized: true
+                isCustomized: selectedExecutable != nil
             )
         )
         return profile
-    }
-
-    @discardableResult
-    public func setEnabled(
-        _ isEnabled: Bool,
-        identifier: String
-    ) throws -> LanguageProfile {
-        guard var profile = profile(identifier: identifier) else {
-            throw LanguageProfileStoreError.profileNotFound(identifier)
-        }
-        profile.isEnabled = isEnabled
-        return try updateProfile(profile)
-    }
-
-    @discardableResult
-    public func resetDefaultProfile(identifier: String) throws -> LanguageProfile {
-        let identifier = identifier.lowercased()
-        guard var defaultProfile = defaultProfilesByIdentifier[identifier] else {
-            if recordsByIdentifier[identifier] == nil {
-                throw LanguageProfileStoreError.profileNotFound(identifier)
-            }
-            throw LanguageProfileStoreError.defaultProfileExpected(identifier)
-        }
-        defaultProfile.lastModifiedOrder = try takeNextModifiedOrder()
-        try commit(
-            replacing: identifier,
-            with: PersistedLanguageProfileRecord(
-                profile: defaultProfile,
-                isCustomized: false
-            )
-        )
-        return defaultProfile
-    }
-
-    public func deleteCustomProfile(identifier: String) throws {
-        let identifier = identifier.lowercased()
-        guard let record = recordsByIdentifier[identifier] else {
-            throw LanguageProfileStoreError.profileNotFound(identifier)
-        }
-        guard record.profile.origin == .custom else {
-            throw LanguageProfileStoreError.customProfileExpected(identifier)
-        }
-        var proposedRecords = recordsByIdentifier
-        proposedRecords.removeValue(forKey: identifier)
-        try persist(records: proposedRecords)
-        recordsByIdentifier = proposedRecords
-        postChange()
     }
 
     private func merge(restoredState: PersistedLanguageProfileState?) {
@@ -351,29 +295,21 @@ public final class LanguageProfileStore {
 
         for record in restoredRecords {
             let identifier = record.profile.identifier
-            if let currentDefault = defaultProfilesByIdentifier[identifier] {
-                if record.isCustomized {
-                    merged[identifier] = record
-                } else {
-                    var refreshedDefault = currentDefault
-                    refreshedDefault.lastModifiedOrder =
-                        record.profile.lastModifiedOrder
-                    merged[identifier] = PersistedLanguageProfileRecord(
-                        profile: refreshedDefault,
-                        isCustomized: false
-                    )
-                }
-            } else if record.profile.origin == .custom {
-                merged[identifier] = record
-            } else if record.isCustomized {
-                // A profile a previous version shipped is no longer a
-                // default: keep the user's edits, but never let it keep
-                // shipped-only capabilities now that it is custom.
-                merged[identifier] = PersistedLanguageProfileRecord(
-                    profile: record.profile.sanitizedAsCustomProfile(),
-                    isCustomized: true
-                )
+            guard record.profile.origin == .default,
+                  var currentDefault = defaultProfilesByIdentifier[identifier] else {
+                continue
             }
+
+            let selectedExecutable = record.profile.languageServer?
+                .selectedExecutable
+            if var configuration = currentDefault.languageServer {
+                configuration.selectedExecutable = selectedExecutable
+                currentDefault.languageServer = configuration
+            }
+            merged[identifier] = PersistedLanguageProfileRecord(
+                profile: currentDefault,
+                isCustomized: selectedExecutable != nil
+            )
         }
 
         for (identifier, defaultProfile) in defaultProfilesByIdentifier
@@ -416,21 +352,12 @@ public final class LanguageProfileStore {
                 arguments: override.arguments
             )
             record.profile.languageServer = configuration
-            record.profile.lastModifiedOrder = try takeNextModifiedOrder()
             record.profile = try record.profile.validated()
             record.isCustomized = true
             recordsByIdentifier[identifier] = record
             migratedIdentifiers.append(identifier)
         }
         return migratedIdentifiers
-    }
-
-    private func takeNextModifiedOrder() throws -> UInt64 {
-        guard nextModifiedOrder < UInt64.max else {
-            throw LanguageProfileStoreError.modificationOrderExhausted
-        }
-        defer { nextModifiedOrder += 1 }
-        return nextModifiedOrder
     }
 
     private func commit(

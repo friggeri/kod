@@ -63,11 +63,6 @@ public enum LanguageServerDiscoveryEngine {
         rustupProbe: (@Sendable (String) -> URL?)? = nil
     ) throws -> DiscoveredExecutable {
         let profile = try profile.validated()
-        guard profile.isEnabled else {
-            throw LanguageServerDiscoveryError.profileDisabled(
-                profile.displayName
-            )
-        }
         guard let configuration = profile.languageServer else {
             throw LanguageServerDiscoveryError.profileHasNoLanguageServer(
                 profile.displayName
@@ -298,24 +293,15 @@ public enum LanguageServerDiscoveryEngine {
         ) else {
             return nil
         }
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = arguments
-        let stdoutPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
+        guard let result = BoundedProcessProbe.run(
+            executableURL: executableURL,
+            arguments: arguments,
+            timeout: 5
+        ), result.exitStatus == 0 else {
             return nil
         }
         let path = String(
-            decoding: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
+            decoding: result.output,
             as: UTF8.self
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty,
@@ -331,34 +317,16 @@ public enum LanguageServerDiscoveryEngine {
     /// with `version == nil`, since Kod never treats "couldn't parse a
     /// version string" as equivalent to "server not found."
     private static func detectVersion(executableURL: URL, arguments: [String]) -> String? {
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = arguments
-        let stdoutPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
+        guard let result = BoundedProcessProbe.run(
+            executableURL: executableURL,
+            arguments: arguments,
+            timeout: 2
+        ) else {
             return nil
         }
-
-        // A direct, synchronous `waitUntilExit()` rather than a
-        // `DispatchQueue.global()` + semaphore timeout race: this
-        // function already only ever runs on a background thread
-        // dedicated to one discovery attempt (never Swift concurrency's
-        // cooperative pool), and under heavy parallel test/process load
-        // the global concurrent queue can itself be saturated, making a
-        // fixed timeout here flaky rather than protective. A `--version`
-        // invocation of a real, well-behaved CLI tool returns near
-        // instantly; if a misbehaving one ever hung, that would only
-        // block this one discovery attempt, not any per-request path.
-        process.waitUntilExit()
-
-        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let output = String(decoding: result.output, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         return output.isEmpty ? nil : output
     }
+
 }

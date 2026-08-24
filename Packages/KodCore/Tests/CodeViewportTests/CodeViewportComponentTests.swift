@@ -103,6 +103,38 @@ final class DecorationStateTests: XCTestCase {
         )))
         XCTAssertEqual(state.composedRuns(in: 0..<5), accepted.runs)
     }
+
+    func testRemovingOneDecorationLayerPreservesTheOthers() {
+        let foreground = BundledThemes.dark.editor.foreground
+        let semantic = DecorationLayerSnapshot(
+            kind: .semantic,
+            snapshotVersion: 7,
+            layerVersion: 1,
+            runs: [DecorationRun(
+                utf8Range: 1..<4,
+                attributes: DecorationAttributes(foreground: foreground)
+            )]
+        )
+        let diagnostics = DecorationLayerSnapshot(
+            kind: .diagnostics,
+            snapshotVersion: 7,
+            layerVersion: 1,
+            runs: [DecorationRun(
+                utf8Range: 2..<3,
+                attributes: DecorationAttributes(isUnderlined: true)
+            )]
+        )
+        let state = DecorationState(snapshotVersion: 7)
+        XCTAssertTrue(state.apply(semantic))
+        XCTAssertTrue(state.apply(diagnostics))
+
+        XCTAssertTrue(state.remove(.semantic))
+        XCTAssertFalse(state.remove(.semantic))
+        XCTAssertEqual(
+            state.composedRuns(in: 0..<5),
+            diagnostics.runs
+        )
+    }
 }
 
 final class GutterModelTests: XCTestCase {

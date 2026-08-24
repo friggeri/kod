@@ -255,39 +255,39 @@ Discovery order is deterministic:
 3. A migrated legacy global override, when present.
 4. Ordered profile candidates using constrained discovery such as `xcrun`, `rustup`, PATH, or common package-manager locations.
 
-Kod displays the selected executable, version, source, and arguments before first launch. It must never evaluate shell text or repository-provided command strings.
+Kod exposes the effective executable and fixed arguments as one Command field.
+It must never evaluate shell text or repository-provided command strings.
 
-The Languages settings pane is the shared source of truth for syntax and server
-status. It provides editable, disableable default profiles and global custom
-profiles. Each profile maps files to a bundled grammar or Plain Text and may
-optionally define an LSP language ID, a selected executable, and fixed arguments.
-Kod validates that selected executables are absolute local executable paths,
-launches argument arrays directly without a shell, and never executes package
-manager commands.
+Settings uses one permanent native sidebar with Font and the shipped language
+catalog as direct destinations. Each profile maps files to fixed shipped
+associations and a bundled grammar and may define a language server. File
+associations, grammar, and language ID metadata are not user-editable.
 
-Settings exposes Add/Edit Profile, Choose Executable, Use Auto-Detected,
-Enable/Disable, Reset Default, and Delete Custom Profile. Association conflicts
-require explicit confirmation; exact filenames take precedence over extensions,
-then bounded built-in content matchers apply. A missing-server prompt offers
-Choose Executable, Open Language Settings, Find a Server, and Not Now. The Find
-action opens the public LSP implementors directory only after user action and
-does not imply endorsement.
+A selected language shows only server Status with concise detected
+version/name metadata, Command, and conditional Installation guidance. The
+full executable path and arguments appear only in the multiline Command field.
+Newlines and spaces separate tokens outside quotes. Command text is parsed deterministically into an
+absolute executable path and argument array without shell expansion,
+interpolation, substitution, or execution. Clearing a custom Command returns to
+automatic discovery. Exact filenames take precedence over extensions, then
+bounded built-in content matchers apply. Unsupported file types offer a
+contextual language request outside Settings instead of a custom-profile
+editor.
 
-For a missing server on a default (non-custom) profile, Kod may additionally
-show curated installation guidance from a separate, shipped-only catalog keyed
-by default profile identifier (`DefaultLanguageServerInstallationGuides`) —
-never part of the editable, Codable profile model, and never resolvable for a
-custom profile even if it reuses a default profile's identifier or metadata.
-The guidance is an exact, package-manager-labeled command (e.g. `npm`, `pnpm`,
-Homebrew, `rustup`, `go install`, RubyGems, or the Xcode Command Line Tools)
-shown as selectable monospaced text with a one-click "Copy ... Command" button,
-plus a link to that server's official installation documentation. When a
-known default profile with guidance is missing its server, the workspace
-banner's Find action becomes "Installation Help..." and opens that
-documentation directly instead of the generic directory; unknown file types,
-custom profiles, and default profiles without guidance keep the public
-directory fallback. Kod only displays and copies this text; it never executes
-a package manager, shell command, update, or removal.
+Kod persists only the last known language-server availability result and its
+resolved executable metadata as a UI cache. Cached Ready/Not Installed states
+may be shown immediately after restart, but never authorize or launch a server.
+App launch asynchronously refreshes the full shipped catalog and replaces stale
+cache entries; executable probes are bounded and terminate their process group.
+
+For a missing server on a shipped profile, Kod uses a separate, shipped-only
+catalog keyed by default profile identifier
+(`DefaultLanguageServerInstallationGuides`) to identify official installation
+documentation. This catalog is never part of the editable, Codable profile
+model. Settings shows its copyable installation commands and official
+documentation, while the workspace banner's Find action opens that
+documentation directly instead of the generic directory. Kod never executes a
+package manager, shell command, update, or removal.
 
 ## 7. Syntax and visual presentation
 
@@ -325,7 +325,8 @@ The internal Kod theme format defines:
 
 ### 7.3 Fonts
 
-The font picker lists installed monospaced families and previews code before applying a choice. Settings include:
+The searchable font picker lists installed monospaced families and previews
+each family within the picker before selection. Settings include:
 
 - Family
 - Size
@@ -333,9 +334,12 @@ The font picker lists installed monospaced families and previews code before app
 - Ligatures
 - Line-height multiplier
 - Letter spacing
-- Ordered Unicode fallback families
 
-Kod must preserve column alignment for tabs, indentation guides, selections, diagnostics, and inline hints. If a chosen fallback is not monospaced, Kod warns that alignment may vary but continues to render safely.
+Kod uses the selected monospaced family's metrics to preserve column alignment
+for tabs, indentation guides, selections, diagnostics, and inline hints.
+AppKit/Core Text supplies system glyph fallback for characters missing from the
+primary family. A persisted primary family that is not monospaced produces an
+alignment warning but continues to render safely.
 
 ## 8. Search
 
@@ -532,7 +536,7 @@ Kod stores the following under its Application Support container:
 - Recent workspace identities and trust decisions.
 - Window, split, tab, navigation, fold, and scroll restoration.
 - Global and per-workspace settings.
-- Global language profiles and selected local executable metadata.
+- Selected executable and argument overrides for shipped language servers.
 - Bounded diagnostic logs.
 
 Caches live under the system cache directory and may be deleted without data loss. Source contents, search indexes, and LSP responses are not persisted beyond what is required for restoration metadata.
@@ -613,7 +617,7 @@ Trust is recorded against canonical path and volume identity, is visible in the 
 - Process stdout, stderr, message size, execution time, and restart rates are bounded.
 - JSON-RPC messages and all server ranges are schema- and bounds-validated.
 - Profile-selected executables must be absolute, local, executable files; launch arguments remain discrete values and never pass through a shell.
-- Custom profiles cannot provide arbitrary environment variables, shell commands, initialization payloads, or native parser plug-ins.
+- The Command setting cannot provide environment variables, shell commands, initialization payloads, or native parser plug-ins.
 
 ### 13.3 Privacy
 
@@ -752,12 +756,12 @@ This specification incorporates these product decisions:
 - AppKit/Core Text rendering with selective SwiftUI.
 - Tree-sitter syntax plus LSP semantic-token overlays.
 - Full read-only LSP features.
-- Editable profiles plus selected-path and known-candidate discovery for user-installed servers; Kod never installs language servers, and only ever shows curated, copyable installation commands and official documentation links for default profiles, never executing them.
+- Editable shipped-language patterns plus selected-path and known-candidate discovery for user-installed servers; Kod never installs language servers and never executes installation commands.
 - First-class bundled syntax for the supported profile catalog, with Plain Text fallback.
 - In-memory filename indexing and on-demand ripgrep-compatible text search.
 - Git status, inline changes, file diffs, and blame.
 - Automatic Kod Light/Dark appearance backed by the native theme format.
-- Installed monospaced fonts with typography and fallback controls.
+- Installed monospaced fonts with typography controls and automatic system glyph fallback.
 - Code/text, Markdown, image, JSON, and plist viewing.
 - macOS 14+, Apple silicon first, Intel best-effort.
 - Direct signed/notarized distribution with an optional Homebrew Cask.

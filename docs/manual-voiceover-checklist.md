@@ -108,9 +108,25 @@ actually complete Kod's primary workflows end to end.
       the emoji in UTF-16 code units. Preview and full-diff tabs must retain
       file metadata without announcing a fabricated cursor; Quick Diff must
       report its visible cursor.
-- [ ] Settings window: tab through every control (Theme, Font, Diagnostics/
-      Privacy tabs) with VoiceOver and confirm every control has a
-      meaningful label, not a bare identifier or "button".
+- [ ] Settings window: confirm the permanent sidebar is announced as one
+      navigation list with Editor and Languages sections, cannot be collapsed,
+      and every control has a meaningful label rather than a bare identifier
+      or "button".
+- [ ] Font settings: open the family popover, confirm search receives focus,
+      navigate the filtered monospaced-family results, and verify the selected
+      family and per-family operator previews are announced before activation.
+- [ ] Change family, weight, size, ligatures, line height, and letter spacing.
+      Confirm each value is announced, persists immediately, and updates an
+      open editor without moving focus.
+- [ ] Languages settings: navigate the shipped-language section and confirm
+      each row announces its name and language-server status. Selecting a row
+      must update the stable detail pane.
+- [ ] In a selected language detail, confirm Syntax Only, Checking, Ready, and
+      Not Installed are announced as text rather than color alone. Edit
+      the multiline Command field (including a wrapped or newline-separated
+      command) and, for a missing server, confirm Check Again, every copyable
+      install command, and the official documentation link are keyboard
+      reachable.
 - [ ] Diff/blame viewers: confirm added/removed/modified line markers are
       announced as text, and blame annotations announce author/date/
       commit summary.

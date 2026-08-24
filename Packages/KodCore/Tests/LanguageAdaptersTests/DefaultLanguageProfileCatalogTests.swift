@@ -324,34 +324,10 @@ final class DefaultLanguageProfileCatalogTests: XCTestCase {
         }
     }
 
-    func testRetiringAShippedProfileStripsShippedOnlyCapabilities() throws {
-        let retired = DefaultLanguageProfiles.swift.sanitizedAsCustomProfile()
-        let validated = try retired.validated()
-        XCTAssertEqual(validated.origin, .custom)
-        let configuration = try XCTUnwrap(validated.languageServer)
-        XCTAssertEqual(configuration.workspaceConfiguration, [:])
-        XCTAssertNil(configuration.initializationOptions)
-        XCTAssertEqual(configuration.networkAccess, .none)
-        XCTAssertEqual(configuration.supportNotes, [])
-        XCTAssertEqual(
-            configuration.executableCandidates.flatMap(\.discoveryStrategies),
-            [.path, .packageManagerLocations]
-        )
-        XCTAssertNil(DefaultLanguageServerInstallationGuides.guide(for: validated))
-
-        let shell = try DefaultLanguageProfiles.shell
-            .sanitizedAsCustomProfile()
-            .validated()
-        XCTAssertEqual(shell.languageServer?.supportNotes, [])
-        XCTAssertEqual(shell.languageServer?.workspaceConfiguration, [:])
-
-        let json = try DefaultLanguageProfiles.json
-            .sanitizedAsCustomProfile()
-            .validated()
-        XCTAssertEqual(
-            json.languageServer?.networkAccess,
-            LanguageServerNetworkAccess.none
-        )
+    func testEveryShippedLanguageConfiguresAServer() {
+        for profile in DefaultLanguageProfiles.all {
+            XCTAssertNotNil(profile.languageServer, profile.identifier)
+        }
     }
 
     private func makeOverrideStore() throws -> LanguageServerOverrideStore {

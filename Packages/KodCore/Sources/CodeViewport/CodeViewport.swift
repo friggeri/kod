@@ -1026,6 +1026,19 @@ public final class CodeViewport: NSView {
         return true
     }
 
+    /// Removes one externally managed decoration layer while preserving the
+    /// remaining lexical, search, diagnostic, and selection layers.
+    @discardableResult
+    public func removeDecorationLayer(_ kind: DecorationLayerKind) -> Bool {
+        guard decorationState.remove(kind) else {
+            return false
+        }
+        lineCache.removeAll(keepingCapacity: true)
+        needsDisplay = true
+        onMinimapInvalidation?(.tokens)
+        return true
+    }
+
     /// Marks the source token under the pointer as navigable. The app only
     /// calls this after an LSP definition request returns at least one valid
     /// target, so the underline and pointing-hand cursor never promise a

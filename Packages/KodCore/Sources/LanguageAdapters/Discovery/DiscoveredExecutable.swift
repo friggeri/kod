@@ -4,7 +4,13 @@ import Foundation
 /// executable came from (SPEC 6.5). Kod always displays this alongside
 /// the executable's absolute path, version, and arguments before first
 /// launch, so users can tell exactly why a given binary was chosen.
-public enum ExecutableDiscoverySource: String, Sendable, Equatable, CaseIterable {
+public enum ExecutableDiscoverySource:
+    String,
+    Codable,
+    Sendable,
+    Equatable,
+    CaseIterable
+{
     case workspaceOverride
     case registeredProfile
     case globalOverride
@@ -57,7 +63,6 @@ public struct DiscoveredExecutable: Sendable, Equatable {
 }
 
 public enum LanguageServerDiscoveryError: Error, Equatable, Sendable {
-    case profileDisabled(String)
     case profileHasNoLanguageServer(String)
     /// No executable was found for `languageName` at any precedence
     /// tier through `attemptedSources`.
@@ -71,8 +76,6 @@ public enum LanguageServerDiscoveryError: Error, Equatable, Sendable {
 extension LanguageServerDiscoveryError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .profileDisabled(let profile):
-            return "Language profile \(profile) is disabled."
         case .profileHasNoLanguageServer(let profile):
             return "Language profile \(profile) does not configure a language server."
         case .notFound(let languageName, let attemptedSources):

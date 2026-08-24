@@ -12,11 +12,11 @@ By default, Kod sends nothing over the network. Specifically:
   terms, and repository data never leave your Mac.
 - Kod collects **no usage telemetry** of any kind — no analytics SDK,
   no "phone home" on launch, no anonymous usage counters.
-- Crash reporting is **opt-in** (see below) and, in this build, has no
-  real upload destination configured at all: the only shipped crash
-  report transport is a permanent no-op (`NoopCrashReportTransport` in
-  `DiagnosticsCore`) that does nothing when a report is "sent." Turning
-  the setting on does not cause any network request to occur.
+- Kod does not expose crash-reporting controls in Settings and, in this
+  build, has no real upload destination configured at all. The only shipped
+  crash-report transport is a permanent no-op (`NoopCrashReportTransport`
+  in `DiagnosticsCore`) that does nothing when a report is "sent." This
+  remains true even if an earlier build persisted an enabled preference.
 
 ## The only network activity Kod ever performs
 
@@ -29,7 +29,7 @@ per-instance opt-in:
 | App update check | Kod's own signed update-feed check (`UpdaterCore`), verified with a pinned Ed25519 key before any entry is ever considered — see below | Depends on distribution channel |
 | JSON/YAML/TOML schema lookup | A trusted workspace's language server resolves a remote schema referenced by an open document | Disabled until you trust the workspace |
 | Remote Markdown image | A Markdown file you're viewing references a remote image | Off; requires a per-document opt-in click, and is blocked entirely in untrusted workspaces |
-| Crash report upload | Only if you enable crash reporting in Settings | Off; and even when enabled, no real transport is configured in this build |
+| Crash report upload | Not exposed by the current UI; the shared `DiagnosticsCore` path still requires a persisted opt-in | Unavailable; no real transport is configured in this build |
 
 Third-party language-server processes may have behavior outside Kod's direct
 control after a workspace is trusted. Kod's built-in JSON, YAML, and TOML
@@ -55,10 +55,10 @@ this mechanism; see `Packages/KodCore/Sources/UpdaterCore` and
 
 ## Redaction
 
-If you export a support bundle (Settings → Diagnostics → Export Support
-Bundle) or if crash reporting is enabled, the following categories of
-data are deterministically redacted before being written anywhere or
-considered for upload (`DiagnosticsCore.RedactionEngine`):
+Any diagnostic payload produced through `DiagnosticsCore`, including its
+support-bundle generator or crash-report path, deterministically redacts the
+following categories before they can be written anywhere or considered for
+upload (`DiagnosticsCore.RedactionEngine`):
 
 - Source text
 - Search terms
@@ -91,7 +91,14 @@ language-server profiles. Revoking trust stops those servers immediately.
 
 ## User-owned language servers
 
-Kod does not download, install, update, or remove language servers.
-Settings → Languages shows each profile's selected or auto-detected local
-executable, version, provenance, and fixed arguments before launch. Kod
-never executes package-manager commands or shell installation strings.
+Kod does not download, install, update, or remove language servers. In
+Settings, selecting a shipped language shows its server status, effective
+Command, and curated installation guidance when missing. The Command is parsed
+into an absolute local executable path and fixed arguments without shell
+expansion or execution. Installation commands are display/copy-only; Kod never
+executes package-manager commands or shell installation strings.
+
+Kod stores the last known Ready/Not Installed result and resolved executable
+metadata so Settings can render status immediately after restart. This cache
+contains no source text or repository content, does not bypass workspace trust,
+and is refreshed asynchronously when Kod launches.

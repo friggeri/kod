@@ -1,6 +1,27 @@
 import Foundation
 import SettingsCore
 
+private struct FontSettingsV1: Codable, Sendable {
+    let familyName: String
+    let pointSize: Double
+    let weight: FontWeight
+    let ligaturesEnabled: Bool
+    let lineHeightMultiplier: Double
+    let letterSpacing: Double
+    let fallbackFamilies: [String]
+
+    func migrated() -> FontSettings {
+        var settings = FontSettings()
+        settings.familyName = familyName
+        settings.pointSize = pointSize
+        settings.weight = weight
+        settings.ligaturesEnabled = ligaturesEnabled
+        settings.lineHeightMultiplier = lineHeightMultiplier
+        settings.letterSpacing = letterSpacing
+        return settings
+    }
+}
+
 /// Persists global font settings outside any workspace through an injected
 /// SettingsCore repository. Fonts are a global preference, not a
 /// per-workspace one, so unlike `WorkspaceLayoutStore` there is a single
@@ -11,15 +32,16 @@ import SettingsCore
 /// and rebuilt"): it is removed from the live key (via
 /// `SettingsQuarantine`, so it cannot keep failing to decode on every
 /// future launch) and recorded in `quarantine.records()` so a diagnostics/
-/// support-bundle UI can surface that a preference reset happened, rather
-/// than the reset looking indistinguishable from "first launch defaults."
+/// support tool can report that a preference reset happened, rather than the
+/// reset looking indistinguishable from "first launch defaults."
 @MainActor
 public final class FontSettingsStore {
     private static let setting = CodableSetting<FontSettings>(
         key: "kod.font-settings",
-        currentVersion: 1,
+        currentVersion: 2,
         migrations: [
-            .unversionedCodable(FontSettings.self) { $0 }
+            .unversionedCodable(FontSettingsV1.self) { $0.migrated() },
+            .versioned(from: 1, FontSettingsV1.self) { $0.migrated() }
         ],
         validate: { settings in
             if settings.familyName.isEmpty {
@@ -44,11 +66,6 @@ public final class FontSettingsStore {
             ) {
                 return SettingsValidationFailure(
                     reason: "The letter spacing is outside the supported range."
-                )
-            }
-            if settings.fallbackFamilies.contains(where: \.isEmpty) {
-                return SettingsValidationFailure(
-                    reason: "A fallback font family is empty."
                 )
             }
             return nil

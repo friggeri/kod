@@ -353,18 +353,13 @@ final class MultiLanguageServicesCoordinatorTests: XCTestCase {
         let overrideStore = LanguageServerOverrideStore(
             repository: repository
         )
-        let profileStore = try LanguageProfileStore(
-            defaultProfiles: [],
-            repository: repository,
-            overrideStore: overrideStore
-        )
-        // A custom profile whose only executable candidate cannot
+        // A shipped profile whose only executable candidate cannot
         // possibly exist, so the very first launch attempt is
         // guaranteed to fail regardless of the host environment.
         let profile = try LanguageProfile(
             identifier: "flaky",
             displayName: "Flaky",
-            origin: .custom,
+            origin: .default,
             defaultRevision: 1,
             associations: [
                 LanguageFileAssociation(
@@ -387,7 +382,11 @@ final class MultiLanguageServicesCoordinatorTests: XCTestCase {
                 ]
             )
         ).validated()
-        try profileStore.createCustomProfile(profile)
+        let profileStore = try LanguageProfileStore(
+            defaultProfiles: [profile],
+            repository: repository,
+            overrideStore: overrideStore
+        )
         let registry = LanguageProfileRegistry(store: profileStore)
 
         let coordinator = MultiLanguageServicesCoordinator(
@@ -893,6 +892,66 @@ final class MultiLanguageServicesCoordinatorTests: XCTestCase {
 
         XCTAssertNil(result, "A vanished pane must not issue a didOpen/didChange")
         XCTAssertTrue(events.entries.isEmpty)
+    }
+
+    private func makeCoordinator(
+        defaultProfile: LanguageProfile
+    ) throws -> (
+        identity: WorkspaceIdentity,
+        profileStore: LanguageProfileStore,
+        coordinator: MultiLanguageServicesCoordinator
+    ) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let identity = try WorkspaceIdentity(root: root)
+        let repository = makeRepository()
+        let trustStore = WorkspaceTrustStore(repository: repository)
+        try trustStore.trust(identity)
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
+        let profileStore = try LanguageProfileStore(
+            defaultProfiles: [defaultProfile],
+            repository: repository,
+            overrideStore: overrideStore
+        )
+        let coordinator = MultiLanguageServicesCoordinator(
+            identity: identity,
+            trustStore: trustStore,
+            profileRegistry: LanguageProfileRegistry(store: profileStore),
+            overrideStore: overrideStore,
+            diagnosticsLog: BoundedEventLog(),
+            diagnosticsStore: WorkspaceDiagnosticsStore()
+        )
+        coordinator.makeLanguageService = { profile, binding in
+            LanguageWorkspaceService(
+                identity: identity,
+                trustStore: trustStore,
+                configuration: LanguageWorkspaceService.Configuration(
+                    languageId: profile.identifier
+                ),
+                dependencies: LanguageWorkspaceService.Dependencies(
+                    discoverExecutable: {
+                        throw CocoaError(.fileNoSuchFile)
+                    }
+                ),
+                providerID: binding.providerID,
+                onStateChange: binding.onStateChange,
+                onDiagnostics: binding.onDiagnostics,
+                onNormalizedDiagnostics: binding.onNormalizedDiagnostics,
+                onWorkspaceDiagnosticsFailure:
+                    binding.onWorkspaceDiagnosticsFailure,
+                onDocumentReplayFailure: binding.onDocumentReplayFailure
+            )
+        }
+        return (identity, profileStore, coordinator)
     }
 
     private static func snapshot(root: URL) -> SourceSnapshot {

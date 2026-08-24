@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowController: SettingsWindowController?
     private let environment: AppEnvironment
     let sessionRegistry: AppSessionRegistry
+    private(set) var languageStatusRefreshTask: Task<Void, Never>?
     private var terminationTask: Task<Void, Never>?
     private var terminationReplies: [() -> Void] = []
     private var didFinishTermination = false
@@ -60,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        startLanguageStatusRefresh()
         configureMainMenu()
         showWelcomeWindow()
         NSApp.activate(ignoringOtherApps: true)
@@ -96,8 +98,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         terminationReplies.append(reply)
         if terminationTask == nil {
+            let languageStatusRefreshTask = languageStatusRefreshTask
             terminationTask = Task { @MainActor [weak self, sessionRegistry] in
                 await sessionRegistry.shutdownAll()
+                await languageStatusRefreshTask?.value
                 guard let self else {
                     return
                 }
@@ -108,6 +112,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         return terminationTask ?? Task {}
+    }
+
+    func startLanguageStatusRefresh() {
+        guard languageStatusRefreshTask == nil else {
+            return
+        }
+        let languageSupportService = environment.languageSupportService
+        languageStatusRefreshTask = Task.detached(priority: .utility) {
+            await languageSupportService.refresh()
+        }
     }
 
     func application(_ sender: NSApplication, openFiles filenames: [String]) {

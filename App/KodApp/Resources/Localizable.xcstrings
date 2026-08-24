@@ -180,9 +180,6 @@
         }
       }
     },
-    "%arg earlier event(s) dropped (the log is bounded)." : {
-
-    },
     "%lld bytes" : {
 
     },
@@ -200,9 +197,6 @@
           }
         }
       }
-    },
-    "%lld earlier event(s) dropped (the log is bounded)." : {
-
     },
     "%lld files" : {
 
@@ -333,27 +327,6 @@
         }
       }
     },
-    "Add" : {
-
-    },
-    "Add Argument" : {
-
-    },
-    "Add Association" : {
-
-    },
-    "Add Language Profile" : {
-
-    },
-    "Add Profile" : {
-
-    },
-    "Add Profile..." : {
-      "comment" : "Button title creating a language profile for an unknown file type"
-    },
-    "Add fallback family" : {
-
-    },
     "Added" : {
       "comment" : "Accessibility description for an added file's Git status",
       "extractionState" : "manual",
@@ -365,12 +338,6 @@
           }
         }
       }
-    },
-    "Argument %lld" : {
-
-    },
-    "Arguments" : {
-
     },
     "Back" : {
       "comment" : "Navigate menu item that goes back in navigation history",
@@ -555,18 +522,6 @@
     "Choose an existing language-server executable." : {
       "comment" : "Open panel message for selecting a missing language server"
     },
-    "Choose where to save the redacted diagnostics support bundle." : {
-      "comment" : "Save panel message for exporting the diagnostics support bundle",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose where to save the redacted diagnostics support bundle."
-          }
-        }
-      }
-    },
     "Click to restart the language server." : {
       "comment" : "Language server status tooltip action offering restart"
     },
@@ -625,7 +580,7 @@
       }
     },
     "Command" : {
-      "comment" : "Column title for the Command Palette's results table",
+      "comment" : "Column title for the Command Palette results and label for an executable plus arguments in Languages settings",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -708,18 +663,6 @@
         }
       }
     },
-    "Copy %@ Command" : {
-      "comment" : "Button title copying one installation command option to the pasteboard, where %@ is the tool name (e.g. npm, pnpm, Homebrew)",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Copy %@ Command"
-          }
-        }
-      }
-    },
     "Copy Key Path" : {
       "comment" : "Structured-data preview context menu item that copies the selected node's key path",
       "extractionState" : "manual",
@@ -756,26 +699,11 @@
         }
       }
     },
-    "Could Not Save Profile" : {
-
-    },
-    "Could Not Update Language Profile" : {
-
-    },
-    "Crash reports are never sent automatically. No upload destination is configured in this build, so enabling this toggle does not transmit anything anywhere — it only prepares Kod to record a crash report locally if a real upload destination is added in a future release. Kod has no usage telemetry." : {
-      "comment" : "Explanatory body text under the crash-reporting toggle in Settings"
-    },
     "Crashed" : {
       "comment" : "Language server state name"
     },
     "Cursor position" : {
       "comment" : "Accessibility label for the active file cursor position"
-    },
-    "Custom Language" : {
-
-    },
-    "Custom Profile" : {
-
     },
     "D" : {
       "comment" : "Single-letter Git status badge for a deleted file",
@@ -801,12 +729,6 @@
         }
       }
     },
-    "Default Profile" : {
-
-    },
-    "Default language ID" : {
-
-    },
     "Degraded — %@" : {
       "comment" : "Workspace health banner summary for reduced functionality",
       "extractionState" : "manual",
@@ -820,12 +742,6 @@
       }
     },
     "Delete" : {
-
-    },
-    "Delete Profile" : {
-
-    },
-    "Delete this custom language profile?" : {
 
     },
     "Deleted" : {
@@ -863,21 +779,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Diagnostic navigation failed"
-          }
-        }
-      }
-    },
-    "Diagnostics" : {
-
-    },
-    "Diagnostics Log" : {
-      "comment" : "Section header for the diagnostics event log in Settings",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Diagnostics Log"
           }
         }
       }
@@ -961,24 +862,6 @@
         }
       }
     },
-    "Enable Language Server" : {
-
-    },
-    "Enable Opt-In Crash Reporting" : {
-
-    },
-    "Enable opt-in crash reporting. Off by default. Kod has no usage telemetry." : {
-      "comment" : "Accessibility label for the crash-reporting opt-in toggle in Settings",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enable opt-in crash reporting. Off by default. Kod has no usage telemetry."
-          }
-        }
-      }
-    },
     "Enabled" : {
 
     },
@@ -994,9 +877,6 @@
         }
       }
     },
-    "Exact filenames (comma-separated)" : {
-
-    },
     "Exclude (e.g. Generated/**)" : {
       "comment" : "Placeholder text for the exclude-glob filter field in workspace search",
       "extractionState" : "manual",
@@ -1009,12 +889,6 @@
         }
       }
     },
-    "Executable" : {
-
-    },
-    "Executable path" : {
-
-    },
     "Explorer" : {
       "comment" : "Sidebar mode segment title for the file Explorer",
       "extractionState" : "manual",
@@ -1026,15 +900,6 @@
           }
         }
       }
-    },
-    "Export Support Bundle..." : {
-
-    },
-    "Export failed: %@" : {
-
-    },
-    "Extensions (comma-separated)" : {
-
     },
     "FSEvents stream could not be created" : {
       "comment" : "Diagnostics log reason recorded when the workspace file watcher's FSEvents stream cannot be created",
@@ -1060,9 +925,6 @@
         }
       }
     },
-    "Fallback Families" : {
-
-    },
     "Family" : {
 
     },
@@ -1077,9 +939,6 @@
           }
         }
       }
-    },
-    "File Associations" : {
-
     },
     "File encoding" : {
       "comment" : "Accessibility label for the active file encoding"
@@ -1315,9 +1174,6 @@
         }
       }
     },
-    "Grammar Details..." : {
-
-    },
     "Help" : {
       "comment" : "Title of the Help menu",
       "extractionState" : "manual",
@@ -1510,41 +1366,14 @@
         }
       }
     },
-    "Kod bundles syntax grammars; language servers stay installed and controlled by you." : {
-      "comment" : "Caption under the Language Profiles settings header",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kod bundles syntax grammars; language servers stay installed and controlled by you."
-          }
-        }
-      }
-    },
     "LSP" : {
       "comment" : "Short generic label for language server status"
     },
-    "LSP Missing" : {
-
-    },
-    "LSP Ready" : {
-
-    },
-    "LSP language ID" : {
-
-    },
-    "Language Profiles" : {
-
-    },
     "Language Server" : {
-
+      "comment" : "Label for a shipped language's language-server controls in Settings"
     },
     "Language Support..." : {
       "comment" : "Button title opening Language Support settings from the missing-server banner"
-    },
-    "Language server disabled; syntax remains available." : {
-
     },
     "Language server status" : {
       "comment" : "Accessibility label describing what the language server state value represents",
@@ -1571,12 +1400,6 @@
       }
     },
     "Languages" : {
-
-    },
-    "Letter Spacing: %@" : {
-
-    },
-    "Letter Spacing: %arg" : {
 
     },
     "Letter spacing" : {
@@ -1639,12 +1462,6 @@
     },
     "Line Feed line endings" : {
       "comment" : "Accessibility description for LF line endings"
-    },
-    "Line Height: %@x" : {
-
-    },
-    "Line Height: %argx" : {
-
     },
     "Line endings" : {
       "comment" : "Accessibility label for the active file line endings"
@@ -1762,9 +1579,6 @@
         }
       }
     },
-    "Minimum Level" : {
-
-    },
     "Missing" : {
       "comment" : "Language server state name"
     },
@@ -1866,18 +1680,6 @@
     },
     "No compatible language server was found." : {
 
-    },
-    "No diagnostic events recorded yet at this level." : {
-      "comment" : "Empty-state message shown when the diagnostics log has no events at the selected minimum level",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No diagnostic events recorded yet at this level."
-          }
-        }
-      }
     },
     "No diff." : {
       "comment" : "Status text shown when there is no Git diff to display",
@@ -2293,18 +2095,6 @@
         }
       }
     },
-    "Privacy" : {
-      "comment" : "Section header for the privacy controls in Settings",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Privacy"
-          }
-        }
-      }
-    },
     "Problem" : {
       "comment" : "Accessibility severity word used when a diagnostic has no explicit severity",
       "extractionState" : "manual",
@@ -2328,9 +2118,6 @@
           }
         }
       }
-    },
-    "Profile ID" : {
-
     },
     "Quick Open" : {
       "comment" : "Title of the Quick Open panel window",
@@ -2422,13 +2209,7 @@
         }
       }
     },
-    "Remove Association" : {
-
-    },
     "Remove Imported Theme" : {
-
-    },
-    "Remove argument" : {
 
     },
     "Renamed" : {
@@ -2442,12 +2223,6 @@
           }
         }
       }
-    },
-    "Replace Existing File Associations?" : {
-
-    },
-    "Reset Default" : {
-
     },
     "Restart" : {
       "comment" : "Button title to restart the language server",
@@ -2806,12 +2581,6 @@
           }
         }
       }
-    },
-    "Size: %arg pt" : {
-
-    },
-    "Size: %lld pt" : {
-
     },
     "Source" : {
 
@@ -3198,12 +2967,6 @@
         }
       }
     },
-    "Upstream provenance and license" : {
-
-    },
-    "Use Auto-Detected" : {
-
-    },
     "Value" : {
       "comment" : "Column title for the structured-data preview's value column",
       "extractionState" : "manual",
@@ -3470,6 +3233,114 @@
           }
         }
       }
+    },
+    "Checking language servers" : {
+      "comment" : "Accessibility label while Languages settings refreshes server availability"
+    },
+    "Checking" : {
+      "comment" : "Language-server state while executable discovery is in progress"
+    },
+    "Automatic" : {
+      "comment" : "Placeholder for the language-server Command field when automatic discovery is active"
+    },
+    "Check Again" : {
+      "comment" : "Button title that repeats language-server discovery"
+    },
+    "Choose an installation method, then check again when it finishes." : {
+      "comment" : "Explanation above copyable language-server installation commands"
+    },
+    "Could Not Update Language Settings" : {
+      "comment" : "Alert title for a Languages settings validation or persistence failure"
+    },
+    "Copy %@ installation command" : {
+      "comment" : "Tooltip for copying a language-server installation command; the placeholder is the package manager or installation method"
+    },
+    "Editor" : {
+      "comment" : "Settings sidebar section containing editor-wide preferences"
+    },
+    "Language Unavailable" : {
+      "comment" : "Settings empty-state title when a selected shipped language no longer exists"
+    },
+    "Not Installed" : {
+      "comment" : "Language-server status when no compatible executable was found"
+    },
+    "Open Installation Guide…" : {
+      "comment" : "Link title opening a language server's official installation documentation"
+    },
+    "Request Language..." : {
+      "comment" : "Button title requesting support for an unknown file type"
+    },
+    "Request support for this file type on GitHub." : {
+      "comment" : "Tooltip for requesting support for an unknown file type"
+    },
+    "Status" : {
+      "comment" : "Label for a selected language server's current status"
+    },
+    "The language-server command contains an unterminated quote." : {
+      "comment" : "Validation error for malformed language-server Command text"
+    },
+    "The language-server command ends with an incomplete escape." : {
+      "comment" : "Validation error for malformed language-server Command text"
+    },
+    "The language-server command needs an executable." : {
+      "comment" : "Validation error for language-server Command text without an executable"
+    },
+    "The language-server executable must use an absolute path: %@" : {
+      "comment" : "Validation error for a relative language-server executable path"
+    },
+    "This shipped language is no longer available." : {
+      "comment" : "Settings empty-state explanation when a selected shipped language no longer exists"
+    },
+    "Choose how code is displayed throughout Kod." : {
+      "comment" : "Caption under the Font settings header"
+    },
+    "Enable font ligatures" : {
+      "comment" : "Accessibility label for the font ligature toggle in Settings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable font ligatures"
+          }
+        }
+      }
+    },
+    "Font family" : {
+      "comment" : "Accessibility label for the font family picker in Settings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Font family"
+          }
+        }
+      }
+    },
+    "Font weight" : {
+      "comment" : "Accessibility label for the font weight picker in Settings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Font weight"
+          }
+        }
+      }
+    },
+    "No Matching Fonts" : {
+      "comment" : "Empty-state title when Font settings search has no results"
+    },
+    "Search fonts" : {
+      "comment" : "Placeholder in the Font settings search field"
+    },
+    "Size" : {
+      "comment" : "Label for the font-size setting"
+    },
+    "Try a different font-family search." : {
+      "comment" : "Suggestion shown when Font settings search has no results"
     },
     "alpha" : {
       "comment" : "Metadata line component indicating the image has an alpha channel",

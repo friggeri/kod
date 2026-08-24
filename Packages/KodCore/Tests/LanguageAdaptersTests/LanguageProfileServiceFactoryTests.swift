@@ -7,7 +7,7 @@ import XCTest
 
 final class LanguageProfileServiceFactoryTests: XCTestCase {
     @MainActor
-    func testCustomProfileLaunchRequiresTrustAndUsesConfiguredLanguageIDAndArguments() async throws {
+    func testConfiguredProfileLaunchRequiresTrustAndUsesLanguageIDAndArguments() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
@@ -24,7 +24,7 @@ final class LanguageProfileServiceFactoryTests: XCTestCase {
         let profile = try LanguageProfile(
             identifier: "widget",
             displayName: "Widget",
-            origin: .custom,
+            origin: .default,
             defaultRevision: 1,
             associations: [
                 LanguageFileAssociation(
@@ -60,7 +60,7 @@ final class LanguageProfileServiceFactoryTests: XCTestCase {
 
         do {
             try await service.start()
-            XCTFail("An untrusted workspace must not launch a custom server")
+            XCTFail("An untrusted workspace must not launch a language server")
         } catch LanguageWorkspaceServiceError.notTrusted {
             // Expected.
         }
@@ -105,6 +105,32 @@ final class LanguageProfileServiceFactoryTests: XCTestCase {
         )
         let currentState = await service.currentState
         XCTAssertEqual(currentState, LanguageServerState.ready)
+    }
+
+    @MainActor
+    func testProfileWithoutLanguageServerCannotConstructAService() throws {
+        let identity = try WorkspaceIdentity(
+            root: FileManager.default.temporaryDirectory
+        )
+        let repository = makeLanguageAdaptersTestRepository()
+        var profile = DefaultLanguageProfiles.swift
+        profile.languageServer = nil
+
+        XCTAssertThrowsError(
+            try LanguageProfileServiceFactory.makeService(
+                for: profile,
+                identity: identity,
+                trustStore: WorkspaceTrustStore(repository: repository),
+                overrideStore: LanguageServerOverrideStore(
+                    repository: repository
+                )
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? LanguageServerDiscoveryError,
+                .profileHasNoLanguageServer("Swift")
+            )
+        }
     }
 }
 

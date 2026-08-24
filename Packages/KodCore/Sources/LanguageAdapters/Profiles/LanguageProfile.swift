@@ -210,7 +210,6 @@ public struct LanguageServerConfiguration: Codable, Sendable, Equatable {
 public struct LanguageProfile: Codable, Sendable, Equatable, Identifiable {
     public var identifier: String
     public var displayName: String
-    public var isEnabled: Bool
     public var origin: LanguageProfileOrigin
     public var defaultRevision: Int
     public var lastModifiedOrder: UInt64
@@ -224,7 +223,6 @@ public struct LanguageProfile: Codable, Sendable, Equatable, Identifiable {
     public init(
         identifier: String,
         displayName: String,
-        isEnabled: Bool = true,
         origin: LanguageProfileOrigin,
         defaultRevision: Int,
         lastModifiedOrder: UInt64 = 0,
@@ -233,7 +231,6 @@ public struct LanguageProfile: Codable, Sendable, Equatable, Identifiable {
     ) {
         self.identifier = identifier
         self.displayName = displayName
-        self.isEnabled = isEnabled
         self.origin = origin
         self.defaultRevision = defaultRevision
         self.lastModifiedOrder = lastModifiedOrder
@@ -331,47 +328,6 @@ extension LanguageProfileValidationError: LocalizedError {
 }
 
 public extension LanguageProfile {
-    /// Rewrites this profile as a user-owned custom profile, dropping
-    /// every shipped-only capability (initialization payloads, workspace
-    /// configuration, network access, support notes, and toolchain
-    /// discovery strategies). Used when a profile that a previous
-    /// version shipped is no longer a default: the user's associations
-    /// and executable choice survive, the shipped capabilities do not.
-    func sanitizedAsCustomProfile() -> LanguageProfile {
-        var profile = self
-        profile.origin = .custom
-        if var configuration = profile.languageServer {
-            configuration.initializationOptions = nil
-            configuration.workspaceConfiguration = [:]
-            configuration.networkAccess = .none
-            configuration.supportNotes = []
-            configuration.executableCandidates = configuration
-                .executableCandidates
-                .map { candidate in
-                    var candidate = candidate
-                    candidate.discoveryStrategies = candidate
-                        .discoveryStrategies
-                        .filter { strategy in
-                            switch strategy {
-                            case .path, .packageManagerLocations:
-                                return true
-                            case .xcrun, .rustup:
-                                return false
-                            }
-                        }
-                    if candidate.discoveryStrategies.isEmpty {
-                        candidate.discoveryStrategies = [
-                            .path,
-                            .packageManagerLocations
-                        ]
-                    }
-                    return candidate
-                }
-            profile.languageServer = configuration
-        }
-        return profile
-    }
-
     func validated() throws -> LanguageProfile {
         var profile = self
         profile.identifier = try Self.normalizedIdentifier(

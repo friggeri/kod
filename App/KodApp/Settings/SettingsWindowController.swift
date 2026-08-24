@@ -1,22 +1,23 @@
 import AppKit
 import Combine
-import DiagnosticsCore
 import FontCore
 import KodUIComponents
 import SettingsCore
 import SwiftUI
 
-/// Backing store for `SettingsView`'s font binding. Each mutation is persisted
-/// immediately; open surfaces observe the injected stores with owned
-/// cancellation tokens.
+/// Observable source of truth for the settings window. Font mutations persist
+/// immediately, while store observations keep an already-open window current.
 @MainActor
-private final class SettingsModel: ObservableObject {
+final class SettingsModel: ObservableObject {
     private let fontSettingsStore: FontSettingsStore
+    private var fontSettingsObservation: SettingsObservation?
+    private var isReloadingFontSettings = false
+
     @Published private(set) var persistenceError: SettingsRepositoryError?
 
     @Published var fontSettings: FontSettings {
         didSet {
-            guard fontSettings != oldValue else {
+            guard !isReloadingFontSettings, fontSettings != oldValue else {
                 return
             }
             do {
@@ -32,61 +33,101 @@ private final class SettingsModel: ObservableObject {
         fontSettingsStore: FontSettingsStore
     ) throws(SettingsRepositoryError) {
         self.fontSettingsStore = fontSettingsStore
-        switch try fontSettingsStore.load() {
-        case .value(let settings, _):
-            self.fontSettings = settings
-        case .absent, .quarantined:
-            self.fontSettings = .default
+        self.fontSettings = try Self.loadFontSettings(from: fontSettingsStore)
+        self.fontSettingsObservation = fontSettingsStore.observeChanges {
+            [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reloadFontSettings()
+            }
         }
+    }
+
+    private static func loadFontSettings(
+        from store: FontSettingsStore
+    ) throws(SettingsRepositoryError) -> FontSettings {
+        switch try store.load() {
+        case .value(let settings, _):
+            settings
+        case .absent, .quarantined:
+            .default
+        }
+    }
+
+    private func reloadFontSettings() {
+        let reloadedSettings: FontSettings
+        do {
+            reloadedSettings = try Self.loadFontSettings(
+                from: fontSettingsStore
+            )
+            persistenceError = nil
+        } catch {
+            persistenceError = error
+            return
+        }
+
+        guard reloadedSettings != fontSettings else {
+            return
+        }
+        isReloadingFontSettings = true
+        fontSettings = reloadedSettings
+        isReloadingFontSettings = false
     }
 }
 
-/// Hosts `SettingsView` in a native window. Constructed lazily by
-/// `AppDelegate` on the first "Settings..." menu invocation; never shown
-/// automatically, including in every automated test path.
+/// Hosts the permanent Settings sidebar and detail pane in a native split
+/// window. Constructed lazily by `AppDelegate` on the first "Settings..."
+/// menu invocation; never shown automatically.
 @MainActor
 final class SettingsWindowController: NSWindowController {
     private let model: SettingsModel
-    private let diagnosticsModel: DiagnosticsViewModel
+    private let navigationModel = SettingsNavigationModel()
     private let languageSupportService: LanguageSupportService
-    private var selectedTab = SettingsTab.font
+    private let availableFamilies: [String]
     private var subscriptions: Set<AnyCancellable> = []
 
     convenience init(environment: AppEnvironment) throws {
         try self.init(
             fontSettingsStore: environment.fontSettingsStore,
-            crashReportingSettingsStore: environment
-                .makeCrashReportingSettingsStore(),
-            settingsQuarantine: environment.settingsRepository.quarantine,
-            diagnosticsLog: environment.diagnosticsLog,
             languageSupportService: environment.languageSupportService
         )
     }
 
     init(
         fontSettingsStore: FontSettingsStore,
-        crashReportingSettingsStore: CrashReportingSettingsStore,
-        settingsQuarantine: SettingsQuarantine,
-        diagnosticsLog: BoundedEventLog,
         languageSupportService: LanguageSupportService
     ) throws {
         let model = try SettingsModel(fontSettingsStore: fontSettingsStore)
         self.model = model
-        self.diagnosticsModel = try DiagnosticsViewModel(
-            diagnosticsLog: diagnosticsLog,
-            crashReportingSettingsStore: crashReportingSettingsStore,
-            settingsQuarantine: settingsQuarantine
-        )
         self.languageSupportService = languageSupportService
+        self.availableFamilies = Self.availableFamilies(
+            currentFamily: model.fontSettings.familyName
+        )
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 540),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 920, height: 640),
+            styleMask: [
+                .titled,
+                .closable,
+                .miniaturizable,
+                .resizable,
+                .fullSizeContentView
+            ],
             backing: .buffered,
             defer: false
         )
-        window.title = Localized.string("Kod Settings", comment: "Title of the Settings window")
+        window.title = Localized.string(
+            "Font",
+            comment: "Settings window title while Font is selected"
+        )
         window.identifier = NSUserInterfaceItemIdentifier("settings.window")
+        window.minSize = NSSize(width: 800, height: 560)
+        window.titlebarAppearsTransparent = true
+        window.toolbarStyle = .unified
+        let toolbar = NSToolbar(identifier: "KodSettingsToolbar")
+        toolbar.allowsUserCustomization = false
+        toolbar.autosavesConfiguration = false
+        toolbar.displayMode = .iconOnly
+        window.toolbar = toolbar
         window.center()
         super.init(window: window)
 
@@ -98,7 +139,20 @@ final class SettingsWindowController: NSWindowController {
                 }
             }
             .store(in: &subscriptions)
-        window.contentViewController = NSHostingController(rootView: makeView())
+        navigationModel.$selectedDestination
+            .sink { [weak self] destination in
+                self?.updateWindowTitle(for: destination)
+            }
+            .store(in: &subscriptions)
+        languageSupportService.$items
+            .sink { [weak self] _ in
+                self?.updateWindowTitle(
+                    for: self?.navigationModel.selectedDestination
+                )
+            }
+            .store(in: &subscriptions)
+
+        window.contentViewController = makeSplitViewController()
     }
 
     @available(*, unavailable)
@@ -106,30 +160,41 @@ final class SettingsWindowController: NSWindowController {
         nil
     }
 
-    private func makeView() -> SettingsView {
-        SettingsView(
-            selectedTab: Binding(
-                get: { [weak self] in self?.selectedTab ?? .font },
-                set: { [weak self] in self?.selectedTab = $0 }
-            ),
-            fontSettings: Binding(
-                get: { [model] in model.fontSettings },
-                set: { [model] in model.fontSettings = $0 }
-            ),
-            availableFamilies: Self.availableFamilies(currentFamily: model.fontSettings.familyName),
-            diagnosticsModel: diagnosticsModel,
-            onExportSupportBundle: { [weak self] in self?.presentSupportBundleExportPanel() },
-            languageSupportService: languageSupportService,
-            onChooseLanguageServerExecutable: { [weak self] languageKey in
-                self?.presentLanguageServerExecutablePanel(
-                    profileIdentifier: languageKey
-                )
-            },
-            onFindLanguageServer: {
-                NSWorkspace.shared.open(
-                    LanguageSupportService.serverDirectoryURL
-                )
-            }
+    private func makeSplitViewController() -> NSSplitViewController {
+        let splitViewController = NSSplitViewController()
+        splitViewController.splitView.isVertical = true
+        splitViewController.splitView.dividerStyle = .thin
+
+        let sidebarController = NSHostingController(
+            rootView: SettingsSidebarView(
+                navigationModel: navigationModel,
+                languageSupportService: languageSupportService
+            )
+        )
+        let sidebarItem = NSSplitViewItem(
+            sidebarWithViewController: sidebarController
+        )
+        sidebarItem.canCollapse = false
+        sidebarItem.minimumThickness = 210
+        sidebarItem.maximumThickness = 260
+        sidebarItem.preferredThicknessFraction = 0.28
+        sidebarItem.holdingPriority = .defaultHigh
+
+        let detailController = NSHostingController(rootView: makeDetailView())
+        let detailItem = NSSplitViewItem(viewController: detailController)
+        detailItem.minimumThickness = 570
+
+        splitViewController.addSplitViewItem(sidebarItem)
+        splitViewController.addSplitViewItem(detailItem)
+        return splitViewController
+    }
+
+    private func makeDetailView() -> SettingsDetailView {
+        SettingsDetailView(
+            navigationModel: navigationModel,
+            model: model,
+            availableFamilies: availableFamilies,
+            languageSupportService: languageSupportService
         )
     }
 
@@ -142,40 +207,33 @@ final class SettingsWindowController: NSWindowController {
     }
 
     func showLanguageSupport(profileIdentifier: String? = nil) {
-       selectedTab = .languages
-       languageSupportService.focusProfile(identifier: profileIdentifier)
-       window?.contentViewController = NSHostingController(rootView: makeView())
-       showWindow(nil)
-       window?.makeKeyAndOrderFront(nil)
+        if let profileIdentifier {
+            navigationModel.selectLanguage(profileIdentifier)
+        } else if let first = languageSupportService.items.first {
+            navigationModel.selectLanguage(first.id)
+        }
+        languageSupportService.focusProfile(identifier: profileIdentifier)
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
     }
 
-    private func presentLanguageServerExecutablePanel(
-       profileIdentifier: String
-    ) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.message = Localized.string(
-            "Choose an existing language-server executable.",
-            comment: "Open panel message for selecting a language-server executable"
-        )
-
-        guard let window else {
-            return
+    private func updateWindowTitle(for destination: SettingsDestination?) {
+        let title: String
+        switch destination ?? .font {
+        case .font:
+            title = Localized.string(
+                "Font",
+                comment: "Settings window title while Font is selected"
+            )
+        case .language(let identifier):
+            title = languageSupportService.items.first {
+                $0.id == identifier
+            }?.profile.displayName ?? Localized.string(
+                "Languages",
+                comment: "Settings window fallback title for Languages"
+            )
         }
-        panel.beginSheetModal(for: window) { [weak self] response in
-            guard response == .OK, let url = panel.url, let self else {
-                return
-            }
-            do {
-                try self.languageSupportService.setSelectedExecutable(
-                    profileIdentifier: profileIdentifier,
-                    url: url
-                )
-            } catch {
-                self.languageSupportService.report(error)
-            }
-        }
+        window?.title = title
     }
 
     private static func availableFamilies(currentFamily: String) -> [String] {
@@ -185,32 +243,4 @@ final class SettingsWindowController: NSWindowController {
         }
         return families
     }
-
-    /// SPEC 15's support-bundle export: writes to a location the user
-    /// explicitly chooses via `NSSavePanel`, never a hardcoded path.
-    /// `DiagnosticsViewModel.exportSupportBundle(to:)` performs the
-    /// actual generate-then-write and records any failure for the
-    /// Diagnostics tab to display.
-    private func presentSupportBundleExportPanel() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "Kod-Support-Bundle.json"
-        panel.message = Localized.string(
-            "Choose where to save the redacted diagnostics support bundle.",
-            comment: "Save panel message for exporting the diagnostics support bundle"
-        )
-
-        guard let window else {
-            return
-        }
-        panel.beginSheetModal(for: window) { [weak self] response in
-            guard response == .OK, let url = panel.url, let self else {
-                return
-            }
-            Task { @MainActor in
-                await self.diagnosticsModel.exportSupportBundle(to: url)
-            }
-        }
-    }
-
 }

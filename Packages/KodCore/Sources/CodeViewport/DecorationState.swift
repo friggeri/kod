@@ -38,6 +38,15 @@ final class DecorationState {
         compositor.apply(layer)
     }
 
+    @discardableResult
+    func remove(_ kind: DecorationLayerKind) -> Bool {
+        guard compositor.layerVersion(for: kind) != nil else {
+            return false
+        }
+        compositor.removeLayer(kind)
+        return true
+    }
+
     func reapplyLexical(theme: KodTheme) {
         guard !lexicalCaptures.isEmpty,
               let version = compositor.layerVersion(for: .lexical) else {

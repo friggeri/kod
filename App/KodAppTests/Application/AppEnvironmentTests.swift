@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import LanguageAdapters
 import SettingsCore
 import WorkspaceCore
 import XCTest
@@ -97,4 +99,123 @@ final class AppEnvironmentTests: XCTestCase {
                 === fixture.environment.languageSupportService
         )
     }
+
+    func testApplicationLaunchDispatchesFullLanguageStatusRefresh() async throws {
+        let repository = CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
+        let profileStore = try LanguageProfileStore(
+            defaultProfiles: [
+                DefaultLanguageProfiles.swift,
+                DefaultLanguageProfiles.markdown
+            ],
+            repository: repository,
+            overrideStore: overrideStore
+        )
+        let recorder = LockedLanguageIdentifiers()
+        let service = LanguageSupportService(
+            profileStore: profileStore,
+            overrideStore: overrideStore,
+            statusCacheStore: LanguageServerStatusCacheStore(
+                repository: repository
+            ),
+            discovery: { profile, _ in
+                recorder.append(profile.identifier)
+                return DiscoveredExecutable(
+                    url: URL(fileURLWithPath: "/usr/bin/true"),
+                    arguments: [],
+                    version: nil,
+                    source: .loginShellPath
+                )
+            }
+        )
+        let environment = try AppEnvironment.testing(
+            settingsRepository: repository,
+            languageSupportService: service
+        )
+        let delegate = AppDelegate(environment: environment)
+
+        delegate.applicationDidFinishLaunching(
+            Notification(name: NSApplication.didFinishLaunchingNotification)
+        )
+        await delegate.languageStatusRefreshTask?.value
+
+        XCTAssertEqual(
+            Set(recorder.values),
+            Set(["swift", "markdown"])
+        )
+        delegate.welcomeWindowController?.close()
+    }
+
+    func testTerminationWaitsForLaunchLanguageRefresh() async throws {
+        let repository = CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
+        let gate = DispatchSemaphore(value: 0)
+        let service = LanguageSupportService(
+            profileStore: try LanguageProfileStore(
+                defaultProfiles: [DefaultLanguageProfiles.swift],
+                repository: repository,
+                overrideStore: overrideStore
+            ),
+            overrideStore: overrideStore,
+            discovery: { _, _ in
+                gate.wait()
+                return DiscoveredExecutable(
+                    url: URL(fileURLWithPath: "/usr/bin/true"),
+                    arguments: [],
+                    version: nil,
+                    source: .loginShellPath
+                )
+            }
+        )
+        let environment = try AppEnvironment.testing(
+            settingsRepository: repository,
+            languageSupportService: service
+        )
+        let delegate = AppDelegate(environment: environment)
+        let replyState = MainActorBoolean()
+
+        delegate.startLanguageStatusRefresh()
+        try await Task.sleep(for: .milliseconds(50))
+        let termination = delegate.beginTermination {
+            replyState.value = true
+        }
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+        XCTAssertFalse(replyState.value)
+
+        gate.signal()
+        await termination.value
+        XCTAssertTrue(replyState.value)
+    }
+}
+
+private final class LockedLanguageIdentifiers: @unchecked Sendable {
+    private let lock = NSLock()
+    private var identifiers: [String] = []
+
+    var values: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return identifiers
+    }
+
+    func append(_ identifier: String) {
+        lock.lock()
+        identifiers.append(identifier)
+        lock.unlock()
+    }
+}
+
+@MainActor
+private final class MainActorBoolean {
+    var value = false
 }

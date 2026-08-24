@@ -3,10 +3,9 @@ import Foundation
 /// User-facing font settings for the code viewer, persisted outside any
 /// workspace (SPEC 7.3 and 11.7). Values are validated on construction so a
 /// corrupt or hand-edited settings file cannot produce a zero or negative
-/// size, an empty fallback chain entry, or other unrenderable state.
+/// size or other unrenderable state.
 public struct FontSettings: Codable, Equatable, Sendable {
     public static let defaultFamilyName = "SF Mono"
-    public static let defaultFallbackFamilies = ["Menlo", "Monaco"]
     /// Upper bound chosen so a 300%-zoomed default-size (13pt) viewport —
     /// SPEC 14's "Text zoom must reach at least 300 percent without
     /// clipping controls" — sits comfortably inside the range rather than
@@ -21,16 +20,14 @@ public struct FontSettings: Codable, Equatable, Sendable {
     public var ligaturesEnabled: Bool
     public var lineHeightMultiplier: Double
     public var letterSpacing: Double
-    public var fallbackFamilies: [String]
 
     public init(
         familyName: String = FontSettings.defaultFamilyName,
         pointSize: Double = 13,
         weight: FontWeight = .regular,
-        ligaturesEnabled: Bool = false,
+        ligaturesEnabled: Bool = true,
         lineHeightMultiplier: Double = 1.2,
-        letterSpacing: Double = 0,
-        fallbackFamilies: [String] = FontSettings.defaultFallbackFamilies
+        letterSpacing: Double = 0
     ) {
         self.familyName = familyName
         self.pointSize = pointSize.clamped(to: Self.sizeRange)
@@ -38,7 +35,6 @@ public struct FontSettings: Codable, Equatable, Sendable {
         self.ligaturesEnabled = ligaturesEnabled
         self.lineHeightMultiplier = lineHeightMultiplier.clamped(to: Self.lineHeightRange)
         self.letterSpacing = letterSpacing.clamped(to: Self.letterSpacingRange)
-        self.fallbackFamilies = fallbackFamilies.filter { !$0.isEmpty }
     }
 
     public static let `default` = FontSettings()

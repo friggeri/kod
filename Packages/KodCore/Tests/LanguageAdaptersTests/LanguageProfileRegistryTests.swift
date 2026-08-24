@@ -6,7 +6,7 @@ import XCTest
 @testable import LanguageAdapters
 
 final class LanguageProfileRegistryTests: XCTestCase {
-    func testCustomExtensionAndExactFilenameRouting() throws {
+    func testExtensionAndExactFilenameRouting() throws {
         let extensionProfile = try profile(
             identifier: "extension",
             order: 100,
@@ -43,7 +43,7 @@ final class LanguageProfileRegistryTests: XCTestCase {
         )
     }
 
-    func testMostRecentlyEditedEnabledProfileWinsConflict() throws {
+    func testMostRecentlyEditedProfileWinsConflict() throws {
         let older = try profile(
             identifier: "older",
             order: 10,
@@ -62,12 +62,8 @@ final class LanguageProfileRegistryTests: XCTestCase {
                 syntax: .treeSitter(.yaml)
             )
         ).validated()
-        var disabled = newer
-        disabled.identifier = "disabled"
-        disabled.isEnabled = false
-        disabled.lastModifiedOrder = 30
         let snapshot = LanguageProfileRegistrySnapshot(
-            profiles: [older, newer, disabled]
+            profiles: [older, newer]
         )
 
         let resolved = try XCTUnwrap(
@@ -137,16 +133,36 @@ final class LanguageProfileRegistryTests: XCTestCase {
     @MainActor
     func testRegistryReloadsSynchronouslyAfterStoreChange() throws {
         let defaults = makeDefaults()
+        var liveProfile = profile(
+            identifier: "live",
+            order: 0,
+            association: LanguageFileAssociation(
+                identifier: "main",
+                fileExtensions: ["before"],
+                syntax: .plainText
+            )
+        )
+        liveProfile.origin = .default
+        liveProfile.languageServer = LanguageServerConfiguration(
+            defaultLanguageID: "live",
+            executableCandidates: [
+                LanguageServerExecutableCandidate(
+                    identifier: "live-lsp",
+                    executableNames: ["live-lsp"],
+                    arguments: []
+                )
+            ]
+        )
         let store = try LanguageProfileStore(
-            defaultProfiles: [],
+            defaultProfiles: [liveProfile],
             repository: defaults
         )
         let registry = LanguageProfileRegistry(store: store)
-        var observedIdentifier: String?
+        var observedExecutablePath: String?
         let observation = registry.observeChanges {
-            observedIdentifier = registry.resolve(
-                url: URL(fileURLWithPath: "/tmp/example.live")
-            )?.profile.identifier
+            observedExecutablePath = registry.snapshot.profile(
+                identifier: "live"
+            )?.languageServer?.selectedExecutable?.path
         }
         XCTAssertNil(
             registry.resolve(
@@ -154,25 +170,19 @@ final class LanguageProfileRegistryTests: XCTestCase {
             )
         )
 
-        _ = try store.createCustomProfile(
-            profile(
-                identifier: "live",
-                order: 0,
-                association: LanguageFileAssociation(
-                    identifier: "main",
-                    fileExtensions: ["live"],
-                    syntax: .plainText
-                )
+        liveProfile.languageServer?.selectedExecutable =
+            RegisteredLanguageServerExecutable(
+                path: "/usr/bin/true",
+                arguments: []
             )
-        )
+        _ = try store.updateProfile(liveProfile)
 
         XCTAssertEqual(
-            registry.resolve(
-                url: URL(fileURLWithPath: "/tmp/example.live")
-            )?.profile.identifier,
-            "live"
+            registry.snapshot.profile(identifier: "live")?
+                .languageServer?.selectedExecutable?.path,
+            "/usr/bin/true"
         )
-        XCTAssertEqual(observedIdentifier, "live")
+        XCTAssertEqual(observedExecutablePath, "/usr/bin/true")
         withExtendedLifetime(observation) {}
     }
 
@@ -290,7 +300,7 @@ final class LanguageProfileRegistryTests: XCTestCase {
         LanguageProfile(
             identifier: identifier,
             displayName: identifier.capitalized,
-            origin: .custom,
+            origin: .default,
             defaultRevision: 1,
             lastModifiedOrder: order,
             associations: [association]

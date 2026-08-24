@@ -1,11 +1,11 @@
 import AppKit
 
 /// The result of turning `FontSettings` into concrete AppKit/Core Text
-/// state: the resolved `NSFont` (already carrying its fallback cascade so
-/// glyphs outside the primary family still render), the derived line
-/// height and monospace character width `CodeViewport` uses for column
-/// alignment, ready-made drawing attributes, and an optional warning when
-/// the chosen family is not fixed-pitch.
+/// state: the resolved primary `NSFont` (AppKit/Core Text supplies glyph
+/// fallback during layout), the derived line height and monospace character
+/// width `CodeViewport` uses for column alignment, ready-made drawing
+/// attributes, and an optional warning when the chosen family is not
+/// fixed-pitch.
 public struct ResolvedFont: @unchecked Sendable {
     public let nsFont: NSFont
     public let lineHeight: CGFloat
@@ -55,18 +55,10 @@ public enum FontResolver {
     }
 
     private static func fontDescriptor(for settings: FontSettings) -> NSFontDescriptor {
-        var descriptor = NSFontDescriptor(fontAttributes: [
+        NSFontDescriptor(fontAttributes: [
             .family: settings.familyName,
             .traits: [NSFontDescriptor.TraitKey.weight: weightTraitValue(settings.weight)]
         ])
-
-        let fallbackDescriptors = settings.fallbackFamilies.map {
-            NSFontDescriptor(fontAttributes: [.family: $0])
-        }
-        if !fallbackDescriptors.isEmpty {
-            descriptor = descriptor.addingAttributes([.cascadeList: fallbackDescriptors])
-        }
-        return descriptor
     }
 
     private static func weightTraitValue(_ weight: FontWeight) -> CGFloat {

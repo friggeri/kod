@@ -662,7 +662,7 @@ final class WorkspaceViewController: NSViewController {
             self?.enqueueMissingLanguageServer(profile)
         }
         session.onLanguageUnknownFileType = { [weak self] url in
-            self?.enqueueUnknownLanguageProfile(for: url)
+            self?.enqueueUnknownFileType(for: url)
         }
         session.persistState = { [weak self] in
             self?.persistRestorableState()
@@ -682,19 +682,16 @@ final class WorkspaceViewController: NSViewController {
         }
     }
 
-    /// A profile's configuration changed (edited, enabled/disabled,
-    /// reset, deleted, or given an explicit executable). The registry has
-    /// already reloaded itself from its own store observation, so this
-    /// reads the current snapshot and, if the change affects the
-    /// currently displayed missing-server/unknown-type prompt, re-resolves
-    /// it — resolving a configuration change may require re-running
-    /// discovery, so this is the one path allowed to call
-    /// `languageSupportService.refresh()`.
+    /// A shipped profile's Command changed. The registry has already
+    /// reloaded from the store, so this refreshes discovery and any
+    /// currently displayed missing-server prompt.
     private func handleLanguageProfileConfigurationChanged(
         languageKey: String
     ) {
+        languageHoverController.invalidateCache()
+        definitionNavigationTask?.cancel()
+        definitionNavigationTask = nil
         languagePrompts.bumpGeneration()
-        reloadChangedSyntaxDefinitions()
         languagePrompts.removeQueuedMissingServer(languageKey: languageKey)
         if languagePrompts.currentMissingServerKey == languageKey {
             Task { [weak self] in
@@ -714,7 +711,7 @@ final class WorkspaceViewController: NSViewController {
                     return
                 }
                 switch item.serverState {
-                case .available, .notConfigured:
+                case .available, .syntaxOnly:
                     self.finishMissingLanguagePrompt(
                         suppressForSession: false
                     )
@@ -726,11 +723,8 @@ final class WorkspaceViewController: NSViewController {
                   languageSupportService.profileRegistry.resolve(
                       url: currentUnknownLanguageURL
                   ) != nil {
-            finishMissingLanguagePrompt(suppressForSession: false)
-        }
-        multiLanguageServicesCoordinator.handleLanguageSupportChanged(
-            languageKey: languageKey
-        )
+                      finishMissingLanguagePrompt(suppressForSession: false)
+                  }
     }
 
     /// `LanguageSupportService.refresh()` discovered that `languageKey`'s
@@ -1109,7 +1103,7 @@ final class WorkspaceViewController: NSViewController {
         }
     }
 
-    private func enqueueUnknownLanguageProfile(for url: URL) {
+    private func enqueueUnknownFileType(for url: URL) {
         guard trustStore.isTrusted(identity),
               languagePrompts.enqueueUnknownFileType(url: url) else {
             return
@@ -1171,6 +1165,9 @@ final class WorkspaceViewController: NSViewController {
     }
 
     private func renderMissingServerPrompt(item: LanguageSupportItem) {
+        languageSupportChooseButton.isHidden = false
+        languageSupportSettingsButton.isHidden = false
+        languageSupportFindButton.isHidden = false
         languageSupportChooseButton.title = Localized.string(
             "Choose Executable...",
             comment: "Button title selecting a local executable from the missing language-server banner"
@@ -1215,9 +1212,16 @@ final class WorkspaceViewController: NSViewController {
 
     private func renderUnknownFileTypePrompt(url: URL) {
         currentMissingLanguageInstallationDocumentationURL = nil
+        languageSupportChooseButton.isHidden = false
+        languageSupportSettingsButton.isHidden = true
+        languageSupportFindButton.isHidden = true
         languageSupportChooseButton.title = Localized.string(
-            "Add Profile...",
-            comment: "Button title creating a language profile for an unknown file type"
+            "Request Language...",
+            comment: "Button title requesting support for an unknown file type"
+        )
+        languageSupportChooseButton.toolTip = Localized.string(
+            "Request support for this file type on GitHub.",
+            comment: "Tooltip for requesting support for an unknown file type"
         )
         languageSupportBannerLabel.stringValue = Localized.string(
             "No language profile matches *.\(url.pathExtension.lowercased()). Plain Text remains available.",
@@ -1225,14 +1229,6 @@ final class WorkspaceViewController: NSViewController {
         )
         languageSupportBannerLabel.toolTip =
             languageSupportBannerLabel.stringValue
-        languageSupportFindButton.title = Localized.string(
-            "Find a Server...",
-            comment: "Button title opening the public language-server directory from the missing-server banner"
-        )
-        languageSupportFindButton.toolTip = Localized.string(
-            "Open the public LSP server directory.",
-            comment: "Tooltip for the missing language-server Find a Server button"
-        )
         languageSupportBanner.setAccessibilityLabel(
             languageSupportBannerLabel.stringValue
         )
@@ -1259,22 +1255,16 @@ final class WorkspaceViewController: NSViewController {
 
     @objc
     private func openLanguageSupportSettings(_ sender: Any?) {
-        let profileIdentifier: String?
-        if let unknownFileTypeURL = languagePrompts.currentUnknownFileTypeURL {
-            languageSupportService.beginAddingProfile(
-                prefilling: unknownFileTypeURL
-            )
-            profileIdentifier = nil
-        } else {
-            profileIdentifier = languagePrompts.currentMissingServerKey
-        }
-        onShowLanguageSupportSettings?(profileIdentifier)
+        onShowLanguageSupportSettings?(
+            languagePrompts.currentMissingServerKey
+        )
     }
 
     @objc
     private func chooseMissingLanguageServer(_ sender: Any?) {
-        if languagePrompts.currentUnknownFileTypeURL != nil {
-            openLanguageSupportSettings(sender)
+        if let url = languagePrompts.currentUnknownFileTypeURL {
+            NSWorkspace.shared.open(languageRequestURL(for: url))
+            finishMissingLanguagePrompt(suppressForSession: true)
             return
         }
         guard let languageKey = languagePrompts.currentMissingServerKey,
@@ -1312,8 +1302,38 @@ final class WorkspaceViewController: NSViewController {
         )
     }
 
+    private func languageRequestURL(for fileURL: URL) -> URL {
+        var components = URLComponents(
+            string: "https://github.com/friggeri/kod/issues/new"
+        )
+        let fileType = fileURL.pathExtension.isEmpty
+            ? fileURL.lastPathComponent
+            : ".\(fileURL.pathExtension.lowercased())"
+        components?.queryItems = [
+            URLQueryItem(
+                name: "title",
+                value: "Language support: \(fileType)"
+            )
+        ]
+        guard let url = components?.url else {
+            preconditionFailure("The language request URL is invalid")
+        }
+        return url
+    }
+
     private func languageServerStateDidChange() {
-        for status in multiLanguageServicesCoordinator.states {
+        let statuses = multiLanguageServicesCoordinator.states
+        let currentIdentifiers = Set(
+            statuses.map(\.profile.identifier)
+        )
+        let removedIdentifiers = lastLanguageServerStates.keys.filter {
+            !currentIdentifiers.contains($0)
+        }
+        for identifier in removedIdentifiers {
+            invalidateLanguageProvider(identifier)
+            lastLanguageServerStates.removeValue(forKey: identifier)
+        }
+        for status in statuses {
             recordLanguageServerState(
                 providerIdentifier: status.profile.identifier,
                 state: status.state
@@ -1332,12 +1352,18 @@ final class WorkspaceViewController: NSViewController {
         }
         switch state {
         case .missing, .starting, .stopping, .stopped, .crashed, .disabled:
-            languageHoverController.invalidateCache(
-                forProvider: providerIdentifier
-            )
+            invalidateLanguageProvider(providerIdentifier)
         case .indexing, .ready, .busy:
             break
         }
+    }
+
+    private func invalidateLanguageProvider(_ providerIdentifier: String) {
+        languageHoverController.invalidateCache(
+            forProvider: providerIdentifier
+        )
+        definitionNavigationTask?.cancel()
+        definitionNavigationTask = nil
     }
 
     private func refreshLanguageServerStateUI() {

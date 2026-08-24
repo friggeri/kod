@@ -1,128 +1,274 @@
-import CodeViewport
+import AppKit
 import FontCore
+import KodUIComponents
 import SwiftUI
 
-enum SettingsTab: Hashable {
+enum SettingsDestination: Hashable {
     case font
-    case languages
-    case diagnostics
+    case language(String)
 }
 
-/// Native settings UI for font, language, and diagnostics configuration.
-/// Font controls cover family (filtered to installed monospaced families),
-/// size, weight, ligatures, line height, letter spacing, and an ordered
-/// Unicode fallback chain. Pure SwiftUI state driven by
-/// `@Binding`s owned by `SettingsWindowController`, so it is constructible
-/// and previewable without any app-wide singleton.
-struct SettingsView: View {
-    @Binding var selectedTab: SettingsTab
+@MainActor
+final class SettingsNavigationModel: ObservableObject {
+    @Published var selectedDestination: SettingsDestination?
 
-    @Binding var fontSettings: FontSettings
-    let availableFamilies: [String]
-
-    @ObservedObject var diagnosticsModel: DiagnosticsViewModel
-    let onExportSupportBundle: @MainActor () -> Void
-    @ObservedObject var languageSupportService: LanguageSupportService
-    let onChooseLanguageServerExecutable: @MainActor (String) -> Void
-    let onFindLanguageServer: @MainActor () -> Void
-
-    @State private var newFallbackFamily = ""
-
-    var body: some View {
-        TabView(selection: $selectedTab) {
-            fontTab
-                .tabItem { Label("Font", systemImage: "textformat") }
-                .tag(SettingsTab.font)
-            LanguageSupportSettingsView(
-                service: languageSupportService,
-                onChooseExecutable: onChooseLanguageServerExecutable,
-                onFindLanguageServer: onFindLanguageServer
-            )
-            .tabItem { Label("Languages", systemImage: "curlybraces") }
-            .tag(SettingsTab.languages)
-            DiagnosticsView(model: diagnosticsModel, onExportSupportBundle: onExportSupportBundle)
-                .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
-                .tag(SettingsTab.diagnostics)
-        }
-        .padding(20)
-        .frame(width: 720, height: 540)
+    init(selectedDestination: SettingsDestination = .font) {
+        self.selectedDestination = selectedDestination
     }
 
-    private var fontTab: some View {
-        Form {
-            Picker("Family", selection: $fontSettings.familyName) {
-                ForEach(availableFamilies, id: \.self) { family in
-                    Text(family).tag(family)
-                }
+    func selectLanguage(_ identifier: String?) {
+        guard let identifier else {
+            return
+        }
+        selectedDestination = .language(identifier)
+    }
+
+    func reconcileSelection(in items: [LanguageSupportItem]) {
+        guard case .language(let identifier) = selectedDestination else {
+            if selectedDestination == nil {
+                selectedDestination = .font
             }
-            .accessibilityIdentifier("settings.fontFamily")
+            return
+        }
+        guard !items.contains(where: { $0.id == identifier }) else {
+            return
+        }
+        selectedDestination = .font
+    }
+}
 
-            Picker("Weight", selection: $fontSettings.weight) {
-                ForEach(FontWeight.allCases, id: \.self) { weight in
-                    Text(weight.displayName).tag(weight)
-                }
+struct SettingsSidebarView: View {
+    @ObservedObject var navigationModel: SettingsNavigationModel
+    @ObservedObject var languageSupportService: LanguageSupportService
+
+    var body: some View {
+        List(selection: deferredSelection) {
+            Section("Editor") {
+                Label("Font", systemImage: "textformat")
+                    .tag(SettingsDestination.font)
+                    .accessibilityIdentifier("settings.font.row")
             }
 
-            Stepper(
-                "Size: \(Int(fontSettings.pointSize)) pt",
-                value: $fontSettings.pointSize,
-                in: FontSettings.sizeRange,
-                step: 1
-            )
-            .accessibilityLabel(Localized.string("Font size", comment: "Accessibility label for the font size stepper in Settings"))
-            .accessibilityValue(Localized.string("\(Int(fontSettings.pointSize)) points", comment: "Accessibility value announcing the current font point size"))
+            Section("Languages") {
+                ForEach(languageSupportService.items) { item in
+                    HStack(spacing: 8) {
+                        MaterialLanguageIcon(
+                            fileName: SettingsLanguageIcon.fileName(
+                                for: item.id
+                            )
+                        )
+                        .frame(
+                            width: SettingsLanguageIcon.pointSize,
+                            height: SettingsLanguageIcon.pointSize
+                        )
+                        .accessibilityIdentifier(
+                            "settings.languageSupport.\(item.id).icon"
+                        )
 
-            Toggle("Ligatures", isOn: $fontSettings.ligaturesEnabled)
-                .accessibilityIdentifier("settings.ligatures")
-
-            Slider(
-                value: $fontSettings.lineHeightMultiplier,
-                in: FontSettings.lineHeightRange
-            ) {
-                Text("Line Height: \(String(format: "%.2f", fontSettings.lineHeightMultiplier))x")
-            }
-            .accessibilityLabel(Localized.string("Line height", comment: "Accessibility label for the line height slider in Settings"))
-            .accessibilityValue(Localized.string("\(String(format: "%.2f", fontSettings.lineHeightMultiplier)) times", comment: "Accessibility value announcing the current line height multiplier"))
-
-            Slider(
-                value: $fontSettings.letterSpacing,
-                in: FontSettings.letterSpacingRange
-            ) {
-                Text("Letter Spacing: \(String(format: "%.2f", fontSettings.letterSpacing))")
-            }
-            .accessibilityLabel(Localized.string("Letter spacing", comment: "Accessibility label for the letter spacing slider in Settings"))
-            .accessibilityValue(Localized.string("\(String(format: "%.2f", fontSettings.letterSpacing))", comment: "Accessibility value announcing the current letter spacing"))
-
-            Section("Fallback Families") {
-                ForEach(fontSettings.fallbackFamilies, id: \.self) { family in
-                    Text(family)
-                }
-                .onDelete { indices in
-                    fontSettings.fallbackFamilies.remove(atOffsets: indices)
-                }
-
-                HStack {
-                    TextField("Add fallback family", text: $newFallbackFamily)
-                    Button("Add") {
-                        let trimmed = newFallbackFamily.trimmingCharacters(in: .whitespaces)
-                        guard !trimmed.isEmpty else {
-                            return
-                        }
-                        fontSettings.fallbackFamilies.append(trimmed)
-                        newFallbackFamily = ""
+                        Text(item.profile.displayName)
+                            .lineLimit(1)
+                        Spacer(minLength: 6)
+                        Image(
+                            systemName:
+                                item.serverState.presentation.systemImage
+                        )
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(item.serverState.statusColor)
+                        .frame(width: 10, height: 10)
+                        .accessibilityHidden(true)
                     }
-                    .disabled(newFallbackFamily.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .tag(SettingsDestination.language(item.id))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(
+                        Text(item.profile.displayName)
+                            + Text(", ")
+                            + Text(item.serverState.presentation.title)
+                    )
+                    .accessibilityIdentifier(
+                        "settings.languageSupport.\(item.id).row"
+                    )
                 }
             }
 
-            if !MonospacedFontDiscovery.isFamilyMonospaced(fontSettings.familyName) {
-                Label(
-                    "\"\(fontSettings.familyName)\" is not monospaced; column alignment may vary.",
-                    systemImage: "exclamationmark.triangle"
-                )
-                .foregroundStyle(.orange)
-                .accessibilityIdentifier("settings.fontAlignmentWarning")
+        }
+        .listStyle(.sidebar)
+        .accessibilityIdentifier("settings.sidebar")
+        .task {
+            navigationModel.selectLanguage(
+                languageSupportService.focusedProfileIdentifier
+            )
+            navigationModel.reconcileSelection(
+                in: languageSupportService.items
+            )
+        }
+        .onChange(of: navigationModel.selectedDestination) { _, destination in
+            guard destination == nil else {
+                return
+            }
+            Task { @MainActor in
+                await Task.yield()
+                if navigationModel.selectedDestination == nil {
+                    navigationModel.selectedDestination = .font
+                }
             }
         }
+        .onChange(of: languageSupportService.items) { _, items in
+            Task { @MainActor in
+                await Task.yield()
+                navigationModel.reconcileSelection(in: items)
+            }
+        }
+        .onChange(of: languageSupportService.focusRequestRevision) { _, _ in
+            Task { @MainActor in
+                await Task.yield()
+                navigationModel.selectLanguage(
+                    languageSupportService.focusedProfileIdentifier
+                )
+            }
+        }
+    }
+
+    private var deferredSelection: Binding<SettingsDestination?> {
+        Binding(
+            get: { navigationModel.selectedDestination },
+            set: { destination in
+                guard destination
+                        != navigationModel.selectedDestination else {
+                    return
+                }
+                Task { @MainActor in
+                    await Task.yield()
+                    navigationModel.selectedDestination = destination
+                }
+            }
+        )
+    }
+}
+
+struct SettingsDetailView: View {
+    @ObservedObject var navigationModel: SettingsNavigationModel
+    @ObservedObject var model: SettingsModel
+    let availableFamilies: [String]
+    @ObservedObject var languageSupportService: LanguageSupportService
+
+    @ViewBuilder
+    var body: some View {
+        switch navigationModel.selectedDestination ?? .font {
+        case .font:
+            FontSettingsView(
+                fontSettings: $model.fontSettings,
+                availableFamilies: availableFamilies
+            )
+            .padding(24)
+        case .language(let identifier):
+            if let item = languageSupportService.items.first(where: {
+                $0.id == identifier
+            }) {
+                LanguageSupportDetailView(
+                    item: item,
+                    service: languageSupportService
+                )
+                .id(item.id)
+            } else {
+                ContentUnavailableView(
+                    "Language Unavailable",
+                    systemImage: "curlybraces",
+                    description: Text(
+                        "This shipped language is no longer available."
+                    )
+                )
+            }
+        }
+    }
+}
+
+enum SettingsLanguageIcon {
+    static let pointSize: CGFloat = 12
+
+    static func fileName(for identifier: String) -> String {
+        switch identifier {
+        case "swift": "Example.swift"
+        case "typescript": "Example.ts"
+        case "html": "index.html"
+        case "css": "styles.css"
+        case "python": "example.py"
+        case "rust": "main.rs"
+        case "shellscript": "script.sh"
+        case "markdown": "README.md"
+        case "json": "example.json"
+        case "yaml": "config.yaml"
+        case "toml": "config.toml"
+        case "c": "main.c"
+        case "go": "main.go"
+        case "java": "Main.java"
+        case "ruby": "script.rb"
+        case "lua": "script.lua"
+        case "graphql": "schema.graphql"
+        case "xml": "document.xml"
+        default: "file.txt"
+        }
+    }
+}
+
+private struct MaterialLanguageIcon: NSViewRepresentable {
+    let fileName: String
+
+    func makeNSView(context: Context) -> MaterialLanguageIconContainer {
+        MaterialLanguageIconContainer(fileName: fileName)
+    }
+
+    func updateNSView(
+        _ container: MaterialLanguageIconContainer,
+        context: Context
+    ) {
+        container.fileName = fileName
+    }
+}
+
+@MainActor
+private final class MaterialLanguageIconContainer: NSView {
+    private let imageView = MaterialFileIconView()
+
+    var fileName: String {
+        get { imageView.fileName ?? "" }
+        set { imageView.fileName = newValue }
+    }
+
+    init(fileName: String) {
+        super.init(
+            frame: NSRect(
+                origin: .zero,
+                size: NSSize(
+                    width: SettingsLanguageIcon.pointSize,
+                    height: SettingsLanguageIcon.pointSize
+                )
+            )
+        )
+        imageView.imageScaling = .scaleProportionallyDown
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(
+                equalToConstant: SettingsLanguageIcon.pointSize
+            ),
+            imageView.heightAnchor.constraint(
+                equalToConstant: SettingsLanguageIcon.pointSize
+            ),
+            imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+        self.fileName = fileName
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: SettingsLanguageIcon.pointSize,
+            height: SettingsLanguageIcon.pointSize
+        )
     }
 }

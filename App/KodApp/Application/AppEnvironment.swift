@@ -104,7 +104,10 @@ final class AppEnvironment {
             )
             resolvedLanguageSupportService = LanguageSupportService(
                 profileStore: profileStore,
-                overrideStore: overrideStore
+                overrideStore: overrideStore,
+                statusCacheStore: LanguageServerStatusCacheStore(
+                    repository: repository
+                )
             )
         }
 
@@ -174,10 +177,6 @@ final class AppEnvironment {
             identity: identity,
             services: services
         )
-    }
-
-    func makeCrashReportingSettingsStore() -> CrashReportingSettingsStore {
-        CrashReportingSettingsStore(repository: settingsRepository)
     }
 }
 

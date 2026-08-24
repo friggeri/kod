@@ -15,9 +15,8 @@ extension Notification.Name {
 /// observers can react precisely instead of treating every change the
 /// same way.
 enum LanguageSupportChangeKind: String {
-    /// A profile's configuration was edited, enabled/disabled, reset,
-    /// deleted, or given an explicit executable — i.e. anything that can
-    /// change *what* Kod should launch or *how* files map to it.
+    /// A shipped profile's command changed — i.e. Kod should replace any
+    /// running service with one using the new executable and arguments.
     case profileConfiguration
     /// `LanguageSupportService.refresh()` discovered that a profile's
     /// executable, previously unavailable, is now available — i.e.
@@ -43,7 +42,7 @@ extension Notification {
 }
 
 enum LanguageSupportServerState: Equatable {
-    case notConfigured
+    case syntaxOnly
     case checking
     case available(DiscoveredExecutable)
     case missing(String)
@@ -58,8 +57,6 @@ enum LanguageSupportServerState: Equatable {
 
 struct LanguageSupportItem: Identifiable, Equatable {
     let profile: LanguageProfile
-    let syntaxDescription: String
-    let conflicts: [LanguageProfileConflict]
     var serverState: LanguageSupportServerState
 
     var id: String {
@@ -67,192 +64,17 @@ struct LanguageSupportItem: Identifiable, Equatable {
     }
 }
 
-enum LanguageProfileSaveResult: Equatable {
-    case saved(LanguageProfile)
-    case requiresConflictConfirmation([LanguageProfileConflict])
-}
-
-struct LanguageAssociationDraft: Identifiable, Equatable {
-    let id: UUID
-    var identifier: String
-    var fileExtensions: String
-    var exactFileNames: String
-    var syntaxLanguage: SyntaxLanguage?
-    var languageID: String
-    var contentMatchers: [LanguageContentMatcher]
-
-    init(
-        id: UUID = UUID(),
-        identifier: String,
-        fileExtensions: String,
-        exactFileNames: String,
-        syntaxLanguage: SyntaxLanguage?,
-        languageID: String,
-        contentMatchers: [LanguageContentMatcher] = []
-    ) {
-        self.id = id
-        self.identifier = identifier
-        self.fileExtensions = fileExtensions
-        self.exactFileNames = exactFileNames
-        self.syntaxLanguage = syntaxLanguage
-        self.languageID = languageID
-        self.contentMatchers = contentMatchers
-    }
-}
-
-struct LanguageProfileDraft: Identifiable, Equatable {
-    let id: UUID
-    let originalProfile: LanguageProfile?
-    var identifier: String
-    var displayName: String
-    var isEnabled: Bool
-    var associations: [LanguageAssociationDraft]
-    var languageServerEnabled: Bool
-    var defaultLanguageID: String
-    var executablePath: String
-    var arguments: [String]
-
-    init(profile: LanguageProfile) {
-        let configuration = profile.languageServer
-        self.id = UUID()
-        self.originalProfile = profile
-        self.identifier = profile.identifier
-        self.displayName = profile.displayName
-        self.isEnabled = profile.isEnabled
-        self.associations = profile.associations.map { association in
-            let syntaxLanguage: SyntaxLanguage?
-            switch association.syntax {
-            case .treeSitter(let language):
-                syntaxLanguage = language
-            case .plainText:
-                syntaxLanguage = nil
-            }
-            return LanguageAssociationDraft(
-                identifier: association.identifier,
-                fileExtensions: association.fileExtensions.joined(
-                    separator: ", "
-                ),
-                exactFileNames: association.exactFileNames.joined(
-                    separator: ", "
-                ),
-                syntaxLanguage: syntaxLanguage,
-                languageID: configuration?.languageID(
-                    for: association.identifier
-                ) ?? "",
-                contentMatchers: association.contentMatchers
-            )
-        }
-        self.languageServerEnabled = configuration != nil
-        self.defaultLanguageID = configuration?.defaultLanguageID ?? ""
-        self.executablePath = configuration?.selectedExecutable?.path ?? ""
-        self.arguments = configuration?.selectedExecutable?.arguments ?? []
-    }
-
-    init(prefilling url: URL? = nil) {
-        let fileExtension = url?.pathExtension.lowercased() ?? ""
-        let fileName = url?.lastPathComponent.lowercased() ?? ""
-        let name = fileExtension.isEmpty
-            ? (fileName.isEmpty
-                ? String(localized: "Custom Language")
-                : fileName)
-            : fileExtension.uppercased()
-        self.id = UUID()
-        self.originalProfile = nil
-        self.identifier = "custom-\(UUID().uuidString.lowercased())"
-        self.displayName = name
-        self.isEnabled = true
-        self.associations = [
-            LanguageAssociationDraft(
-                identifier: "files",
-                fileExtensions: fileExtension,
-                exactFileNames: fileExtension.isEmpty ? fileName : "",
-                syntaxLanguage: nil,
-                languageID: ""
-            )
-        ]
-        self.languageServerEnabled = false
-        self.defaultLanguageID = fileExtension
-        self.executablePath = ""
-        self.arguments = []
-    }
-
-    func makeProfile() throws -> LanguageProfile {
-        let associations = associations.enumerated().map {
-            index,
-            draft in
-            let identifier = draft.identifier.isEmpty
-                ? "files-\(index + 1)"
-                : draft.identifier
-            let syntax: SyntaxDefinitionReference = draft.syntaxLanguage.map {
-                .treeSitter($0)
-            } ?? .plainText
-            return LanguageFileAssociation(
-                identifier: identifier,
-                fileExtensions: Self.list(from: draft.fileExtensions),
-                exactFileNames: Self.list(from: draft.exactFileNames),
-                contentMatchers: draft.contentMatchers,
-                syntax: syntax
-            )
-        }
-
-        var languageServer: LanguageServerConfiguration?
-        if languageServerEnabled {
-            let defaultLanguageID =
-                self.defaultLanguageID.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-            var configuration = originalProfile?.languageServer
-                ?? LanguageServerConfiguration(
-                    defaultLanguageID: defaultLanguageID,
-                    executableCandidates: []
-                )
-            configuration.defaultLanguageID = defaultLanguageID
-            configuration.languageIDOverrides = zip(
-                associations,
-                self.associations
-            ).reduce(into: [:]) { overrides, pair in
-                let (association, draft) = pair
-                let languageID = draft.languageID.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                guard !languageID.isEmpty,
-                      languageID != defaultLanguageID else {
-                    return
-                }
-                overrides[association.identifier] = languageID
-            }
-            let path = executablePath.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-            configuration.selectedExecutable = path.isEmpty
-                ? nil
-                : RegisteredLanguageServerExecutable(
-                    path: path,
-                    arguments: arguments
-                )
-            languageServer = configuration
-        }
-
-        let profile = LanguageProfile(
-            identifier: identifier,
-            displayName: displayName,
-            isEnabled: isEnabled,
-            origin: originalProfile?.origin ?? .custom,
-            defaultRevision: originalProfile?.defaultRevision ?? 1,
-            lastModifiedOrder: originalProfile?.lastModifiedOrder ?? 0,
-            associations: associations,
-            languageServer: languageServer
-        )
-        return try profile.validated()
-    }
-
-    private static func list(from value: String) -> [String] {
-        value
-            .split(whereSeparator: { $0 == "," || $0.isNewline })
-            .map {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            .filter { !$0.isEmpty }
+enum LanguageServerExecutableSelection {
+    static func arguments(
+        for url: URL,
+        configuration: LanguageServerConfiguration?,
+        fallback: [String]
+    ) -> [String] {
+        configuration?.executableCandidates.first(where: {
+            $0.executableNames.contains(url.lastPathComponent)
+        })?.arguments ?? configuration?.selectedExecutable?.arguments
+            ?? configuration?.executableCandidates.first?.arguments
+            ?? fallback
     }
 }
 
@@ -261,6 +83,11 @@ final class LanguageSupportService: ObservableObject {
     typealias Discovery = @Sendable (
         LanguageProfile,
         LanguageServerOverrideStore
+    ) throws -> DiscoveredExecutable
+    private typealias ContextualDiscovery = @Sendable (
+        LanguageProfile,
+        LanguageServerOverrideStore,
+        String?
     ) throws -> DiscoveredExecutable
 
     static let serverDirectoryURL: URL = {
@@ -273,81 +100,145 @@ final class LanguageSupportService: ObservableObject {
     }()
 
     @Published private(set) var items: [LanguageSupportItem] = []
-    @Published private(set) var isRefreshing = false
-    @Published var requestedProfileDraft: LanguageProfileDraft?
-    @Published var focusedProfileIdentifier: String?
+    @Published private(set) var refreshingProfileIdentifiers: Set<String> = []
+    @Published private(set) var focusedProfileIdentifier: String?
+    @Published private(set) var focusRequestRevision = 0
     @Published var errorMessage: String?
 
     let profileStore: LanguageProfileStore
     let profileRegistry: LanguageProfileRegistry
     let overrideStore: LanguageServerOverrideStore
 
-    private let discovery: Discovery
+    private let discovery: ContextualDiscovery
+    private let requiresLoginShellPathCapture: Bool
+    private let loginShellPathCapture: @Sendable () -> String?
+    private let statusCacheStore: LanguageServerStatusCacheStore?
+    private var cachedStatuses: [String: CachedLanguageServerStatus] = [:]
+    private var profileRefreshFingerprints: [
+        String: LanguageProfileRefreshFingerprint
+    ] = [:]
     private var profileObserver: SettingsObservation?
-    /// Strictly increases on every `refresh()` call so a slower,
-    /// superseded refresh can detect it finished after a newer one and
-    /// avoid overwriting/notifying with its now-stale results.
-    private var refreshGeneration = 0
+    private var refreshGenerations: [String: UInt64] = [:]
+    private var activeRefreshes: [UUID: Set<String>] = [:]
 
     init(
         profileStore: LanguageProfileStore,
         overrideStore: LanguageServerOverrideStore,
-        discovery: @escaping Discovery = { profile, overrideStore in
-            try LanguageServerDiscoveryEngine.resolve(
-                profile: profile,
-                overrideStore: overrideStore,
-                identity: nil
-            )
-        }
+        statusCacheStore: LanguageServerStatusCacheStore? = nil,
+        loginShellPathCapture: @escaping @Sendable () -> String? = {
+            LoginShellPathCapture.capture()
+        },
+        discovery: Discovery? = nil
     ) {
         self.profileStore = profileStore
         self.profileRegistry = LanguageProfileRegistry(store: profileStore)
         self.overrideStore = overrideStore
-        self.discovery = discovery
-        rebuildItems()
+        self.statusCacheStore = statusCacheStore
+        self.loginShellPathCapture = loginShellPathCapture
+        if let discovery {
+            self.requiresLoginShellPathCapture = false
+            self.discovery = { profile, overrideStore, _ in
+                try discovery(profile, overrideStore)
+            }
+        } else {
+            self.requiresLoginShellPathCapture = true
+            self.discovery = { profile, overrideStore, loginShellPath in
+                try LanguageServerDiscoveryEngine.resolve(
+                    profile: profile,
+                    overrideStore: overrideStore,
+                    identity: nil,
+                    loginShellPath: { loginShellPath }
+                )
+            }
+        }
+        if let statusCacheStore {
+            do {
+                cachedStatuses = try statusCacheStore.load()
+            } catch {
+                cachedStatuses = [:]
+                errorMessage = error.localizedDescription
+            }
+        }
+        pruneCachedStatuses()
+        profileRefreshFingerprints = Self.refreshFingerprints(
+            for: profileStore.profiles
+        )
+        rebuildItems(preservingPriorStates: false)
         self.profileObserver = profileStore.observeChanges { [weak self] in
             guard let self else {
                 return
             }
-            self.rebuildItems()
-            Task {
-                await self.refresh()
-            }
+            self.supersedeRefreshesForChangedProfiles()
+            self.pruneCachedStatuses()
+            self.rebuildItems(preservingPriorStates: false)
         }
     }
 
-    func refresh() async {
-        refreshGeneration &+= 1
-        let generation = refreshGeneration
-        isRefreshing = true
-        defer {
-            // Only clear `isRefreshing` if no newer refresh has since
-            // started; otherwise this stale completion would incorrectly
-            // report the newer, still-running refresh as finished.
-            if generation == refreshGeneration {
-                isRefreshing = false
-            }
+    func refresh(profileIdentifier: String? = nil) async {
+        guard !Task.isCancelled else {
+            return
         }
-        rebuildItems()
-
-        let profiles = profileStore.profiles.filter {
-            $0.isEnabled && $0.languageServer != nil
+        let profiles = profileStore.profiles.filter { profile in
+            profile.languageServer != nil
+                && (
+                    profileIdentifier == nil
+                        || profile.identifier == profileIdentifier
+                )
+        }
+        guard !profiles.isEmpty else {
+            return
+        }
+        let profileIdentifiers = Set(profiles.map(\.identifier))
+        let operationIdentifier = UUID()
+        activeRefreshes[operationIdentifier] = profileIdentifiers
+        updateRefreshingProfileIdentifiers()
+        defer {
+            activeRefreshes.removeValue(forKey: operationIdentifier)
+            updateRefreshingProfileIdentifiers()
+        }
+        var generations: [String: UInt64] = [:]
+        for identifier in profileIdentifiers {
+            refreshGenerations[identifier, default: 0] &+= 1
+            generations[identifier] = refreshGenerations[identifier]
+        }
+        let loginShellPath: String?
+        if requiresLoginShellPathCapture {
+            let loginShellPathCapture = loginShellPathCapture
+            loginShellPath = await Task.detached(priority: .utility) {
+                loginShellPathCapture()
+            }.value
+        } else {
+            loginShellPath = nil
+        }
+        guard !Task.isCancelled else {
+            return
         }
         let discovery = discovery
         let overrideStore = overrideStore
         let results = await withTaskGroup(
-            of: LanguageProfileDiscoveryResult.self,
+            of: LanguageProfileDiscoveryResult?.self,
             returning: [LanguageProfileDiscoveryResult].self
         ) { group in
             for profile in profiles {
                 group.addTask {
+                    guard !Task.isCancelled else {
+                        return nil
+                    }
                     do {
-                        return LanguageProfileDiscoveryResult(
+                        let result = LanguageProfileDiscoveryResult(
                             profileIdentifier: profile.identifier,
-                            executable: try discovery(profile, overrideStore),
+                            executable: try discovery(
+                                profile,
+                                overrideStore,
+                                loginShellPath
+                            ),
                             errorDescription: nil
                         )
+                        return Task.isCancelled ? nil : result
                     } catch {
+                        guard !Task.isCancelled else {
+                            return nil
+                        }
                         return LanguageProfileDiscoveryResult(
                             profileIdentifier: profile.identifier,
                             executable: nil,
@@ -358,113 +249,81 @@ final class LanguageSupportService: ObservableObject {
             }
             var values: [LanguageProfileDiscoveryResult] = []
             for await value in group {
-                values.append(value)
+                if let value {
+                    values.append(value)
+                }
             }
             return values
         }
-
-        guard generation == refreshGeneration else {
-            // A newer refresh has already started (or finished) since
-            // this one began; its results supersede ours, so this
-            // slower/stale refresh must not overwrite `items` or notify.
+        guard !Task.isCancelled else {
             return
         }
 
-        let resultsByIdentifier = Dictionary(
-            uniqueKeysWithValues: results.map {
-                ($0.profileIdentifier, $0)
-            }
-        )
         var identifiersWithNewlyAvailableExecutables: [String] = []
-        for index in items.indices {
-            let profile = items[index].profile
-            guard profile.isEnabled, profile.languageServer != nil else {
-                items[index].serverState = .notConfigured
+        var cacheChanged = false
+        var updatedItems = items
+        for result in results {
+            let identifier = result.profileIdentifier
+            guard refreshGenerations[identifier]
+                    == generations[identifier],
+                  let index = updatedItems.firstIndex(where: {
+                      $0.id == identifier
+                  }) else {
                 continue
             }
-            let previousState = items[index].serverState
-            if let executable = resultsByIdentifier[
-                profile.identifier
-            ]?.executable {
-                items[index].serverState = .available(executable)
+            let profile = updatedItems[index].profile
+            guard profile.languageServer != nil else {
+                updatedItems[index].serverState = .syntaxOnly
+                continue
+            }
+            let previousState = updatedItems[index].serverState
+            if let executable = result.executable {
+                updatedItems[index].serverState = .available(executable)
+                cachedStatuses[identifier] = .available(
+                    executable,
+                    profile: profile
+                )
+                cacheChanged = true
                 if !previousState.isAvailable {
                     identifiersWithNewlyAvailableExecutables.append(
-                        profile.identifier
+                        identifier
                     )
                 }
             } else {
-                items[index].serverState = .missing(
-                    resultsByIdentifier[profile.identifier]?.errorDescription
+                updatedItems[index].serverState = .missing(
+                    result.errorDescription
                         ?? String(
                             localized: "No compatible language server was found."
                         )
                 )
+                cachedStatuses[identifier] = .missing(
+                        profile: profile
+                )
+                cacheChanged = true
             }
+        }
+        if updatedItems != items {
+            items = updatedItems
+        }
+        if cacheChanged {
+            persistCachedStatuses()
         }
         for identifier in identifiersWithNewlyAvailableExecutables {
             postExecutableDiscoveryChange(for: identifier)
         }
     }
 
-    func beginAddingProfile(prefilling url: URL? = nil) {
-        requestedProfileDraft = LanguageProfileDraft(prefilling: url)
+    func isRefreshing(profileIdentifier: String) -> Bool {
+        refreshingProfileIdentifiers.contains(profileIdentifier)
     }
 
-    func beginEditingProfile(identifier: String) {
-        guard let profile = profileStore.profile(identifier: identifier) else {
-            errorMessage = LanguageProfileStoreError.profileNotFound(
-                identifier
-            ).localizedDescription
-            return
-        }
-        requestedProfileDraft = LanguageProfileDraft(profile: profile)
-    }
-
-    func save(
-        draft: LanguageProfileDraft,
-        confirmConflicts: Bool = false
-    ) throws -> LanguageProfileSaveResult {
-        let profile = try draft.makeProfile()
-        let conflicts = try profileRegistry.snapshot.conflicts(
-            for: profile
-        )
-        if !conflicts.isEmpty, !confirmConflicts {
-            return .requiresConflictConfirmation(conflicts)
-        }
-
-        let saved: LanguageProfile
-        if draft.originalProfile == nil {
-            saved = try profileStore.createCustomProfile(profile)
-        } else {
-            saved = try profileStore.updateProfile(profile)
-        }
-        requestedProfileDraft = nil
-        focusedProfileIdentifier = saved.identifier
-        postProfileConfigurationChange(for: saved.identifier)
-        return .saved(saved)
-    }
-
-    func setEnabled(_ isEnabled: Bool, identifier: String) throws {
-        _ = try profileStore.setEnabled(isEnabled, identifier: identifier)
-        postProfileConfigurationChange(for: identifier)
-    }
-
-    func resetDefault(identifier: String) throws {
-        _ = try profileStore.resetDefaultProfile(identifier: identifier)
-        postProfileConfigurationChange(for: identifier)
-    }
-
-    func deleteCustom(identifier: String) throws {
-        try profileStore.deleteCustomProfile(identifier: identifier)
-        postProfileConfigurationChange(for: identifier)
-    }
-
-    func setSelectedExecutable(
-        profileIdentifier: String,
-        url: URL
+    func setCommand(
+        _ command: String,
+        profileIdentifier: String
     ) throws {
-        guard FileManager.default.isExecutableFile(atPath: url.path) else {
-            throw LanguageProfileExecutableError.notExecutable(url.path)
+        let executable = try LanguageServerCommandLine.parse(command)
+        if let executable {
+            try Self.validateExecutable(atPath: executable.path)
         }
         guard var profile = profileStore.profile(
             identifier: profileIdentifier
@@ -476,11 +335,33 @@ final class LanguageSupportService: ObservableObject {
                 profile.displayName
             )
         }
-        let arguments = configuration.executableCandidates.first(where: {
-            $0.executableNames.contains(url.lastPathComponent)
-        })?.arguments ?? configuration.selectedExecutable?.arguments
-            ?? configuration.executableCandidates.first?.arguments
-            ?? []
+        configuration.selectedExecutable = executable
+        profile.languageServer = configuration
+        _ = try profileStore.updateProfile(profile)
+        invalidateCachedStatus(profileIdentifier: profileIdentifier)
+        postProfileConfigurationChange(for: profileIdentifier)
+    }
+
+    func setSelectedExecutable(
+        profileIdentifier: String,
+        url: URL
+    ) throws {
+        try Self.validateExecutable(atPath: url.path)
+        guard var profile = profileStore.profile(
+            identifier: profileIdentifier
+        ) else {
+            throw LanguageProfileStoreError.profileNotFound(profileIdentifier)
+        }
+        guard var configuration = profile.languageServer else {
+            throw LanguageServerDiscoveryError.profileHasNoLanguageServer(
+                profile.displayName
+            )
+        }
+        let arguments = LanguageServerExecutableSelection.arguments(
+            for: url,
+            configuration: configuration,
+            fallback: []
+        )
         configuration.selectedExecutable =
             RegisteredLanguageServerExecutable(
                 path: url.standardizedFileURL.path,
@@ -488,28 +369,13 @@ final class LanguageSupportService: ObservableObject {
             )
         profile.languageServer = configuration
         _ = try profileStore.updateProfile(profile)
-        postProfileConfigurationChange(for: profileIdentifier)
-    }
-
-    func useAutoDetectedExecutable(profileIdentifier: String) throws {
-        guard var profile = profileStore.profile(
-            identifier: profileIdentifier
-        ) else {
-            throw LanguageProfileStoreError.profileNotFound(profileIdentifier)
-        }
-        guard var configuration = profile.languageServer else {
-            throw LanguageServerDiscoveryError.profileHasNoLanguageServer(
-                profile.displayName
-            )
-        }
-        configuration.selectedExecutable = nil
-        profile.languageServer = configuration
-        _ = try profileStore.updateProfile(profile)
+        invalidateCachedStatus(profileIdentifier: profileIdentifier)
         postProfileConfigurationChange(for: profileIdentifier)
     }
 
     func focusProfile(identifier: String?) {
         focusedProfileIdentifier = identifier
+        focusRequestRevision += 1
     }
 
     func syntaxLanguage(for snapshot: SourceSnapshot) -> SyntaxLanguage? {
@@ -528,32 +394,133 @@ final class LanguageSupportService: ObservableObject {
         errorMessage = error.localizedDescription
     }
 
-    private func rebuildItems() {
-        let snapshot = LanguageProfileRegistrySnapshot(
-            profiles: profileStore.profiles
-        )
-        let priorStates = Dictionary(
-            uniqueKeysWithValues: items.map { ($0.id, $0.serverState) }
-        )
+    private func rebuildItems(
+        preservingPriorStates: Bool = true
+    ) {
+        let priorStates = preservingPriorStates
+            ? Dictionary(
+                uniqueKeysWithValues: items.map {
+                    ($0.id, $0.serverState)
+                }
+            )
+            : [:]
         items = profileStore.profiles.map { profile in
             LanguageSupportItem(
                 profile: profile,
-                syntaxDescription: Self.syntaxDescription(profile),
-                conflicts: snapshot.conflicts(
-                    involving: profile.identifier
-                ),
-                serverState: priorStates[profile.identifier]
-                    ?? (profile.languageServer == nil
-                        ? .notConfigured
-                        : .checking)
+                serverState: Self.serverState(
+                    for: profile,
+                    priorState: priorStates[profile.identifier],
+                    cachedState: cachedStatuses[
+                        profile.identifier
+                    ]?.serverState(for: profile)
+                )
             )
         }
     }
 
-    /// Posted for profile CRUD/enable/reset/executable-selection changes.
-    /// Observers (e.g. `WorkspaceViewController`) treat this as a reason
-    /// to reload the profile registry and, if a service is already
-    /// running for `profileIdentifier`, restart it.
+    private func updateRefreshingProfileIdentifiers() {
+        refreshingProfileIdentifiers = activeRefreshes.values.reduce(
+            into: []
+        ) { identifiers, active in
+            identifiers.formUnion(active)
+        }
+    }
+
+    private static func serverState(
+        for profile: LanguageProfile,
+        priorState: LanguageSupportServerState?,
+        cachedState: LanguageSupportServerState?
+    ) -> LanguageSupportServerState {
+        guard profile.languageServer != nil else {
+            return .syntaxOnly
+        }
+        switch priorState {
+        case .available, .checking, .missing:
+            return priorState ?? .checking
+        case .syntaxOnly, nil:
+            return cachedState ?? .checking
+        }
+    }
+
+    private func pruneCachedStatuses() {
+        let previousStatuses = cachedStatuses
+        let profilesByIdentifier = Dictionary(
+            uniqueKeysWithValues: profileStore.profiles.map {
+                ($0.identifier, $0)
+            }
+        )
+        cachedStatuses = cachedStatuses.filter { identifier, status in
+            guard let profile = profilesByIdentifier[identifier],
+                  profile.languageServer != nil else {
+                return false
+            }
+            return status.serverState(for: profile) != nil
+        }
+        if cachedStatuses != previousStatuses {
+            persistCachedStatuses()
+        }
+    }
+
+    private func supersedeRefreshesForChangedProfiles() {
+        let currentFingerprints = Self.refreshFingerprints(
+            for: profileStore.profiles
+        )
+        let identifiers = Set(profileRefreshFingerprints.keys)
+            .union(currentFingerprints.keys)
+        for identifier in identifiers
+        where profileRefreshFingerprints[identifier]
+            != currentFingerprints[identifier] {
+            refreshGenerations[identifier, default: 0] &+= 1
+        }
+        profileRefreshFingerprints = currentFingerprints
+    }
+
+    private static func refreshFingerprints(
+        for profiles: [LanguageProfile]
+    ) -> [String: LanguageProfileRefreshFingerprint] {
+        Dictionary(
+            uniqueKeysWithValues: profiles.map { profile in
+                (
+                    profile.identifier,
+                    LanguageProfileRefreshFingerprint(
+                        defaultRevision: profile.defaultRevision,
+                        selectedExecutable:
+                            profile.languageServer?.selectedExecutable,
+                        hasLanguageServer: profile.languageServer != nil
+                    )
+                )
+            }
+        )
+    }
+
+    private func invalidateCachedStatus(profileIdentifier: String) {
+        guard cachedStatuses.removeValue(
+            forKey: profileIdentifier
+        ) != nil else {
+            return
+        }
+        persistCachedStatuses()
+        if let index = items.firstIndex(where: {
+            $0.id == profileIdentifier
+        }) {
+            items[index].serverState = .checking
+        }
+    }
+
+    private func persistCachedStatuses() {
+        guard let statusCacheStore else {
+            return
+        }
+        do {
+            try statusCacheStore.save(cachedStatuses)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Posted when Command changes. UI observers refresh prompts; the profile
+    /// registry observes the store and the workspace coordinator observes that
+    /// registry so lifecycle replacement happens exactly once.
     private func postProfileConfigurationChange(for profileIdentifier: String) {
         postChange(for: profileIdentifier, kind: .profileConfiguration)
     }
@@ -581,23 +548,26 @@ final class LanguageSupportService: ObservableObject {
         )
     }
 
-    private static func syntaxDescription(
-        _ profile: LanguageProfile
-    ) -> String {
-        profile.associations.map { association in
-            let patterns = association.fileExtensions.map { "*.\($0)" }
-                + association.exactFileNames
-            let syntaxName: String
-            switch association.syntax {
-            case .treeSitter(let language):
-                syntaxName = language.displayName
-            case .plainText:
-                syntaxName = String(localized: "Plain Text")
-            }
-            return "\(patterns.joined(separator: ", ")): \(syntaxName)"
+    private static func validateExecutable(atPath path: String) throws {
+        let resolvedPath = URL(fileURLWithPath: path)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+        let attributes = try? FileManager.default.attributesOfItem(
+            atPath: resolvedPath
+        )
+        guard attributes?[.type] as? FileAttributeType == .typeRegular,
+              FileManager.default.isExecutableFile(atPath: resolvedPath) else {
+            throw LanguageProfileExecutableError.notExecutable(path)
         }
-        .joined(separator: " • ")
     }
+
+}
+
+private struct LanguageProfileRefreshFingerprint: Equatable {
+    let defaultRevision: Int
+    let selectedExecutable: RegisteredLanguageServerExecutable?
+    let hasLanguageServer: Bool
 }
 
 private struct LanguageProfileDiscoveryResult: Sendable {

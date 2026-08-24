@@ -17,28 +17,6 @@ final class LanguageProfileStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testSyntaxOnlyCustomProfilePersistsAndDeletes() throws {
-        let defaults = makeDefaults()
-        let store = try LanguageProfileStore(repository: defaults)
-        let custom = makeCustomProfile(
-            identifier: "justfile",
-            extensionValue: ".JUST"
-        )
-
-        let created = try store.createCustomProfile(custom)
-
-        XCTAssertEqual(created.associations[0].fileExtensions, ["just"])
-        XCTAssertNil(created.languageServer)
-        XCTAssertEqual(store.isCustomized(identifier: "justfile"), true)
-
-        let reloaded = try LanguageProfileStore(repository: defaults)
-        XCTAssertEqual(reloaded.profile(identifier: "justfile"), created)
-
-        try reloaded.deleteCustomProfile(identifier: "justfile")
-        XCTAssertNil(reloaded.profile(identifier: "justfile"))
-    }
-
-    @MainActor
     func testNewAndUpdatedUnmodifiedDefaultsMergeOnUpgrade() throws {
         let defaults = makeDefaults()
         var swiftV1 = DefaultLanguageProfiles.swift
@@ -70,7 +48,7 @@ final class LanguageProfileStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testCustomizedDefaultSurvivesUpgradeUntilReset() throws {
+    func testCommandOverrideSurvivesUpgradeUntilReset() throws {
         let defaults = makeDefaults()
         var swiftV1 = DefaultLanguageProfiles.swift
         swiftV1.defaultRevision = 1
@@ -79,8 +57,12 @@ final class LanguageProfileStoreTests: XCTestCase {
             repository: defaults
         )
         var customized = try XCTUnwrap(store.profile(identifier: "swift"))
-        customized.displayName = "My Swift"
-        let saved = try store.updateProfile(customized)
+        customized.languageServer?.selectedExecutable =
+            RegisteredLanguageServerExecutable(
+                path: "/usr/bin/true",
+                arguments: ["--stdio"]
+            )
+        _ = try store.updateProfile(customized)
 
         var swiftV2 = swiftV1
         swiftV2.displayName = "Shipped Swift v2"
@@ -92,17 +74,26 @@ final class LanguageProfileStoreTests: XCTestCase {
 
         XCTAssertEqual(
             upgraded.profile(identifier: "swift")?.displayName,
-            "My Swift"
+            "Shipped Swift v2"
         )
         XCTAssertEqual(
             upgraded.profile(identifier: "swift")?.defaultRevision,
-            saved.defaultRevision
+            2
+        )
+        XCTAssertEqual(
+            upgraded.profile(identifier: "swift")?
+                .languageServer?.selectedExecutable,
+            customized.languageServer?.selectedExecutable
         )
         XCTAssertEqual(upgraded.isCustomized(identifier: "swift"), true)
 
-        let reset = try upgraded.resetDefaultProfile(identifier: "swift")
+        var cleared = try XCTUnwrap(
+            upgraded.profile(identifier: "swift")
+        )
+        cleared.languageServer?.selectedExecutable = nil
+        let reset = try upgraded.updateProfile(cleared)
         XCTAssertEqual(reset.displayName, "Shipped Swift v2")
-        XCTAssertGreaterThan(reset.lastModifiedOrder, saved.lastModifiedOrder)
+        XCTAssertNil(reset.languageServer?.selectedExecutable)
         XCTAssertEqual(upgraded.isCustomized(identifier: "swift"), false)
 
         var swiftV3 = swiftV2
@@ -117,13 +108,14 @@ final class LanguageProfileStoreTests: XCTestCase {
             "Shipped Swift v3"
         )
         XCTAssertEqual(
-            reloaded.profile(identifier: "swift")?.lastModifiedOrder,
-            reset.lastModifiedOrder
+            reloaded.profile(identifier: "swift")?
+                .languageServer?.selectedExecutable,
+            nil
         )
     }
 
     @MainActor
-    func testRetiredCustomizedDefaultBecomesDeletableCustomProfile() throws {
+    func testRetiredCustomizedDefaultIsDiscarded() throws {
         let defaults = makeDefaults()
         let store = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.markdown],
@@ -137,12 +129,6 @@ final class LanguageProfileStoreTests: XCTestCase {
             defaultProfiles: [DefaultLanguageProfiles.swift],
             repository: defaults
         )
-        let retired = try XCTUnwrap(
-            upgraded.profile(identifier: "markdown")
-        )
-        XCTAssertEqual(retired.origin, .custom)
-
-        try upgraded.deleteCustomProfile(identifier: "markdown")
         XCTAssertNil(upgraded.profile(identifier: "markdown"))
     }
 
@@ -232,32 +218,196 @@ final class LanguageProfileStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testDefaultProfilesCannotBeDeletedAndCustomProfilesCannotBeReset() throws {
+    func testSchemaV1MigrationDropsUnsupportedProfilesAndKeepsCurrentOverrides() throws {
+        let defaults = makeDefaults()
+        var customizedSwift = DefaultLanguageProfiles.swift
+        customizedSwift.displayName = "My Swift"
+        customizedSwift.lastModifiedOrder = 9
+        customizedSwift.associations[0].fileExtensions.append("custom-swift")
+        customizedSwift.languageServer?.selectedExecutable =
+            RegisteredLanguageServerExecutable(
+                path: "/usr/bin/true",
+                arguments: ["--stdio"]
+            )
+        var retiredMarkdown = DefaultLanguageProfiles.markdown
+        retiredMarkdown.displayName = "My Notes"
+        retiredMarkdown.lastModifiedOrder = 8
+        let legacyState = LegacyLanguageProfileState(
+            schemaVersion: 1,
+            nextModifiedOrder: 10,
+            didMigrateGlobalOverrides: true,
+            records: [
+                .init(profile: customizedSwift, isCustomized: true),
+                .init(profile: retiredMarkdown, isCustomized: true),
+                .init(
+                    profile: makeCustomProfile(
+                        identifier: "justfile",
+                        extensionValue: "just"
+                    ),
+                    isCustomized: true
+                )
+            ]
+        )
+        try defaults.keyValueStore.setValue(
+            .data(try JSONEncoder().encode(legacyState)),
+            forKey: "kod.language-profiles"
+        )
+
+        let migrated = try LanguageProfileStore(
+            defaultProfiles: [DefaultLanguageProfiles.swift],
+            repository: defaults
+        )
+
+        XCTAssertEqual(migrated.profiles.map(\.identifier), ["swift"])
+        XCTAssertEqual(migrated.profile(identifier: "swift")?.displayName, "Swift")
+        XCTAssertEqual(
+            migrated.profile(identifier: "swift")?.associations,
+            DefaultLanguageProfiles.swift.associations
+        )
+        XCTAssertEqual(
+            migrated.profile(identifier: "swift")?
+                .languageServer?.selectedExecutable,
+            customizedSwift.languageServer?.selectedExecutable
+        )
+        XCTAssertEqual(migrated.isCustomized(identifier: "swift"), true)
+        XCTAssertNil(migrated.profile(identifier: "markdown"))
+        XCTAssertNil(migrated.profile(identifier: "justfile"))
+
+        guard case .data(let persistedData) = try defaults.keyValueStore.value(
+            forKey: "kod.language-profiles"
+        ) else {
+            return XCTFail("Expected persisted language-profile data")
+        }
+        let persistedJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: persistedData) as? [String: Any]
+        )
+        let persistedPayload = try XCTUnwrap(
+            persistedJSON["payload"] as? [String: Any]
+        )
+        XCTAssertEqual(persistedPayload["schemaVersion"] as? Int, 3)
+    }
+
+    @MainActor
+    func testSchemaV1MigrationRehydratesRemovedServerAsEnabledDefault() throws {
+        let defaults = makeDefaults()
+        var customizedSwift = DefaultLanguageProfiles.swift
+        customizedSwift.languageServer = nil
+        customizedSwift.lastModifiedOrder = 4
+        let legacyState = LegacyLanguageProfileState(
+            schemaVersion: 1,
+            nextModifiedOrder: 5,
+            didMigrateGlobalOverrides: true,
+            records: [
+                .init(profile: customizedSwift, isCustomized: true)
+            ]
+        )
+        try defaults.keyValueStore.setValue(
+            .data(try JSONEncoder().encode(legacyState)),
+            forKey: "kod.language-profiles"
+        )
+
+        let migrated = try LanguageProfileStore(
+            defaultProfiles: [DefaultLanguageProfiles.swift],
+            repository: defaults
+        )
+
+        let server = try XCTUnwrap(
+            migrated.profile(identifier: "swift")?.languageServer
+        )
+        XCTAssertEqual(
+            server.executableCandidates,
+            DefaultLanguageProfiles.swift.languageServer?.executableCandidates
+        )
+        XCTAssertNil(server.selectedExecutable)
+        XCTAssertEqual(
+            migrated.profile(identifier: "swift")?.lastModifiedOrder,
+            DefaultLanguageProfiles.swift.lastModifiedOrder
+        )
+        XCTAssertEqual(migrated.isCustomized(identifier: "swift"), false)
+    }
+
+    @MainActor
+    func testSchemaV2MigrationDropsDisabledAndFileOverridesButKeepsCommand() throws {
+        let defaults = makeDefaults()
+        var customizedSwift = DefaultLanguageProfiles.swift
+        customizedSwift.associations[0].fileExtensions.append("hidden-swift")
+        customizedSwift.languageServer?.selectedExecutable =
+            RegisteredLanguageServerExecutable(
+                path: "/usr/bin/true",
+                arguments: ["--stdio"]
+            )
+        let legacyState = LegacyLanguageProfileState(
+            schemaVersion: 2,
+            nextModifiedOrder: 4,
+            didMigrateGlobalOverrides: true,
+            records: [
+                .init(profile: customizedSwift, isCustomized: true)
+            ]
+        )
+        let encoded = try JSONEncoder().encode(legacyState)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        var records = try XCTUnwrap(object["records"] as? [[String: Any]])
+        var profile = try XCTUnwrap(records[0]["profile"] as? [String: Any])
+        var server = try XCTUnwrap(
+            profile["languageServer"] as? [String: Any]
+        )
+        server["disabled"] = true
+        profile["languageServer"] = server
+        records[0]["profile"] = profile
+        object["records"] = records
+        try defaults.keyValueStore.setValue(
+            .data(try JSONSerialization.data(withJSONObject: object)),
+            forKey: "kod.language-profiles"
+        )
+
+        let migrated = try LanguageProfileStore(
+            defaultProfiles: [DefaultLanguageProfiles.swift],
+            repository: defaults
+        )
+
+        let profileAfterMigration = try XCTUnwrap(
+            migrated.profile(identifier: "swift")
+        )
+        XCTAssertEqual(
+            profileAfterMigration.associations,
+            DefaultLanguageProfiles.swift.associations
+        )
+        XCTAssertEqual(
+            profileAfterMigration.languageServer?.selectedExecutable,
+            customizedSwift.languageServer?.selectedExecutable
+        )
+        XCTAssertEqual(migrated.isCustomized(identifier: "swift"), true)
+
+        guard case .data(let persistedData) = try defaults.keyValueStore.value(
+            forKey: "kod.language-profiles"
+        ) else {
+            return XCTFail("Expected persisted language-profile data")
+        }
+        let persistedText = try XCTUnwrap(
+            String(data: persistedData, encoding: .utf8)
+        )
+        XCTAssertFalse(persistedText.contains("\"disabled\""))
+    }
+
+    @MainActor
+    func testCommandUpdatePreservesFileMatchPriority() throws {
         let defaults = makeDefaults()
         let store = try LanguageProfileStore(
             defaultProfiles: [DefaultLanguageProfiles.swift],
             repository: defaults
         )
-        _ = try store.createCustomProfile(
-            makeCustomProfile(identifier: "custom", extensionValue: "custom")
-        )
+        var profile = try XCTUnwrap(store.profile(identifier: "swift"))
+        let originalOrder = profile.lastModifiedOrder
+        profile.languageServer?.selectedExecutable =
+            RegisteredLanguageServerExecutable(
+                path: "/usr/bin/true",
+                arguments: ["--stdio"]
+            )
 
-        XCTAssertThrowsError(
-            try store.deleteCustomProfile(identifier: "swift")
-        ) { error in
-            XCTAssertEqual(
-                error as? LanguageProfileStoreError,
-                .customProfileExpected("swift")
-            )
-        }
-        XCTAssertThrowsError(
-            try store.resetDefaultProfile(identifier: "custom")
-        ) { error in
-            XCTAssertEqual(
-                error as? LanguageProfileStoreError,
-                .defaultProfileExpected("custom")
-            )
-        }
+        let commandUpdate = try store.updateProfile(profile)
+        XCTAssertEqual(commandUpdate.lastModifiedOrder, originalOrder)
     }
 
     @MainActor
@@ -272,12 +422,31 @@ final class LanguageProfileStoreTests: XCTestCase {
             counter.increment()
         }
 
-        _ = try store.setEnabled(false, identifier: "swift")
+        var profile = try XCTUnwrap(store.profile(identifier: "swift"))
+        profile.languageServer?.selectedExecutable =
+            RegisteredLanguageServerExecutable(
+                path: "/usr/bin/true",
+                arguments: []
+            )
+        _ = try store.updateProfile(profile)
         XCTAssertEqual(counter.value, 1)
 
         observation.cancel()
-        _ = try store.setEnabled(true, identifier: "swift")
+        profile.languageServer?.selectedExecutable = nil
+        _ = try store.updateProfile(profile)
         XCTAssertEqual(counter.value, 1)
+    }
+
+    private struct LegacyLanguageProfileRecord: Codable {
+        let profile: LanguageProfile
+        let isCustomized: Bool
+    }
+
+    private struct LegacyLanguageProfileState: Codable {
+        let schemaVersion: Int
+        let nextModifiedOrder: UInt64
+        let didMigrateGlobalOverrides: Bool
+        let records: [LegacyLanguageProfileRecord]
     }
 
     func testValidationRejectsUnsafeCustomConfiguration() {

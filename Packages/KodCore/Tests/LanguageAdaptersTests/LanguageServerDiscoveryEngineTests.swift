@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import WorkspaceCore
 import XCTest
@@ -243,6 +244,59 @@ final class LanguageServerDiscoveryEngineTests: XCTestCase {
         XCTAssertNotNil(LoginShellPathCapture.capture(shellURL: shell))
     }
 
+    func testLoginShellPathCaptureTerminatesDescendantsThatRetainStdout() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let pidFile = root.appendingPathComponent("shell-child.pid")
+        let shell = root.appendingPathComponent("forking-shell")
+        try """
+        #!/bin/sh
+        [ "$1" = "-l" ] && [ "$2" = "-i" ] && [ "$3" = "-c" ] || exit 2
+        (
+          trap '' TERM
+          exec sleep 30
+        ) &
+        echo $! > "\(pidFile.path)"
+        /bin/sh -c "$4"
+        """.write(
+            to: shell,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: shell.path
+        )
+
+        XCTAssertNotNil(
+            LoginShellPathCapture.capture(
+                shellURL: shell,
+                timeout: 1
+            )
+        )
+        let childPID = try XCTUnwrap(
+            Int32(
+                String(contentsOf: pidFile, encoding: .utf8)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        )
+        for _ in 0..<20 where Darwin.kill(childPID, 0) == 0 {
+            usleep(25_000)
+        }
+        XCTAssertNotEqual(
+            Darwin.kill(childPID, 0),
+            0,
+            "Login-shell capture must not leave descendants running"
+        )
+    }
+
     func testNotFoundReportsEveryAttemptedTier() throws {
         let (identity, _) = try makeIdentity()
 
@@ -271,28 +325,6 @@ final class LanguageServerDiscoveryEngineTests: XCTestCase {
                     .loginShellPath,
                     .packageManagerLocation
                 ]
-            )
-        }
-    }
-
-    func testDisabledProfileNeverResolves() throws {
-        var profile = try makeProfile(executableNames: ["echo"])
-        profile.isEnabled = false
-
-        XCTAssertThrowsError(
-            try LanguageServerDiscoveryEngine.resolve(
-                profile: profile,
-                overrideStore: makeOverrideStore(),
-                identity: nil,
-                loginShellPath: { "/bin" },
-                packageManagerDirectories: [],
-                xcrunProbe: { _ in nil },
-                rustupProbe: { _ in nil }
-            )
-        ) { error in
-            XCTAssertEqual(
-                error as? LanguageServerDiscoveryError,
-                .profileDisabled("Test Language")
             )
         }
     }
@@ -336,6 +368,154 @@ final class LanguageServerDiscoveryEngineTests: XCTestCase {
             rustupProbe: { _ in nil }
         )
         XCTAssertEqual(result.version, "hello-version")
+    }
+
+    func testVersionDetectionTimesOutForAHungExecutable() throws {
+        let (identity, _) = try makeIdentity()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let server = root.appendingPathComponent("hung-lsp")
+        try "#!/bin/sh\nexec sleep 30\n".write(
+            to: server,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: server.path
+        )
+        let start = Date()
+
+        let result = try LanguageServerDiscoveryEngine.resolve(
+            profile: makeProfile(
+                executableNames: ["hung-lsp"],
+                versionArguments: ["--version"]
+            ),
+            overrideStore: makeOverrideStore(),
+            identity: identity,
+            loginShellPath: { root.path },
+            packageManagerDirectories: [],
+            xcrunProbe: { _ in nil },
+            rustupProbe: { _ in nil }
+        )
+
+        XCTAssertNil(result.version)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 4)
+    }
+
+    func testVersionDetectionTimesOutForContinuousStdout() throws {
+        let (identity, _) = try makeIdentity()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let server = root.appendingPathComponent("noisy-lsp")
+        try """
+        #!/bin/sh
+        while :; do
+          printf 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+        done
+        """.write(
+            to: server,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: server.path
+        )
+        let start = Date()
+
+        let result = try LanguageServerDiscoveryEngine.resolve(
+            profile: makeProfile(
+                executableNames: ["noisy-lsp"],
+                versionArguments: ["--version"]
+            ),
+            overrideStore: makeOverrideStore(),
+            identity: identity,
+            loginShellPath: { root.path },
+            packageManagerDirectories: [],
+            xcrunProbe: { _ in nil },
+            rustupProbe: { _ in nil }
+        )
+
+        XCTAssertNil(result.version)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 4)
+    }
+
+    func testVersionProbeTerminatesDescendantsThatRetainStdout() throws {
+        let (identity, _) = try makeIdentity()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let pidFile = root.appendingPathComponent("child.pid")
+        let server = root.appendingPathComponent("forking-lsp")
+        try """
+        #!/bin/sh
+        (
+          trap '' TERM
+          exec sleep 30
+        ) &
+        echo $! > "$1"
+        exit 0
+        """.write(
+            to: server,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: server.path
+        )
+        let start = Date()
+
+        let result = try LanguageServerDiscoveryEngine.resolve(
+            profile: makeProfile(
+                executableNames: ["forking-lsp"],
+                versionArguments: [pidFile.path]
+            ),
+            overrideStore: makeOverrideStore(),
+            identity: identity,
+            loginShellPath: { root.path },
+            packageManagerDirectories: [],
+            xcrunProbe: { _ in nil },
+            rustupProbe: { _ in nil }
+        )
+
+        XCTAssertNil(result.version)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2)
+        let childPID = try XCTUnwrap(
+            Int32(
+                String(contentsOf: pidFile, encoding: .utf8)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        )
+        for _ in 0..<20 where Darwin.kill(childPID, 0) == 0 {
+            usleep(25_000)
+        }
+        XCTAssertNotEqual(
+            Darwin.kill(childPID, 0),
+            0,
+            "The version probe must not leave descendants running"
+        )
     }
 
     // MARK: - Override storage (SPEC 6.5: outside the repository)

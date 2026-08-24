@@ -92,9 +92,6 @@ final class LanguageSupportServiceTests: XCTestCase {
             ["json", "markdown", "shellscript", "toml", "yaml"]
         )
         XCTAssertTrue(fixture.service.items.allSatisfy {
-            !$0.syntaxDescription.isEmpty
-        })
-        XCTAssertTrue(fixture.service.items.allSatisfy {
             if case .available = $0.serverState {
                 return true
             }
@@ -102,27 +99,285 @@ final class LanguageSupportServiceTests: XCTestCase {
         })
     }
 
-    func testInstallationClipboardCopiesExactCommandLines() {
-        let pasteboard = NSPasteboard(
-            name: NSPasteboard.Name(
-                "LanguageSupportServiceTests.\(UUID().uuidString)"
-            )
-        )
-        let option = LanguageServerInstallCommandOption(
-            id: "test",
-            label: "Test",
-            commandLines: ["first command", "second command"]
+    func testTargetedRefreshOnlyProbesTheSelectedLanguage() async throws {
+        let swiftCalls = Box(0)
+        let markdownCalls = Box(0)
+        let fixture = try makeService(
+            defaultProfiles: [
+                DefaultLanguageProfiles.swift,
+                DefaultLanguageProfiles.markdown
+            ],
+            discovery: { profile, _ in
+                switch profile.identifier {
+                case "swift":
+                    swiftCalls.increment()
+                case "markdown":
+                    markdownCalls.increment()
+                default:
+                    break
+                }
+                return DiscoveredExecutable(
+                    url: URL(fileURLWithPath: "/usr/bin/true"),
+                    arguments: [],
+                    version: nil,
+                    source: .registeredProfile
+                )
+            }
         )
 
-        XCTAssertTrue(
-            LanguageServerInstallationClipboard.copy(
-                option,
-                to: pasteboard
-            )
+        await fixture.service.refresh(profileIdentifier: "swift")
+
+        XCTAssertEqual(swiftCalls.get(), 1)
+        XCTAssertEqual(markdownCalls.get(), 0)
+        XCTAssertEqual(
+            fixture.service.items.first {
+                $0.id == "swift"
+            }?.serverState.isAvailable,
+            true
         )
         XCTAssertEqual(
-            pasteboard.string(forType: .string),
-            "first command\nsecond command"
+            fixture.service.items.first {
+                $0.id == "markdown"
+            }?.serverState,
+            .checking
+        )
+    }
+
+    func testFullRefreshCapturesLoginShellPathOnlyOnceWhenCaptureFails() async throws {
+        let repository = CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
+        var swift = DefaultLanguageProfiles.swift
+        swift.languageServer?.selectedExecutable =
+            RegisteredLanguageServerExecutable(
+                path: "/usr/bin/true",
+                arguments: []
+            )
+        var markdown = DefaultLanguageProfiles.markdown
+        markdown.languageServer?.selectedExecutable =
+            RegisteredLanguageServerExecutable(
+                path: "/usr/bin/true",
+                arguments: []
+            )
+        let captureCount = Box(0)
+        let service = LanguageSupportService(
+            profileStore: try LanguageProfileStore(
+                defaultProfiles: [swift, markdown],
+                repository: repository,
+                overrideStore: overrideStore
+            ),
+            overrideStore: overrideStore,
+            loginShellPathCapture: {
+                captureCount.increment()
+                return nil
+            }
+        )
+
+        await service.refresh()
+
+        XCTAssertEqual(captureCount.get(), 1)
+        XCTAssertTrue(service.items.allSatisfy {
+            $0.serverState.isAvailable
+        })
+    }
+
+    func testCachedStatusesRestoreAcrossServiceInstances() async throws {
+        let repository = CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
+        let cacheStore = LanguageServerStatusCacheStore(
+            repository: repository
+        )
+        let firstProfileStore = try LanguageProfileStore(
+            defaultProfiles: [
+                DefaultLanguageProfiles.swift,
+                DefaultLanguageProfiles.markdown
+            ],
+            repository: repository,
+            overrideStore: overrideStore
+        )
+        let firstService = LanguageSupportService(
+            profileStore: firstProfileStore,
+            overrideStore: overrideStore,
+            statusCacheStore: cacheStore,
+            discovery: { profile, _ in
+                if profile.identifier == "markdown" {
+                    throw LanguageServerDiscoveryError.notFound(
+                        languageName: profile.displayName,
+                        attemptedSources: []
+                    )
+                }
+                return DiscoveredExecutable(
+                    url: URL(fileURLWithPath: "/usr/bin/true"),
+                    arguments: ["--stdio"],
+                    version: "1.0",
+                    source: .loginShellPath
+                )
+            }
+        )
+
+        await firstService.refresh()
+        let secondProfileStore = try LanguageProfileStore(
+            defaultProfiles: [
+                DefaultLanguageProfiles.swift,
+                DefaultLanguageProfiles.markdown
+            ],
+            repository: repository,
+            overrideStore: overrideStore
+        )
+        let secondService = LanguageSupportService(
+            profileStore: secondProfileStore,
+            overrideStore: overrideStore,
+            statusCacheStore: cacheStore,
+            discovery: { _, _ in
+                XCTFail("Restoring the cache must not run discovery")
+                throw LanguageServerDiscoveryError.notFound(
+                    languageName: "Unexpected",
+                    attemptedSources: []
+                )
+            }
+        )
+
+        guard case .available(let executable) = secondService.items.first(
+            where: { $0.id == "swift" }
+        )?.serverState else {
+            return XCTFail("Expected cached Swift availability")
+        }
+        XCTAssertEqual(executable.url.path, "/usr/bin/true")
+        guard case .missing = secondService.items.first(
+            where: { $0.id == "markdown" }
+        )?.serverState else {
+            return XCTFail("Expected cached Markdown missing state")
+        }
+    }
+
+    func testCommandChangeInvalidatesCachedStatus() async throws {
+        let repository = CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
+        let cacheStore = LanguageServerStatusCacheStore(
+            repository: repository
+        )
+        let firstProfileStore = try LanguageProfileStore(
+            defaultProfiles: [DefaultLanguageProfiles.shell],
+            repository: repository,
+            overrideStore: overrideStore
+        )
+        let firstService = LanguageSupportService(
+            profileStore: firstProfileStore,
+            overrideStore: overrideStore,
+            statusCacheStore: cacheStore,
+            discovery: { _, _ in
+                DiscoveredExecutable(
+                    url: URL(fileURLWithPath: "/usr/bin/true"),
+                    arguments: [],
+                    version: nil,
+                    source: .loginShellPath
+                )
+            }
+        )
+        await firstService.refresh(profileIdentifier: "shellscript")
+        try firstService.setCommand(
+            "/usr/bin/false",
+            profileIdentifier: "shellscript"
+        )
+
+        let secondService = LanguageSupportService(
+            profileStore: try LanguageProfileStore(
+                defaultProfiles: [DefaultLanguageProfiles.shell],
+                repository: repository,
+                overrideStore: overrideStore
+            ),
+            overrideStore: overrideStore,
+            statusCacheStore: cacheStore
+        )
+
+        XCTAssertEqual(
+            secondService.items.first?.serverState,
+            .checking
+        )
+    }
+
+    func testCommandChangeSupersedesInFlightDiscovery() async throws {
+        let gate = DispatchSemaphore(value: 0)
+        let repository = CodableSettingsRepository(
+            store: InMemorySettingsKeyValueStore()
+        )
+        let overrideStore = LanguageServerOverrideStore(
+            repository: repository
+        )
+        let service = LanguageSupportService(
+            profileStore: try LanguageProfileStore(
+                defaultProfiles: [DefaultLanguageProfiles.shell],
+                repository: repository,
+                overrideStore: overrideStore
+            ),
+            overrideStore: overrideStore,
+            statusCacheStore: LanguageServerStatusCacheStore(
+                repository: repository
+            ),
+            discovery: { _, _ in
+                gate.wait()
+                return DiscoveredExecutable(
+                    url: URL(fileURLWithPath: "/usr/bin/true"),
+                    arguments: [],
+                    version: nil,
+                    source: .loginShellPath
+                )
+            }
+        )
+
+        async let staleRefresh: Void = service.refresh(
+            profileIdentifier: "shellscript"
+        )
+        try await Task.sleep(for: .milliseconds(50))
+        try service.setCommand(
+            "/usr/bin/false",
+            profileIdentifier: "shellscript"
+        )
+        gate.signal()
+        await staleRefresh
+
+        XCTAssertEqual(service.items.first?.serverState, .checking)
+        let restored = LanguageSupportService(
+            profileStore: try LanguageProfileStore(
+                defaultProfiles: [DefaultLanguageProfiles.shell],
+                repository: repository,
+                overrideStore: overrideStore
+            ),
+            overrideStore: overrideStore,
+            statusCacheStore: LanguageServerStatusCacheStore(
+                repository: repository
+            )
+        )
+        XCTAssertEqual(restored.items.first?.serverState, .checking)
+    }
+
+    func testRepeatedProfileFocusRequestsRemainObservable() throws {
+        let fixture = try makeService()
+        let initialRevision = fixture.service.focusRequestRevision
+
+        fixture.service.focusProfile(identifier: "swift")
+        XCTAssertEqual(fixture.service.focusedProfileIdentifier, "swift")
+        XCTAssertEqual(
+            fixture.service.focusRequestRevision,
+            initialRevision + 1
+        )
+
+        fixture.service.focusProfile(identifier: "swift")
+        XCTAssertEqual(fixture.service.focusedProfileIdentifier, "swift")
+        XCTAssertEqual(
+            fixture.service.focusRequestRevision,
+            initialRevision + 2
         )
     }
 
@@ -154,92 +409,49 @@ final class LanguageSupportServiceTests: XCTestCase {
         XCTAssertEqual(selected.arguments, ["lsp", "stdio"])
     }
 
-    func testSyntaxOnlyCustomProfilePersistsWithoutLSP() throws {
-        let fixture = try makeService(defaultProfiles: [])
-        var draft = LanguageProfileDraft(
-            prefilling: URL(fileURLWithPath: "/tmp/example.widget")
-        )
-        draft.displayName = "Widget"
-        draft.associations[0].syntaxLanguage = .json
-
-        let result = try fixture.service.save(draft: draft)
-
-        guard case .saved(let saved) = result else {
-            return XCTFail("Expected profile to save without a server")
-        }
-        XCTAssertNil(saved.languageServer)
-        XCTAssertEqual(
-            fixture.service.items.first?.serverState,
-            .notConfigured
-        )
-        XCTAssertEqual(
-            fixture.service.profileRegistry.resolve(
-                url: URL(fileURLWithPath: "/tmp/example.widget")
-            )?.syntax,
-            .treeSitter(.json)
-        )
-    }
-
-    func testOverlappingAssociationRequiresConfirmationAndThenWins() throws {
+    func testProfileWithoutLanguageServerKeepsSyntaxAvailable() throws {
+        var syntaxOnlyMarkdown = DefaultLanguageProfiles.markdown
+        syntaxOnlyMarkdown.languageServer = nil
         let fixture = try makeService(defaultProfiles: [
-            DefaultLanguageProfiles.markdown
+            syntaxOnlyMarkdown
         ])
-        var draft = LanguageProfileDraft(
-            prefilling: URL(fileURLWithPath: "/tmp/notes.md")
-        )
-        draft.displayName = "Custom Notes"
-        draft.associations[0].syntaxLanguage = nil
 
-        let firstResult = try fixture.service.save(draft: draft)
-        guard case .requiresConflictConfirmation(let conflicts) = firstResult else {
-            return XCTFail("Expected overlap confirmation")
-        }
-        XCTAssertEqual(conflicts.count, 1)
-
-        let confirmed = try fixture.service.save(
-            draft: draft,
-            confirmConflicts: true
+        let states = Dictionary(
+            uniqueKeysWithValues: fixture.service.items.map {
+                ($0.id, $0.serverState)
+            }
         )
-        guard case .saved(let saved) = confirmed else {
-            return XCTFail("Expected confirmed profile to save")
-        }
+
+        XCTAssertEqual(states["markdown"], .syntaxOnly)
         XCTAssertEqual(
             fixture.service.profileRegistry.resolve(
-                url: URL(fileURLWithPath: "/tmp/notes.md")
-            )?.profile.identifier,
-            saved.identifier
-        )
-        XCTAssertEqual(
-            fixture.service.profileRegistry.resolve(
-                url: URL(fileURLWithPath: "/tmp/notes.md")
+                url: URL(fileURLWithPath: "/tmp/README.md")
             )?.syntax,
-            .plainText
-        )
-        XCTAssertNil(
-            fixture.service.syntaxLanguage(
-                for: SourceSnapshot(
-                    text: "# Still plain text\n",
-                    url: URL(fileURLWithPath: "/tmp/notes.md")
-                )
-            )
+            .treeSitter(.markdown)
         )
     }
 
-    func testUseAutoDetectedClearsRegisteredExecutable() throws {
+    func testCommandPersistsQuotedArgumentsAndClearsBackToAutomatic() throws {
         let fixture = try makeService(defaultProfiles: [
             DefaultLanguageProfiles.shell
         ])
-        var profile = try XCTUnwrap(
-            fixture.store.profile(identifier: "shellscript")
+        try fixture.service.setCommand(
+            #"/usr/bin/true "--name=hello world" "" '$(never-executed)'"#,
+            profileIdentifier: "shellscript"
         )
-        profile.languageServer?.selectedExecutable =
-            RegisteredLanguageServerExecutable(
-                path: "/usr/bin/true",
-                arguments: []
-            )
-        _ = try fixture.store.updateProfile(profile)
 
-        try fixture.service.useAutoDetectedExecutable(
+        let selected = try XCTUnwrap(
+            fixture.store.profile(identifier: "shellscript")?
+                .languageServer?.selectedExecutable
+        )
+        XCTAssertEqual(selected.path, "/usr/bin/true")
+        XCTAssertEqual(
+            selected.arguments,
+            ["--name=hello world", "", "$(never-executed)"]
+        )
+
+        try fixture.service.setCommand(
+            "  ",
             profileIdentifier: "shellscript"
         )
 
@@ -249,100 +461,122 @@ final class LanguageSupportServiceTests: XCTestCase {
         )
     }
 
-    func testStandaloneDocumentReloadsWhenProfileSyntaxChanges() throws {
-        let fixture = try makeService(defaultProfiles: [
-            DefaultLanguageProfiles.json
-        ])
-        let snapshot = SourceSnapshot(
-            text: "{\"value\": true}\n",
-            url: fixture.root.appendingPathComponent("example.json")
+    func testCommandRoundTripsQuotedPathsEscapesAndEmptyArguments() throws {
+        let command = LanguageServerCommandLine.format(
+            path: "/tmp/Language Server/bin/server",
+            arguments: [
+                "--label=hello world",
+                #"quote"value"#,
+                #"slash\value"#,
+                ""
+            ]
         )
-        let controller = StandaloneDocumentViewController(
-            snapshot: snapshot,
-            languageSupportService: fixture.service,
-            appearanceCenter: try AppearanceCenter(
-                themeStore: ThemeStore(repository: fixture.repository),
-                fontSettingsStore: FontSettingsStore(
-                    repository: fixture.repository
-                )
-            )
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentViewController = controller
-        window.setContentSize(NSSize(width: 720, height: 480))
-        window.layoutIfNeeded()
-        let originalController = try XCTUnwrap(
-            controller.children.compactMap {
-                $0 as? CodeDocumentViewController
-            }.first
-        )
-        originalController.restoreNavigationAnchor(
-            selection: 2..<7,
-            viewportAnchorLine: 0
-        )
-        controller.findInFile(nil)
-        let findField = try XCTUnwrap(
-            findView(
-                identifier: "find.query",
-                in: originalController.view
-            ) as? NSSearchField
-        )
-        findField.stringValue = "value"
-        let matchCaseButton = try XCTUnwrap(
-            findView(
-                identifier: "find.matchCase",
-                in: originalController.view
-            ) as? NSButton
-        )
-        matchCaseButton.state = .on
-        originalController.controlTextDidChange(
-            Notification(
-                name: NSControl.textDidChangeNotification,
-                object: findField
-            )
-        )
-        controller.toggleWordWrap(nil)
-        controller.toggleMinimap(nil)
-        XCTAssertTrue(window.makeFirstResponder(originalController.viewport))
-        let originalFindState = originalController.captureFindState()
-        let originalContentSize = try XCTUnwrap(window.contentView).bounds.size
-        XCTAssertEqual(controller.syntaxLanguage, .json)
 
-        var profile = try XCTUnwrap(
-            fixture.store.profile(identifier: "json")
+        let parsed = try XCTUnwrap(LanguageServerCommandLine.parse(command))
+
+        XCTAssertEqual(parsed.path, "/tmp/Language Server/bin/server")
+        XCTAssertEqual(
+            parsed.arguments,
+            [
+                "--label=hello world",
+                #"quote"value"#,
+                #"slash\value"#,
+                ""
+            ]
         )
-        profile.associations = profile.associations.map { association in
-            var association = association
-            association.syntax = .plainText
-            return association
+    }
+
+    func testCommandParserTreatsNewlinesAsTokenSeparators() throws {
+        let parsed = try XCTUnwrap(
+            LanguageServerCommandLine.parse(
+                """
+                /usr/bin/true
+                --stdio
+                "--label=hello world"
+                """
+            )
+        )
+
+        XCTAssertEqual(parsed.path, "/usr/bin/true")
+        XCTAssertEqual(
+            parsed.arguments,
+            ["--stdio", "--label=hello world"]
+        )
+    }
+
+    func testCommandRejectsMalformedOrRelativeInput() {
+        XCTAssertThrowsError(
+            try LanguageServerCommandLine.parse(#"/usr/bin/true "unfinished"#)
+        ) { error in
+            XCTAssertEqual(
+                error as? LanguageServerCommandLineError,
+                .unterminatedQuote
+            )
         }
-        _ = try fixture.store.updateProfile(profile)
+        XCTAssertThrowsError(
+            try LanguageServerCommandLine.parse("server --stdio")
+        ) { error in
+            XCTAssertEqual(
+                error as? LanguageServerCommandLineError,
+                .executableMustBeAbsolute("server")
+            )
+        }
+        XCTAssertThrowsError(
+            try LanguageServerCommandLine.parse(#"/usr/bin/true trailing\"#)
+        ) { error in
+            XCTAssertEqual(
+                error as? LanguageServerCommandLineError,
+                .trailingEscape
+            )
+        }
+    }
 
-        XCTAssertNil(controller.syntaxLanguage)
-        let replacementController = try XCTUnwrap(
-            controller.children.compactMap {
-                $0 as? CodeDocumentViewController
-            }.first
+    func testInvalidCommandPreservesThePreviousOverride() throws {
+        let fixture = try makeService(defaultProfiles: [
+            DefaultLanguageProfiles.shell
+        ])
+        try fixture.service.setCommand(
+            "/usr/bin/true --stdio",
+            profileIdentifier: "shellscript"
         )
-        XCTAssertFalse(replacementController === originalController)
-        XCTAssertEqual(window.contentView?.bounds.size, originalContentSize)
+        let previous = fixture.store.profile(identifier: "shellscript")?
+            .languageServer?.selectedExecutable
+
+        XCTAssertThrowsError(
+            try fixture.service.setCommand(
+                "/definitely/not/an/executable --stdio",
+                profileIdentifier: "shellscript"
+            )
+        )
+
         XCTAssertEqual(
-            replacementController.captureNavigationAnchor().selection,
-            2..<7
+            fixture.store.profile(identifier: "shellscript")?
+                .languageServer?.selectedExecutable,
+            previous
         )
-        XCTAssertTrue(replacementController.isFindBarShown)
+
+        let directory = fixture.root.appendingPathComponent(
+            "not-a-server",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        XCTAssertTrue(
+            FileManager.default.isExecutableFile(atPath: directory.path)
+        )
+        XCTAssertThrowsError(
+            try fixture.service.setCommand(
+                directory.path,
+                profileIdentifier: "shellscript"
+            )
+        )
         XCTAssertEqual(
-            replacementController.captureFindState(),
-            originalFindState
+            fixture.store.profile(identifier: "shellscript")?
+                .languageServer?.selectedExecutable,
+            previous
         )
-        XCTAssertTrue(replacementController.wordWrapEnabled)
-        XCTAssertFalse(replacementController.minimapEnabled)
-        XCTAssertTrue(window.firstResponder === replacementController.viewport)
     }
 
     /// SPEC (implement-language-ui-refresh): a `refresh()` that finds a
@@ -459,6 +693,47 @@ final class LanguageSupportServiceTests: XCTestCase {
                 "The slower, stale first refresh must not overwrite the newer available result"
             )
         }
+    }
+
+    func testTargetedRefreshesForDifferentProfilesDoNotSupersedeEachOther() async throws {
+        let swiftGate = DispatchSemaphore(value: 0)
+        let fixture = try makeService(
+            defaultProfiles: [
+                DefaultLanguageProfiles.swift,
+                DefaultLanguageProfiles.markdown
+            ],
+            discovery: { profile, _ in
+                if profile.identifier == "swift" {
+                    swiftGate.wait()
+                }
+                return DiscoveredExecutable(
+                    url: URL(fileURLWithPath: "/usr/bin/true"),
+                    arguments: [],
+                    version: nil,
+                    source: .registeredProfile
+                )
+            }
+        )
+        let service = fixture.service
+
+        async let swiftRefresh: Void = service.refresh(
+            profileIdentifier: "swift"
+        )
+        try await Task.sleep(for: .milliseconds(50))
+        await service.refresh(profileIdentifier: "markdown")
+        XCTAssertEqual(
+            service.items.first { $0.id == "markdown" }?
+                .serverState.isAvailable,
+            true
+        )
+
+        swiftGate.signal()
+        await swiftRefresh
+        XCTAssertEqual(
+            service.items.first { $0.id == "swift" }?
+                .serverState.isAvailable,
+            true
+        )
     }
 }
 

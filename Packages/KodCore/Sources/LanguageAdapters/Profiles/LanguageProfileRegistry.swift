@@ -60,12 +60,10 @@ public struct LanguageProfileRegistrySnapshot: Sendable {
     ]
 
     public init(profiles: [LanguageProfile]) {
-        let enabledProfiles = profiles
-            .filter(\.isEnabled)
-            .sorted(by: Self.precedes)
-        self.profiles = enabledProfiles
+        let sortedProfiles = profiles.sorted(by: Self.precedes)
+        self.profiles = sortedProfiles
         self.profilesByIdentifier = Dictionary(
-            enabledProfiles.map { ($0.identifier, $0) },
+            sortedProfiles.map { ($0.identifier, $0) },
             uniquingKeysWith: { existing, _ in existing }
         )
 
@@ -74,7 +72,7 @@ public struct LanguageProfileRegistrySnapshot: Sendable {
         var contentMatchers: [
             LanguageContentMatcher: [ResolvedLanguageProfile]
         ] = [:]
-        for profile in enabledProfiles {
+        for profile in sortedProfiles {
             for association in profile.associations {
                 for fileName in association.exactFileNames {
                     exactFileNames[fileName, default: []].append(

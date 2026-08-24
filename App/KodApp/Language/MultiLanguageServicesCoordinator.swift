@@ -83,6 +83,10 @@ final class MultiLanguageServicesCoordinator {
     /// cancel and await all of them instead of letting them outlive the
     /// coordinator's own shutdown.
     private var trackedTasks: [UInt64: Task<Void, Never>] = [:]
+    /// Profile-replacement stop/close work is serialized separately from
+    /// resynchronization so every service start can safely await this barrier.
+    private var profileReplacementBarrier: Task<Void, Never>?
+    private var profileReconciliationGeneration: UInt64 = 0
     private var profileObserver: SettingsObservation?
     /// The single in-flight `stopAll()`; concurrent and repeated calls
     /// join it rather than racing a second shutdown.
@@ -185,7 +189,7 @@ final class MultiLanguageServicesCoordinator {
         self.overrideStore = overrideStore
         self.diagnosticsLog = diagnosticsLog
         self.diagnosticsStore = diagnosticsStore
-        self.profileObserver = profileRegistry.store.observeChanges {
+        self.profileObserver = profileRegistry.observeChanges {
             [weak self] in
             self?.handleProfilesChanged()
         }
@@ -304,6 +308,7 @@ final class MultiLanguageServicesCoordinator {
         for task in pendingWork {
             await task.value
         }
+        profileReplacementBarrier = nil
         pendingDocumentCloses.removeAll()
 
         // Editor-facing markers are cleared for every document that was
@@ -786,6 +791,7 @@ final class MultiLanguageServicesCoordinator {
             return
         }
         cancelDecorations(for: profileIdentifier)
+        clearSemanticDecorations(for: profileIdentifier)
         // `LanguageWorkspaceService.restart()` drops every open document,
         // so the coordinator's "already open at this version" record must
         // go with it or the resynchronization below would skip didOpen.
@@ -1155,24 +1161,13 @@ final class MultiLanguageServicesCoordinator {
         try providerRouter.service(for: binding)
     }
 
-    func handleLanguageSupportChanged(languageKey: String) {
-        guard !isShutDown else {
-            return
-        }
-        handleProfilesChanged()
-        if services[languageKey] != nil {
-            restart(profileIdentifier: languageKey)
-        }
-    }
-
-    /// Executable-discovery counterpart to `handleLanguageSupportChanged`.
+    /// Executable-discovery counterpart to profile-configuration changes.
     /// Call this only when `LanguageSupportService.refresh()` finds that
     /// `languageKey`'s executable, previously unavailable, is now
     /// available — never for a profile configuration edit. Unlike
-    /// `handleLanguageSupportChanged`, this never reloads the profile
-    /// registry and never calls `LanguageSupportService.refresh()` (or
-    /// anything that would), so it cannot recurse back into another
-    /// discovery notification.
+    /// profile reconciliation, this never reloads the profile registry and
+    /// never calls `LanguageSupportService.refresh()` (or anything that
+    /// would), so it cannot recurse back into another discovery notification.
     ///
     /// For an already-open document matching `languageKey`: starts a
     /// service if none exists yet, restarts one that is stuck in a
@@ -1227,6 +1222,7 @@ final class MultiLanguageServicesCoordinator {
         }
         semanticDecorationTasks.values.forEach { $0.cancel() }
         semanticDecorationTasks.removeAll()
+        clearSemanticDecorationsForOpenDocuments()
         synchronizedDocuments.removeAll()
         clearNormalizedDiagnosticsForOpenDocuments()
         for identifier in diagnosticsStore.snapshot.diagnosticsByOwner.keys {
@@ -1308,11 +1304,19 @@ final class MultiLanguageServicesCoordinator {
     private func startServiceIfNeeded(
         resolved: ResolvedLanguageProfile
     ) async -> LanguageWorkspaceService? {
-        guard !isShutDown else {
+        let reconciliationGeneration = profileReconciliationGeneration
+        if let profileReplacementBarrier {
+            await profileReplacementBarrier.value
+        }
+        guard !isShutDown,
+              profileReconciliationGeneration == reconciliationGeneration else {
             return nil
         }
         let profile = resolved.profile
         let key = profile.identifier
+        guard profileRegistry.snapshot.profile(identifier: key) == profile else {
+            return nil
+        }
         if let existing = services[key] {
             if let startupTask = startupTasks[key] {
                 await startupTask.value
@@ -1354,7 +1358,8 @@ final class MultiLanguageServicesCoordinator {
                 Task { @MainActor in
                     guard let self,
                           self.startupGenerations[key] == generation,
-                          self.services[key] != nil else {
+                          self.services[key] != nil,
+                          self.diagnosticsOwnerIsCurrent(key, for: url) else {
                         return
                     }
                     self.diagnosticsStore.replace(
@@ -1368,7 +1373,8 @@ final class MultiLanguageServicesCoordinator {
                 Task { @MainActor in
                     guard let self,
                           self.startupGenerations[key] == generation,
-                          self.services[key] != nil else {
+                          self.services[key] != nil,
+                          self.diagnosticsOwnerIsCurrent(key, for: url) else {
                         return
                     }
                     self.onNormalizedDiagnostics?(url, diagnostics)
@@ -1541,22 +1547,47 @@ final class MultiLanguageServicesCoordinator {
                 // nobody owns.
                 guard let self,
                       let controller = self.liveController(with: registrationID),
-                      controller.snapshot.version == snapshot.version else {
+                      controller.snapshot.version == snapshot.version,
+                      self.isCurrentService(
+                          service,
+                          profileIdentifier: profileIdentifier,
+                          snapshot: controller.snapshot
+                      ) else {
                     return false
                 }
                 return true
             }
         ) { [weak self] in
+            guard let self else {
+                return nil
+            }
+            await self.closeSynchronizedDocumentIfNeeded(
+                at: url,
+                keepingProfileIdentifier: profileIdentifier
+            )
+            guard self.isCurrentService(
+                service,
+                profileIdentifier: profileIdentifier,
+                snapshot: snapshot
+            ) else {
+                return nil
+            }
             do {
                 let result = try await service.synchronize(snapshot)
                 // Recorded only now: before this point the server does not
                 // hold the document, so nothing may assume it does.
-                if let self, self.services[profileIdentifier] === service {
-                    self.synchronizedDocuments[url] = DocumentSynchronizationRecord(
-                        profileIdentifier: profileIdentifier,
-                        version: snapshot.version
-                    )
+                guard self.isCurrentService(
+                    service,
+                    profileIdentifier: profileIdentifier,
+                    snapshot: snapshot
+                ) else {
+                    try? await service.didClose(url: url)
+                    return nil
                 }
+                self.synchronizedDocuments[url] = DocumentSynchronizationRecord(
+                    profileIdentifier: profileIdentifier,
+                    version: snapshot.version
+                )
                 return result
             } catch {
                 return nil
@@ -1646,10 +1677,166 @@ final class MultiLanguageServicesCoordinator {
         }
     }
 
+    private func clearSemanticDecorationsForOpenDocuments() {
+        clearSemanticDecorations(at: Set(liveRegistrations().map(\.url)))
+    }
+
+    private func clearSemanticDecorations(for profileIdentifier: String) {
+        let urls = Set(
+            liveRegistrations().compactMap { entry -> URL? in
+                guard let snapshot = entry.registration.controller?.snapshot,
+                      resolvedProfile(for: snapshot)?.profile.identifier
+                        == profileIdentifier else {
+                    return nil
+                }
+                return entry.url
+            }
+        )
+        clearSemanticDecorations(at: urls)
+    }
+
+    private func clearSemanticDecorations(at urls: Set<URL>) {
+        for url in urls {
+            for registration in registrationsByURL[url] ?? [] {
+                registration.controller?.viewport.removeDecorationLayer(.semantic)
+            }
+        }
+    }
+
     private func clearSynchronizationRecords(for profileIdentifier: String) {
         for (url, record) in synchronizedDocuments
         where record.profileIdentifier == profileIdentifier {
             synchronizedDocuments.removeValue(forKey: url)
+        }
+    }
+
+    private func isCurrentService(
+        _ service: LanguageWorkspaceService,
+        profileIdentifier: String,
+        snapshot: SourceSnapshot
+    ) -> Bool {
+        guard !isShutDown,
+              isTrusted,
+              services[profileIdentifier] === service,
+              let resolved = resolvedProfile(for: snapshot),
+              resolved.profile.identifier == profileIdentifier,
+              resolved.profile.languageServer != nil else {
+            return false
+        }
+        return true
+    }
+
+    private func desiredProfileIdentifier(forOpenURL url: URL) -> String? {
+        let url = url.standardizedFileURL
+        guard registrationsByURL[url]?.contains(where: {
+            $0.controller != nil
+        }) == true else {
+            return nil
+        }
+        return routedServerProfileIdentifier(for: url)
+    }
+
+    private func routedServerProfileIdentifier(for url: URL) -> String? {
+        guard let resolved = resolvedProfile(forOpenURL: url),
+              resolved.profile.languageServer != nil else {
+            return nil
+        }
+        return resolved.profile.identifier
+    }
+
+    private func diagnosticsOwnerIsCurrent(
+        _ owner: String,
+        for url: URL
+    ) -> Bool {
+        let url = url.standardizedFileURL
+        let hasLiveRegistration = registrationsByURL[url]?.contains {
+            $0.controller != nil
+        } == true
+        if hasLiveRegistration {
+            return routedServerProfileIdentifier(for: url) == owner
+        }
+        if let resolved = profileRegistry.resolve(url: url) {
+            return resolved.profile.identifier == owner
+                && resolved.profile.languageServer != nil
+        }
+        guard let ownerProfile = profileRegistry.snapshot.profile(
+            identifier: owner
+        ), ownerProfile.languageServer != nil else {
+            return false
+        }
+        return ownerProfile.associations.contains {
+            !$0.contentMatchers.isEmpty
+        }
+    }
+
+    private func documentURLsNeedingProviderReconciliation() -> Set<URL> {
+        Set(synchronizedDocuments.compactMap { url, record in
+            desiredProfileIdentifier(forOpenURL: url)
+                == record.profileIdentifier ? nil : url
+        })
+    }
+
+    private func prepareDocumentProviderTransitions(at urls: Set<URL>) {
+        guard !urls.isEmpty else {
+            return
+        }
+        for url in urls {
+            for registration in registrationsByURL[url] ?? [] {
+                semanticDecorationTasks.removeValue(
+                    forKey: registration.id
+                )?.cancel()
+            }
+            diagnosticsStore.clear(resource: url)
+        }
+        clearNormalizedDiagnostics(at: urls)
+        clearSemanticDecorations(at: urls)
+    }
+
+    private func closeSynchronizedDocumentIfNeeded(
+        at url: URL,
+        keepingProfileIdentifier desiredProfileIdentifier: String?
+    ) async {
+        let url = url.standardizedFileURL
+        guard let record = synchronizedDocuments[url],
+              record.profileIdentifier != desiredProfileIdentifier else {
+            return
+        }
+        prepareDocumentProviderTransitions(at: [url])
+        synchronizedDocuments.removeValue(forKey: url)
+        if let service = services[record.profileIdentifier] {
+            do {
+                try await service.didClose(url: url)
+            } catch {
+                recordDocumentCloseFailure(
+                    profileIdentifier: record.profileIdentifier,
+                    url: url,
+                    reason: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    private func reconcileSynchronizedDocumentsWithCurrentProfiles() async {
+        for url in Array(synchronizedDocuments.keys) {
+            await closeSynchronizedDocumentIfNeeded(
+                at: url,
+                keepingProfileIdentifier:
+                    desiredProfileIdentifier(forOpenURL: url)
+            )
+        }
+    }
+
+    private func reconcileStoredDiagnosticsWithCurrentProfiles() {
+        let diagnostics = diagnosticsStore.snapshot.diagnosticsByOwner
+        for (owner, resources) in diagnostics {
+            for resource in resources.keys
+            where !diagnosticsOwnerIsCurrent(owner, for: resource) {
+                diagnosticsStore.replace(
+                    owner: owner,
+                    resource: resource,
+                    diagnostics: []
+                )
+            }
         }
     }
 
@@ -1698,7 +1885,14 @@ final class MultiLanguageServicesCoordinator {
     ) async {
         do {
             let tokens = try await service.semanticTokens(snapshot: snapshot)
-            guard liveController(with: registrationID) != nil else {
+            guard !Task.isCancelled,
+                  liveController(with: registrationID) === controller,
+                  controller.snapshot.version == snapshot.version,
+                  isCurrentService(
+                      service,
+                      profileIdentifier: profileIdentifier,
+                      snapshot: snapshot
+                  ) else {
                 return
             }
             // Decorations fan out to every pane showing this file at this
@@ -1853,6 +2047,9 @@ final class MultiLanguageServicesCoordinator {
                 ($0.identifier, $0)
             }
         )
+        reconcileStoredDiagnosticsWithCurrentProfiles()
+        let reroutedURLs = documentURLsNeedingProviderReconciliation()
+        prepareDocumentProviderTransitions(at: reroutedURLs)
         var servicesToStop: [LanguageWorkspaceService] = []
         let changedServiceIdentifiers = services.compactMap { identifier, _ in
             activeProfiles[identifier] == serviceProfiles[identifier]
@@ -1876,6 +2073,7 @@ final class MultiLanguageServicesCoordinator {
                 }
             )
             clearNormalizedDiagnostics(at: affectedURLs)
+            clearSemanticDecorations(at: affectedURLs)
         }
         for identifier in changedServiceIdentifiers {
             guard let service = services[identifier] else {
@@ -1894,11 +2092,30 @@ final class MultiLanguageServicesCoordinator {
         semanticDecorationTasks.values.forEach { $0.cancel() }
         semanticDecorationTasks.removeAll()
         onStateChange?()
-        track { [weak self] in
+        profileReconciliationGeneration &+= 1
+        let generation = profileReconciliationGeneration
+        let previousBarrier = profileReplacementBarrier
+        let replacementBarrier = track { [weak self] in
+            await previousBarrier?.value
             for service in servicesToStop {
                 await service.stop()
             }
-            self?.resynchronizeAllOpenDocuments()
+            guard let self, !self.isShutDown else {
+                return
+            }
+            await self.reconcileSynchronizedDocumentsWithCurrentProfiles()
+        }
+        profileReplacementBarrier = replacementBarrier
+        track { [weak self] in
+            await replacementBarrier?.value
+            guard let self,
+                  !self.isShutDown,
+                  self.profileReconciliationGeneration == generation else {
+                return
+            }
+            await self.resynchronizeAllOpenDocumentsAwaitingCompletion(
+                generation: generation
+            )
         }
     }
 
@@ -1932,6 +2149,30 @@ final class MultiLanguageServicesCoordinator {
                     registrationID: registrationID
                 )
             }
+        }
+    }
+
+    private func resynchronizeAllOpenDocumentsAwaitingCompletion(
+        generation: UInt64
+    ) async {
+        guard !isShutDown,
+              isTrusted,
+              profileReconciliationGeneration == generation else {
+            return
+        }
+        for entry in liveRegistrations() {
+            guard profileReconciliationGeneration == generation else {
+                return
+            }
+            guard let controller = entry.registration.controller,
+                  let resolved = resolvedProfile(for: controller.snapshot),
+                  resolved.profile.languageServer != nil else {
+                continue
+            }
+            await syncAndDecorate(
+                resolved: resolved,
+                registrationID: entry.registration.id
+            )
         }
     }
 

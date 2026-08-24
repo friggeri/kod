@@ -2,12 +2,23 @@ import XCTest
 import SettingsCore
 @testable import FontCore
 
+private struct LegacyFontSettingsV1: Codable {
+    var familyName = "Menlo"
+    var pointSize = 13.0
+    var weight = FontWeight.regular
+    var ligaturesEnabled = false
+    var lineHeightMultiplier = 1.2
+    var letterSpacing = 0.0
+    var fallbackFamilies = ["Monaco"]
+}
+
 final class FontSettingsTests: XCTestCase {
     func testDefaultsAreWithinValidRanges() {
         let settings = FontSettings.default
         XCTAssertTrue(FontSettings.sizeRange.contains(settings.pointSize))
         XCTAssertTrue(FontSettings.lineHeightRange.contains(settings.lineHeightMultiplier))
         XCTAssertFalse(settings.familyName.isEmpty)
+        XCTAssertTrue(settings.ligaturesEnabled)
     }
 
     func testConstructorClampsOutOfRangeValues() {
@@ -21,11 +32,6 @@ final class FontSettingsTests: XCTestCase {
         XCTAssertEqual(settings.letterSpacing, FontSettings.letterSpacingRange.upperBound)
     }
 
-    func testConstructorDropsEmptyFallbackFamilyNames() {
-        let settings = FontSettings(fallbackFamilies: ["Menlo", "", "Monaco"])
-        XCTAssertEqual(settings.fallbackFamilies, ["Menlo", "Monaco"])
-    }
-
     func testCodableRoundTrip() throws {
         let settings = FontSettings(
             familyName: "Menlo",
@@ -33,8 +39,7 @@ final class FontSettingsTests: XCTestCase {
             weight: .semibold,
             ligaturesEnabled: true,
             lineHeightMultiplier: 1.4,
-            letterSpacing: 0.5,
-            fallbackFamilies: ["Monaco"]
+            letterSpacing: 0.5
         )
         let data = try JSONEncoder().encode(settings)
         let decoded = try JSONDecoder().decode(FontSettings.self, from: data)
@@ -98,25 +103,81 @@ final class FontSettingsStoreTests: XCTestCase {
     @MainActor
     func testLegacyUnenvelopedSettingsMigrate() throws {
         let (store, _, keyValueStore) = makeStore()
-        let settings = FontSettings(
-            familyName: "Menlo",
-            pointSize: 15
+        let legacy = LegacyFontSettingsV1(
+            pointSize: 15,
+            ligaturesEnabled: true,
+            fallbackFamilies: ["Monaco", "Apple Color Emoji"]
         )
         try keyValueStore.setValue(
-            .data(try JSONEncoder().encode(settings)),
+            .data(try JSONEncoder().encode(legacy)),
             forKey: "kod.font-settings"
         )
 
+        let expected = FontSettings(
+            familyName: legacy.familyName,
+            pointSize: legacy.pointSize,
+            weight: legacy.weight,
+            ligaturesEnabled: legacy.ligaturesEnabled,
+            lineHeightMultiplier: legacy.lineHeightMultiplier,
+            letterSpacing: legacy.letterSpacing
+        )
         XCTAssertEqual(
             try store.load(),
             .value(
-                settings,
+                expected,
                 provenance: .migrated(
                     from: .unversioned,
-                    toVersion: 1
+                    toVersion: 2
                 )
             )
         )
+    }
+
+    @MainActor
+    func testVersionOneSettingsDropFallbacksAndPreserveLigatureChoice() throws {
+        let (store, _, keyValueStore) = makeStore()
+        let legacy = LegacyFontSettingsV1(
+            familyName: "Menlo",
+            pointSize: 15,
+            weight: .semibold,
+            ligaturesEnabled: false,
+            lineHeightMultiplier: 1.4,
+            letterSpacing: 0.5,
+            fallbackFamilies: ["", "Monaco"]
+        )
+        let envelope = CodableSettingsEnvelope(version: 1, payload: legacy)
+        try keyValueStore.setValue(
+            .data(try JSONEncoder().encode(envelope)),
+            forKey: "kod.font-settings"
+        )
+
+        let expected = FontSettings(
+            familyName: legacy.familyName,
+            pointSize: legacy.pointSize,
+            weight: legacy.weight,
+            ligaturesEnabled: legacy.ligaturesEnabled,
+            lineHeightMultiplier: legacy.lineHeightMultiplier,
+            letterSpacing: legacy.letterSpacing
+        )
+        XCTAssertEqual(
+            try store.load(),
+            .value(
+                expected,
+                provenance: .migrated(from: .version(1), toVersion: 2)
+            )
+        )
+
+        guard let storedValue = try keyValueStore.value(forKey: "kod.font-settings"),
+              case .data(let data) = storedValue else {
+            return XCTFail("Expected rewritten v2 settings")
+        }
+        let rewritten = try JSONDecoder().decode(
+            CodableSettingsEnvelope<FontSettings>.self,
+            from: data
+        )
+        XCTAssertEqual(rewritten.version, 2)
+        XCTAssertEqual(rewritten.payload, expected)
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("fallbackFamilies"))
     }
 
     @MainActor
@@ -150,19 +211,14 @@ final class FontSettingsStoreTests: XCTestCase {
 
     @MainActor
     func testSemanticallyInvalidLegacySettingsAreQuarantined() throws {
-        struct InvalidLegacyFontSettings: Encodable {
-            let familyName = ""
-            let pointSize = 16.0
-            let weight = FontWeight.regular
-            let ligaturesEnabled = false
-            let lineHeightMultiplier = 1.2
-            let letterSpacing = 0.0
-            let fallbackFamilies: [String] = []
-        }
-
         let (store, _, keyValueStore) = makeStore()
+        let invalid = LegacyFontSettingsV1(
+            familyName: "",
+            pointSize: 16,
+            fallbackFamilies: []
+        )
         try keyValueStore.setValue(
-            .data(try JSONEncoder().encode(InvalidLegacyFontSettings())),
+            .data(try JSONEncoder().encode(invalid)),
             forKey: "kod.font-settings"
         )
 
