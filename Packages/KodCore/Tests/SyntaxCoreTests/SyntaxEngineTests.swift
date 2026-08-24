@@ -98,6 +98,51 @@ final class SyntaxEngineTests: XCTestCase {
         )
     }
 
+    func testHTMLCombinesMarkupCSSAndJavaScriptCaptures() async throws {
+        let source = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                .card { color: rebeccapurple; }
+            </style>
+        </head>
+        <body>
+            <script>
+                const greeting = "Hello, Kod!";
+            </script>
+        </body>
+        </html>
+        """
+        let snapshot = SourceSnapshot(
+            text: source,
+            url: URL(fileURLWithPath: "/tmp/index.html")
+        )
+        let tree = try await SyntaxEngine().parse(
+            snapshot: snapshot,
+            language: .html
+        )
+        let captures = tree.captures(
+            inByteRange: 0..<snapshot.utf8Count
+        )
+
+        XCTAssertTrue(
+            captures.contains {
+                $0.name == "tag" && capturedText($0, in: snapshot) == "html"
+            }
+        )
+        XCTAssertTrue(
+            captures.contains {
+                $0.name == "property" && capturedText($0, in: snapshot) == "color"
+            }
+        )
+        XCTAssertTrue(
+            captures.contains {
+                $0.name == "keyword" && capturedText($0, in: snapshot) == "const"
+            }
+        )
+    }
+
     func testDetectsXMLAliasesAndExactFileNames() {
         for ext in ["xml", "svg", "xsd", "xsl", "xslt", "plist"] {
             XCTAssertEqual(SyntaxLanguage.detect(forPathExtension: ext), .xml)

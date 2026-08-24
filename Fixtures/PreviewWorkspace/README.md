@@ -1,10 +1,12 @@
 # Kod Preview Workspace
 
 This workspace contains one valid sample for every built-in preview format in
-Kod. Open each file and use the Source/Preview control to exercise its renderer.
+Kod, plus an HTML document for source and browser checks. Open each previewable
+file and use the Source/Preview control to exercise its renderer.
 
 | Sample | Format | Rendering checks |
 | --- | --- | --- |
+| `index.html` | HTML | Semantic markup, embedded CSS/JS, local links, forms, and tables |
 | `README.md` | Markdown | GFM layout, links, task lists, tables, and fenced code |
 | `alpha.png` | PNG | Transparency and alpha blending |
 | `photo.jpeg` | JPEG | Lossy color image decoding |

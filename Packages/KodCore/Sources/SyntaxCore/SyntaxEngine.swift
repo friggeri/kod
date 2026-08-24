@@ -33,24 +33,35 @@ public actor SyntaxEngine {
         )
     }
 
-    private static let maximumMarkdownInjectionRanges = 2_048
-    private static let maximumMarkdownTraversalNodes = 100_000
+    private static let maximumInjectionRanges = 2_048
+    private static let maximumInjectionTraversalNodes = 100_000
 
     private static func additionalLayers(
         primaryTree: TSTreeBox,
         utf8: Data,
         language: SyntaxLanguage
     ) throws -> [SyntaxTreeLayer] {
-        guard language == .markdown else {
+        switch language {
+        case .markdown:
+            return try markdownAdditionalLayers(primaryTree: primaryTree, utf8: utf8)
+        case .html:
+            return try htmlAdditionalLayers(primaryTree: primaryTree, utf8: utf8)
+        default:
             return []
         }
+    }
+
+    private static func markdownAdditionalLayers(
+        primaryTree: TSTreeBox,
+        utf8: Data
+    ) throws -> [SyntaxTreeLayer] {
         let root = ts_tree_root_node(primaryTree.pointer)
         var layers: [SyntaxTreeLayer] = []
 
         let inlineRanges = ranges(
             ofNodesNamed: "inline",
             below: root,
-            limit: maximumMarkdownInjectionRanges
+            limit: maximumInjectionRanges
         )
         if !inlineRanges.isEmpty {
             let tree = try TreeSitterParser.parse(
@@ -64,7 +75,7 @@ public actor SyntaxEngine {
         let fencedBlocks = nodes(
             named: "fenced_code_block",
             below: root,
-            limit: maximumMarkdownInjectionRanges
+            limit: maximumInjectionRanges
         )
         var injectedRanges: [SyntaxLanguage: [TSRange]] = [:]
         for block in fencedBlocks {
@@ -85,6 +96,41 @@ public actor SyntaxEngine {
                 includedRanges: ranges
             )
             layers.append(SyntaxTreeLayer(treeBox: tree, language: injectedLanguage))
+        }
+        return layers
+    }
+
+    private static func htmlAdditionalLayers(
+        primaryTree: TSTreeBox,
+        utf8: Data
+    ) throws -> [SyntaxTreeLayer] {
+        let root = ts_tree_root_node(primaryTree.pointer)
+        let injectionContainers: [(nodeName: String, language: SyntaxLanguage)] = [
+            ("script_element", .javascript),
+            ("style_element", .css)
+        ]
+        var layers: [SyntaxTreeLayer] = []
+
+        for injection in injectionContainers {
+            let containers = nodes(
+                named: injection.nodeName,
+                below: root,
+                limit: maximumInjectionRanges
+            )
+            let ranges = containers.compactMap {
+                firstDescendant(named: "raw_text", below: $0).map(range(for:))
+            }
+            guard !ranges.isEmpty else {
+                continue
+            }
+            let tree = try TreeSitterParser.parse(
+                utf8: utf8,
+                language: injection.language,
+                includedRanges: ranges
+            )
+            layers.append(
+                SyntaxTreeLayer(treeBox: tree, language: injection.language)
+            )
         }
         return layers
     }
@@ -135,7 +181,7 @@ public actor SyntaxEngine {
         var stack = [root]
         var visited = 0
         while let node = stack.popLast(),
-              visited < maximumMarkdownTraversalNodes,
+              visited < maximumInjectionTraversalNodes,
               results.count < limit {
             visited += 1
             if nodeType(node) == name {
@@ -152,7 +198,7 @@ public actor SyntaxEngine {
     private static func firstDescendant(named name: String, below root: TSNode) -> TSNode? {
         var stack = [root]
         var visited = 0
-        while let node = stack.popLast(), visited < maximumMarkdownTraversalNodes {
+        while let node = stack.popLast(), visited < maximumInjectionTraversalNodes {
             visited += 1
             if nodeType(node) == name {
                 return node

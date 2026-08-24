@@ -74,12 +74,15 @@ public final class EditorGroupViewController: NSViewController {
     /// not valid UTF-8 text and `SourceSnapshotLoader` correctly refuses
     /// to load one at all. Set by the owning `WorkspaceViewController`.
     public var loadRawData: (@MainActor (String) async throws -> Data)?
+    /// Reads an HTML preview subresource only after the owning workspace has
+    /// verified that its resolved path remains inside the workspace root.
+    public var loadPreviewResourceData: (@MainActor (String) async throws -> Data)?
     /// Whether the workspace this group belongs to is currently trusted
     /// (`WorkspaceCore.WorkspaceTrustStore`), threaded through to every
     /// built-in preview's link/resource policy (SPEC 10.1) without this
     /// type depending on `WorkspaceCore` trust machinery directly.
     public var isWorkspaceTrusted: () -> Bool = { false }
-    /// Invoked when a Markdown preview's link click resolves to a local,
+    /// Invoked when a preview's link click resolves to a local,
     /// same-workspace relative path — set by `WorkspaceViewController` to
     /// actually navigate there.
     public var onOpenLocalRelativePath: ((String) -> Void)?
@@ -997,7 +1000,7 @@ public final class EditorGroupViewController: NSViewController {
         switch kind {
         case .image, .structuredData:
             break
-        case .markdown, .none:
+        case .markdown, .html, .none:
             return
         }
         guard let preview = await PreviewViewController.make(
@@ -1024,8 +1027,8 @@ public final class EditorGroupViewController: NSViewController {
         }
     }
 
-    /// Detects the tab's `PreviewKind` from a text snapshot (Markdown, JSON,
-    /// XML plist, or SVG) and hands the build to the runtime. Binary images
+    /// Detects the tab's `PreviewKind` from a text snapshot (Markdown, HTML,
+    /// JSON, XML plist, or SVG) and hands the build to the runtime. Binary images
     /// and binary plists take the raw-data recovery path above instead. A
     /// newly-detected previewable tab defaults into preview mode (SPEC 10:
     /// previewing is the point of this feature); for content that is not a
@@ -1045,6 +1048,8 @@ public final class EditorGroupViewController: NSViewController {
             theme: appearanceCenter.snapshot.theme,
             fontSettings: appearanceCenter.snapshot.fontSettings,
             isWorkspaceTrusted: isWorkspaceTrusted,
+            documentRelativePath: runtime.relativePath,
+            loadLocalResource: loadPreviewResourceData,
             openLocalRelativePath: onOpenLocalRelativePath
         ) { [weak self] readyRuntime in
             guard let self, self.runtimes.owns(readyRuntime, for: tabID) else {

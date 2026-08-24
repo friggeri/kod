@@ -222,9 +222,11 @@ supported macOS version:
   `XMLParser` is used, with external entity resolution disabled, for XML
   property lists only.
 - `ImageIO`/`CoreGraphics` — PNG/JPEG/GIF/HEIC/TIFF decode and metadata.
-- `UniformTypeIdentifiers` — `UTType.json`/`UTType.propertyList`
+- `UniformTypeIdentifiers` — `UTType.html`/`UTType.json`/`UTType.propertyList`
   conformance checks used as one (never sole) signal in content
   detection.
+- `WebKit` — static HTML presentation with page scripting, remote resources,
+  persistent website data, frames, forms, and plug-ins disabled.
 - This repository's own `SourceModel`, `SyntaxCore`, and `ThemeCore` —
   fenced-code syntax highlighting in the Markdown renderer reuses the
   exact same pipeline `CodeViewport` uses for whole files; there is no

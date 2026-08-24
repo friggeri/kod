@@ -106,6 +106,28 @@ final class DefaultLanguageProfileCatalogTests: XCTestCase {
         XCTAssertEqual(listedNames, Set(declaredNames))
     }
 
+    func testHTMLAndStandaloneSVGResolveToTheirIntendedProfiles() throws {
+        let snapshot = LanguageProfileRegistrySnapshot(
+            profiles: DefaultLanguageProfiles.all
+        )
+
+        let html = try XCTUnwrap(
+            snapshot.resolve(
+                url: URL(fileURLWithPath: "/workspace/index.html")
+            )
+        )
+        XCTAssertEqual(html.profile.identifier, "html")
+        XCTAssertEqual(html.syntax, .treeSitter(.html))
+
+        let svg = try XCTUnwrap(
+            snapshot.resolve(
+                url: URL(fileURLWithPath: "/workspace/vector.svg")
+            )
+        )
+        XCTAssertEqual(svg.profile.identifier, "xml")
+        XCTAssertEqual(svg.syntax, .treeSitter(.xml))
+    }
+
     func testEveryDefaultProfileWithAServerHasExactlyOneInstallationGuide() {
         for profile in DefaultLanguageProfiles.all
         where profile.languageServer != nil {

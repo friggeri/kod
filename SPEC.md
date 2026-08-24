@@ -38,7 +38,7 @@ Kod is not an editor. It must never offer an operation that changes source files
 - Provide editable global language profiles that discover or register user-installed language servers without downloading or installing them.
 - Show Git status, working-tree and staged differences, inline change markers, a file diff view, and blame information without changing Git state.
 - Support installed monospaced fonts and a native Kod theme that follows the system appearance.
-- Preview Markdown, images, JSON, and property lists.
+- Preview Markdown, static HTML, images, JSON, and property lists.
 - Meet native macOS accessibility, keyboard, appearance, and restoration expectations.
 
 ### 2.2 Non-goals for 1.0
@@ -412,13 +412,24 @@ Git integration is read-only and optional for non-Git folders.
   loader; Kod never guesses a filesystem path or weakens workspace containment.
 - Links show their destination and require confirmation before opening non-local URLs from an untrusted workspace.
 
-### 10.2 Images
+### 10.2 HTML
+
+- Source and rendered modes.
+- Rendering uses an ephemeral `WKWebView` with page JavaScript disabled.
+- A restrictive Content Security Policy blocks scripts, remote resources,
+  connections, frames, plug-ins, forms, and filesystem URLs.
+- Relative images, stylesheets, fonts, and media are served through a custom
+  URL scheme backed by a workspace-confined, read-only resource loader.
+- Local links open in Kod. External HTTP(S) and mail links follow the same
+  untrusted-workspace confirmation policy as Markdown.
+
+### 10.3 Images
 
 - PNG, JPEG, GIF first frame or animation when resource-safe, HEIC, TIFF, and SVG rendered without scripts or external resources.
 - Fit, actual size, zoom, pan, transparency background, and image metadata.
 - Oversized/decompression-bomb safeguards with an explicit error state.
 
-### 10.3 JSON and property lists
+### 10.4 JSON and property lists
 
 - Raw source and structured tree modes.
 - Expand/collapse, copy value, copy key path, and search.
@@ -446,7 +457,7 @@ Git integration is read-only and optional for non-Git folders.
 | `KodCore` | Build/version metadata (`KodBuildInfo`) only; not an umbrella dependency |
 | `KodUIComponents` | Shared AppKit primitives, appearance observation, icons, localization |
 | `SearchUI` | Streaming workspace-search presentation |
-| `PreviewUI` | Native Markdown, image, JSON, and plist presentation |
+| `PreviewUI` | Markdown, sandboxed HTML, image, JSON, and plist presentation |
 | `GitUI` | Source Control, diff/blame, and shared Git presentation models |
 | `EditorUI` | Tabs, splits, source/preview runtime, and editor-group presentation |
 | `WorkspaceCore` | Root identity, trust, file discovery, ignore rules, FSEvents |
@@ -461,7 +472,7 @@ Git integration is read-only and optional for non-Git folders.
 | `GitCore` | Safe read-only status, diff, blame, cache invalidation |
 | `ThemeCore` | Native themes, VS Code import, resolved style tables |
 | `FontCore` | Font discovery and validated editor typography settings |
-| `PreviewCore` | Markdown, image, JSON, and plist parsing/render models |
+| `PreviewCore` | Markdown, HTML policy, image, JSON, and plist parsing/render models |
 | `SettingsCore` | Typed adapters, versioned migrations, observation, quarantine |
 | `DiagnosticsCore` | Local logs, crash state, support bundle redaction |
 
@@ -677,7 +688,7 @@ Kod 1.0 is releasable only when all of the following are true:
 8. Git status, diff, inline markers, and blame agree with Git fixtures and execute no helper, hook, fetch, lock, or write.
 9. Kod Light/Dark appearance switching, installed fonts, and fallback fonts work without restarting.
 10. Split groups restore their tabs, history, selections, folds, and scroll anchors.
-11. Markdown, image, JSON, and plist previews pass hostile-input and network-blocking tests.
+11. Markdown, HTML, image, JSON, and plist previews pass hostile-input and network-blocking tests.
 12. Untrusted workspaces start no language server or repository-discovered executable.
 13. VoiceOver and full keyboard navigation can complete the primary open-search-navigate-diagnose workflow.
 14. The signed and notarized Apple-silicon build passes Gatekeeper on a clean Mac; Intel behavior is documented and tested on available hardware.
@@ -717,7 +728,7 @@ Milestones are gated by exit criteria rather than dates.
 ### M3: Git, previews, and customization
 
 - Status, inline diff, diff views, and blame.
-- Markdown, image, JSON, and plist previews.
+- Markdown, HTML, image, JSON, and plist previews.
 - Automatic Kod Light/Dark appearance, complete font controls.
 - Accessibility rotors and appearance polish.
 
@@ -762,7 +773,7 @@ This specification incorporates these product decisions:
 - Git status, inline changes, file diffs, and blame.
 - Automatic Kod Light/Dark appearance backed by the native theme format.
 - Installed monospaced fonts with typography controls and automatic system glyph fallback.
-- Code/text, Markdown, image, JSON, and plist viewing.
+- Code/text, Markdown, static HTML, image, JSON, and plist viewing.
 - macOS 14+, Apple silicon first, Intel best-effort.
 - Direct signed/notarized distribution with an optional Homebrew Cask.
 - Workspace trust before language servers or repository-discovered tools.

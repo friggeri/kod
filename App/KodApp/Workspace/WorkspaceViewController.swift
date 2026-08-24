@@ -2053,6 +2053,18 @@ final class WorkspaceViewController: NSViewController {
             }
             return try await self.loadRawFileData(relativePath: relativePath)
         }
+        controller.loadPreviewResourceData = { [weak self] relativePath in
+            guard let self,
+                  let confinedPath = WorkspaceLocalLinkResolver.relativePath(
+                    for: relativePath,
+                    root: self.identity.root
+                  ) else {
+                throw CocoaError(.fileReadNoPermission)
+            }
+            return try await self.loadRawFileData(
+                relativePath: confinedPath
+            )
+        }
         controller.isWorkspaceTrusted = { [weak self] in
             guard let self else {
                 return false
@@ -2251,7 +2263,7 @@ final class WorkspaceViewController: NSViewController {
         switch kind {
         case .image, .structuredData:
             break
-        case .markdown, .none:
+        case .markdown, .html, .none:
             return nil
         }
         return await PreviewViewController.make(

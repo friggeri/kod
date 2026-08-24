@@ -37,6 +37,29 @@ final class PreviewViewControllerTests: XCTestCase {
         XCTAssertNotNil(unwrapped.structuredDataController)
     }
 
+    func testMakeReturnsSandboxedHTMLControllerForHTMLKind() async throws {
+        let controller = await PreviewViewController.make(
+            kind: .html,
+            data: Data(
+                "<!doctype html><html><body>Fixture</body></html>".utf8
+            ),
+            theme: BundledThemes.dark,
+            fontSettings: .default,
+            isWorkspaceTrusted: { false },
+            documentRelativePath: "Fixtures/index.html"
+        )
+        let unwrapped = try XCTUnwrap(controller)
+        let htmlController = try XCTUnwrap(unwrapped.htmlController)
+
+        XCTAssertFalse(
+            htmlController.webView.configuration
+                .defaultWebpagePreferences.allowsContentJavaScript
+        )
+        XCTAssertFalse(
+            htmlController.webView.configuration.websiteDataStore.isPersistent
+        )
+    }
+
     func testMakeReturnsImageControllerForPNGKind() async throws {
         let data = try PreviewTestImageFixture.makePNG(width: 4, height: 4)
         let controller = await PreviewViewController.make(
@@ -79,6 +102,10 @@ final class PreviewViewControllerTests: XCTestCase {
         let pngData = try PreviewTestImageFixture.makePNG(width: 2, height: 2)
         let cases: [(PreviewKind, Data)] = [
             (.markdown, Data("# Hi".utf8)),
+            (
+                .html,
+                Data("<!doctype html><html><body>Hi</body></html>".utf8)
+            ),
             (.structuredData, Data(#"{"a":1}"#.utf8)),
             (.image(.png), pngData)
         ]

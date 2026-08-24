@@ -5,8 +5,8 @@ import XCTest
 @testable import PreviewCore
 
 /// Proves the SPEC-wide read-only-by-construction guarantee holds for
-/// `PreviewCore` specifically: previewing a Markdown file, an image, a
-/// JSON file, and a property list — including previewing ones that are
+/// `PreviewCore` specifically: previewing Markdown, HTML, an image, JSON,
+/// and a property list — including previewing inputs that are
 /// themselves hostile/malformed — never changes a single byte, timestamp,
 /// or permission bit of the source file on disk. Every operation reads
 /// `Data`/`String` into memory once and works from there; nothing in this
@@ -26,9 +26,14 @@ final class PreviewCoreWorkspaceImmutabilityTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    func testPreviewingMarkdownImageJSONAndPlistNeverModifiesTheSourceFiles() async throws {
+    func testPreviewingMarkdownHTMLImageJSONAndPlistNeverModifiesTheSourceFiles() async throws {
         let markdownURL = workspaceRoot.appendingPathComponent("README.md")
         try Data("# Title\n\nSome **bold** [link](https://example.com) text.\n".utf8).write(to: markdownURL)
+
+        let htmlURL = workspaceRoot.appendingPathComponent("index.html")
+        try Data(
+            "<!doctype html><html><body><script>alert(1)</script></body></html>".utf8
+        ).write(to: htmlURL)
 
         let imageURL = workspaceRoot.appendingPathComponent("icon.png")
         try ImageFixture.makePNG(width: 8, height: 8).write(to: imageURL)
@@ -44,7 +49,14 @@ final class PreviewCoreWorkspaceImmutabilityTests: XCTestCase {
         let hostileURL = workspaceRoot.appendingPathComponent("hostile.md")
         try Data("<script>alert(document.cookie)</script>\n".utf8).write(to: hostileURL)
 
-        let allFiles = [markdownURL, imageURL, jsonURL, plistURL, hostileURL]
+        let allFiles = [
+            markdownURL,
+            htmlURL,
+            imageURL,
+            jsonURL,
+            plistURL,
+            hostileURL
+        ]
         let before = try snapshot(of: allFiles)
 
         for url in allFiles {
@@ -55,6 +67,8 @@ final class PreviewCoreWorkspaceImmutabilityTests: XCTestCase {
                 let text = String(data: data, encoding: .utf8) ?? ""
                 let document = MarkdownParser.parse(text)
                 _ = await MarkdownRenderer.render(document, theme: BundledThemes.dark)
+            case .html:
+                _ = HTMLPreviewDocument.securedHTML(from: data)
             case .image:
                 _ = ImageDecoder.decode(data)
             case .structuredData:

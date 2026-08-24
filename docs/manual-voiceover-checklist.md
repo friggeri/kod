@@ -28,7 +28,7 @@ actually complete Kod's primary workflows end to end.
 3. A non-trivial test workspace containing: at least one file with a
    syntax error (for a diagnostic), at least one foldable region, at
    least one uncommitted Git change (added/modified/deleted), and a
-   Markdown, image, and JSON file (for preview checks).
+   Markdown, HTML, image, and JSON file (for preview checks).
 
 ## 1. CodeViewport accessibility
 
@@ -130,7 +130,7 @@ actually complete Kod's primary workflows end to end.
 - [ ] Diff/blame viewers: confirm added/removed/modified line markers are
       announced as text, and blame annotations announce author/date/
       commit summary.
-- [ ] Previews: open a Markdown, image, and JSON/plist file; confirm the
+- [ ] Previews: open a Markdown, HTML, image, and JSON/plist file; confirm the
       window-toolbar Source/Preview toggle, zoom controls, transparency toggle, and
       remote-image opt-in are all announced with their current state.
 

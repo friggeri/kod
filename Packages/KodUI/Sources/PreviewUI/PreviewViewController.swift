@@ -4,8 +4,8 @@ import PreviewCore
 import ThemeCore
 
 /// Wraps whichever built-in preview sub-controller matches a tab's
-/// detected `PreviewKind` (SPEC 10): Markdown, image (raster or SVG), or
-/// JSON/plist. `EditorGroupViewController` swaps this in for a tab's
+/// detected `PreviewKind` (SPEC 10): Markdown, static HTML, image (raster
+/// or SVG), or JSON/plist. `EditorGroupViewController` swaps this in for a tab's
 /// content host in place of (never in addition to — only one is visible
 /// at a time) the existing `CodeDocumentViewController`, toggled via a
 /// Source/Preview control; the underlying `CodeDocumentViewController`
@@ -44,20 +44,23 @@ public final class PreviewViewController: NSViewController {
     }
 
     var markdownController: MarkdownPreviewViewController? { child as? MarkdownPreviewViewController }
+    var htmlController: HTMLPreviewViewController? { child as? HTMLPreviewViewController }
     var structuredDataController: StructuredDataPreviewViewController? { child as? StructuredDataPreviewViewController }
     var imageController: ImagePreviewViewController? { child as? ImagePreviewViewController }
 
     /// Builds the right kind of preview for `data`, having already
     /// detected `kind` from validated content (never from `pathExtension`
     /// alone — see `PreviewContentDetector`). `async` only for the
-    /// Markdown path, whose fenced-code highlighting goes through the
-    /// real `SyntaxEngine` actor.
+    /// Markdown path, whose fenced-code highlighting goes through the real
+    /// `SyntaxEngine` actor.
     public static func make(
         kind: PreviewKind,
         data: Data,
         theme: KodTheme,
         fontSettings: FontSettings,
         isWorkspaceTrusted: @escaping () -> Bool,
+        documentRelativePath: String? = nil,
+        loadLocalResource: (@MainActor (String) async throws -> Data)? = nil,
         openLocalRelativePath: ((String) -> Void)? = nil,
         confirmBeforeOpening: @escaping @MainActor (URL) -> Bool = PreviewViewController.confirmWithAlert
     ) async -> PreviewViewController? {
@@ -75,6 +78,20 @@ public final class PreviewViewController: NSViewController {
                 confirmBeforeOpening: confirmBeforeOpening
             )
             controller.openLocalRelativePath = openLocalRelativePath
+            return PreviewViewController(kind: kind, child: controller)
+
+        case .html:
+            guard HTMLPreviewDocument.securedHTML(from: data) != nil else {
+                return nil
+            }
+            let controller = HTMLPreviewViewController(
+                data: data,
+                documentRelativePath: documentRelativePath,
+                loadLocalResource: loadLocalResource,
+                isWorkspaceTrusted: isWorkspaceTrusted,
+                openLocalRelativePath: openLocalRelativePath,
+                confirmBeforeOpening: confirmBeforeOpening
+            )
             return PreviewViewController(kind: kind, child: controller)
 
         case .image(let format):

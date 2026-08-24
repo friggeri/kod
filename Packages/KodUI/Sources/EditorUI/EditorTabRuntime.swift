@@ -532,6 +532,8 @@ final class EditorTabRuntime {
         theme: KodTheme,
         fontSettings: FontSettings,
         isWorkspaceTrusted: @escaping () -> Bool,
+        documentRelativePath: String? = nil,
+        loadLocalResource: (@MainActor (String) async throws -> Data)? = nil,
         openLocalRelativePath: ((String) -> Void)?,
         onReady: @escaping (EditorTabRuntime) -> Void
     ) {
@@ -551,6 +553,8 @@ final class EditorTabRuntime {
                 theme: theme,
                 fontSettings: fontSettings,
                 isWorkspaceTrusted: isWorkspaceTrusted,
+                documentRelativePath: documentRelativePath,
+                loadLocalResource: loadLocalResource,
                 openLocalRelativePath: openLocalRelativePath
             ) else {
                 return

@@ -133,6 +133,18 @@
         }
       }
     },
+    "HTML preview": {
+      "comment": "Accessibility label for the rendered HTML preview",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTML preview"
+          }
+        }
+      }
+    },
     "Key": {
       "comment": "Column title for the structured-data preview's key column",
       "extractionState": "manual",

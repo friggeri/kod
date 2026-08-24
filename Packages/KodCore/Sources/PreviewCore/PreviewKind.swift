@@ -12,6 +12,7 @@ import UniformTypeIdentifiers
 /// rather than silently downgrading to `.none`.
 public enum PreviewKind: Equatable, Sendable {
     case markdown
+    case html
     case image(ImageFormat)
     case structuredData
     case none
@@ -47,6 +48,11 @@ public enum PreviewContentDetector {
             return .structuredData
         }
 
+        if hintedType?.conforms(to: .html) == true,
+           HTMLPreviewDocument.looksLikeHTML(contentPrefix) {
+            return .html
+        }
+
         if markdownExtensions.contains(lowercasedExtension) {
             return .markdown
         }
@@ -54,4 +60,3 @@ public enum PreviewContentDetector {
         return .none
     }
 }
-

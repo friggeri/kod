@@ -19,6 +19,28 @@ final class PreviewContentDetectorTests: XCTestCase {
         XCTAssertEqual(PreviewContentDetector.detect(pathExtension: "markdown", contentPrefix: content), .markdown)
     }
 
+    func testDetectsHTMLFromExtensionAndDocumentContent() {
+        let content = Data("<!DOCTYPE html><html><body>Hello</body></html>".utf8)
+        XCTAssertEqual(
+            PreviewContentDetector.detect(
+                pathExtension: "html",
+                contentPrefix: content
+            ),
+            .html
+        )
+    }
+
+    func testDoesNotTrustHTMLExtensionWithoutHTMLContent() {
+        let content = Data("This is ordinary plain text.".utf8)
+        XCTAssertEqual(
+            PreviewContentDetector.detect(
+                pathExtension: "html",
+                contentPrefix: content
+            ),
+            .none
+        )
+    }
+
     func testDetectsJSONByExtension() {
         let content = Data(#"{"a": 1}"#.utf8)
         XCTAssertEqual(PreviewContentDetector.detect(pathExtension: "json", contentPrefix: content), .structuredData)

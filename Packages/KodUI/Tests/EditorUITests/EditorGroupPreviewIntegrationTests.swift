@@ -91,6 +91,48 @@ final class EditorGroupPreviewIntegrationTests: XCTestCase {
         try await waitUntil { controller.previewController(forTabID: tabID)?.structuredDataController != nil }
     }
 
+    func testHTMLTabDefaultsToPreviewModeAndCanToggleToSource() async throws {
+        let controller = EditorGroupViewController(
+            groupID: EditorGroupID(),
+            state: EditorGroupState()
+        )
+        host(controller)
+
+        let snapshot = SourceSnapshot(
+            text: "<!doctype html><html><body>Fixture</body></html>",
+            url: URL(fileURLWithPath: "/workspace/site/index.html"),
+            version: 1
+        )
+        controller.openTab(
+            relativePath: "site/index.html",
+            pinned: true,
+            snapshot: snapshot
+        )
+        let tabID = try XCTUnwrap(controller.state.selectedTabID)
+
+        XCTAssertEqual(controller.previewKind(forTabID: tabID), .html)
+        try await waitUntil {
+            controller.previewController(forTabID: tabID)?.htmlController
+                != nil
+        }
+        XCTAssertEqual(
+            controller.displayedContentKind(forTabID: tabID),
+            .preview
+        )
+        XCTAssertEqual(
+            controller.previewSourceControlState,
+            .showingPreview
+        )
+
+        controller.togglePreviewSourceForTesting()
+
+        XCTAssertEqual(
+            controller.displayedContentKind(forTabID: tabID),
+            .source
+        )
+        XCTAssertNotNil(controller.currentDocumentController)
+    }
+
     func testPlainSwiftFileHasNoPreviewToggle() async throws {
         let controller = EditorGroupViewController(groupID: EditorGroupID(), state: EditorGroupState())
         host(controller)
