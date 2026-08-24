@@ -23,25 +23,10 @@ final class WorkspaceCoreTests: XCTestCase {
         )
         let store = WorkspaceTrustStore(repository: repository)
         XCTAssertFalse(store.isTrusted(identity))
-        XCTAssertTrue(
-            try store.claimInitialTrustBannerPresentation(for: identity)
-        )
-        XCTAssertFalse(
-            try store.claimInitialTrustBannerPresentation(for: identity)
-        )
-        XCTAssertFalse(
-            try WorkspaceTrustStore(repository: repository)
-                .claimInitialTrustBannerPresentation(for: identity),
-            "The initial trust banner presentation must persist across store instances"
-        )
         try store.trust(identity)
         XCTAssertTrue(store.isTrusted(identity))
         try store.revoke(identity)
         XCTAssertFalse(store.isTrusted(identity))
-        XCTAssertFalse(
-            try store.claimInitialTrustBannerPresentation(for: identity),
-            "Changing trust must not make the one-time banner reappear"
-        )
     }
 
     @MainActor

@@ -501,12 +501,6 @@
     "Checking LSP" : {
 
     },
-    "Choose Executable..." : {
-      "comment" : "Button title selecting a local executable from the missing language-server banner"
-    },
-    "Choose Existing..." : {
-      "comment" : "Button title in the missing language-server banner"
-    },
     "Choose a VS Code color-theme JSON file to import." : {
       "comment" : "Open panel message for importing a VS Code theme",
       "extractionState" : "manual",
@@ -519,11 +513,11 @@
         }
       }
     },
-    "Choose an existing language-server executable." : {
-      "comment" : "Open panel message for selecting a missing language server"
+    "Click to open %@ language support settings." : {
+      "comment" : "Language server status tooltip action opening the matching language settings"
     },
-    "Click to restart the language server." : {
-      "comment" : "Language server status tooltip action offering restart"
+    "Click to open language support settings." : {
+      "comment" : "Language server status tooltip action opening language settings"
     },
     "Close %@" : {
 
@@ -823,18 +817,6 @@
         }
       }
     },
-    "Dismiss Workspace Trust Banner" : {
-      "comment" : "Accessibility label and description for the button that dismisses the workspace trust banner",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dismiss Workspace Trust Banner"
-          }
-        }
-      }
-    },
     "Edit" : {
       "comment" : "Title of the Edit menu",
       "extractionState" : "manual",
@@ -960,9 +942,6 @@
     },
     "Find a Language Server..." : {
 
-    },
-    "Find a Server..." : {
-      "comment" : "Button title opening the public language-server directory from the missing-server banner"
     },
     "Find in File" : {
       "comment" : "Command palette entry that opens in-file find",
@@ -1315,18 +1294,6 @@
         }
       }
     },
-    "Installation Help..." : {
-      "comment" : "Button title opening a known language server's official installation documentation from the missing-server banner",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installation Help..."
-          }
-        }
-      }
-    },
     "Key" : {
       "comment" : "Column title for the structured-data preview's key column",
       "extractionState" : "manual",
@@ -1371,9 +1338,6 @@
     },
     "Language Server" : {
       "comment" : "Label for a shipped language's language-server controls in Settings"
-    },
-    "Language Support..." : {
-      "comment" : "Button title opening Language Support settings from the missing-server banner"
     },
     "Language server status" : {
       "comment" : "Accessibility label describing what the language server state value represents",
@@ -1582,9 +1546,6 @@
     "Missing" : {
       "comment" : "Language server state name"
     },
-    "Missing language server" : {
-      "comment" : "Accessibility description for the icon in the missing language-server banner"
-    },
     "Mixed" : {
       "comment" : "Compact status token for mixed line endings"
     },
@@ -1663,9 +1624,6 @@
         }
       }
     },
-    "No %@ server was found. Syntax highlighting remains available." : {
-
-    },
     "No changes." : {
       "comment" : "Status text shown in the Source Control sidebar when there are no changes",
       "extractionState" : "manual",
@@ -1742,7 +1700,7 @@
       "comment" : "Compact status token for a file with no line endings"
     },
     "Not Now" : {
-      "comment" : "Button title dismissing the missing language-server banner for this session"
+      "comment" : "Button title dismissing the unknown-file-type prompt for this session"
     },
     "Not committed yet" : {
       "comment" : "Git blame gutter text for a line with no committed history yet",
@@ -1861,18 +1819,6 @@
     "Open a repository or source file to view it without editing." : {
 
     },
-    "Open the public LSP server directory." : {
-      "comment" : "Tooltip for the missing language-server Find a Server button",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open the public LSP server directory."
-          }
-        }
-      }
-    },
     "Opening the workspace's Git repository failed or found none" : {
       "comment" : "Diagnostics log message recorded when opening a workspace's Git repository fails or finds none",
       "extractionState" : "manual",
@@ -1881,18 +1827,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Opening the workspace's Git repository failed or found none"
-          }
-        }
-      }
-    },
-    "Opens %@'s official installation documentation." : {
-      "comment" : "Tooltip for the missing language-server Installation Help button, where %@ is the language display name",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Opens %@'s official installation documentation."
           }
         }
       }
@@ -2236,20 +2170,8 @@
         }
       }
     },
-    "Restricted mode" : {
-      "comment" : "Accessibility description for the lock icon shown when a workspace is untrusted",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restricted mode"
-          }
-        }
-      }
-    },
     "Restricted mode: language servers and repository tools are disabled." : {
-      "comment" : "Trust banner message shown when the current workspace is untrusted",
+      "comment" : "Trust status description shown for an untrusted workspace",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -2285,7 +2207,7 @@
       }
     },
     "Revoke Trust" : {
-      "comment" : "Trust banner and confirmation alert title/button for revoking trust for the current workspace",
+      "comment" : "Confirmation alert title and button for revoking trust for the current workspace",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -2736,7 +2658,7 @@
 
     },
     "This workspace is trusted: language servers and repository tools are enabled." : {
-      "comment" : "Trust banner message shown when the current workspace is trusted",
+      "comment" : "Trust status description shown for a trusted workspace",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -2811,7 +2733,7 @@
       }
     },
     "Trust Workspace" : {
-      "comment" : "Trust banner and confirmation alert title/button for trusting the current workspace",
+      "comment" : "Confirmation alert title and button for trusting the current workspace",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -2821,9 +2743,6 @@
           }
         }
       }
-    },
-    "Trust the workspace to restart the language server." : {
-      "comment" : "Language server status tooltip action explaining why restart is disabled"
     },
     "Trust this workspace, enabling language servers and repository tools" : {
       "comment" : "Accessibility label/help for controls that grant workspace trust",
@@ -3155,9 +3074,6 @@
           }
         }
       }
-    },
-    "Workspace trust state could not be saved" : {
-      "comment" : "Workspace health summary when trust banner persistence fails"
     },
     "Zoom" : {
       "comment" : "Window menu item that zooms the frontmost window",

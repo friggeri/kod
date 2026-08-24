@@ -41,7 +41,6 @@ public struct WorkspaceIdentity: Hashable, Sendable {
 @MainActor
 public final class WorkspaceTrustStore {
     private let keyPrefix = "trusted-workspace."
-    private let trustBannerShownKeyPrefix = "workspace-trust-banner-shown."
     private let repository: CodableSettingsRepository
     private var sessionRevocations: Set<String> = []
     public private(set) var lastPersistenceError: SettingsRepositoryError?
@@ -101,31 +100,10 @@ public final class WorkspaceTrustStore {
         try repository.remove(trustSetting(for: identity))
     }
 
-    /// Returns `true` once for each persisted workspace identity, then
-    /// records that the initial trust banner has been presented.
-    public func claimInitialTrustBannerPresentation(
-        for identity: WorkspaceIdentity
-    ) throws(SettingsRepositoryError) -> Bool {
-        let setting = trustBannerSetting(for: identity)
-        if case .value(true, _) = try repository.read(setting) {
-            return false
-        }
-        try repository.write(true, to: setting)
-        return true
-    }
-
     private func trustSetting(
         for identity: WorkspaceIdentity
     ) -> CodableSetting<Bool> {
         booleanSetting(key: keyPrefix + identity.persistenceKey)
-    }
-
-    private func trustBannerSetting(
-        for identity: WorkspaceIdentity
-    ) -> CodableSetting<Bool> {
-        booleanSetting(
-            key: trustBannerShownKeyPrefix + identity.persistenceKey
-        )
     }
 
     private func booleanSetting(key: String) -> CodableSetting<Bool> {

@@ -78,6 +78,7 @@ final class WorkspaceHealthPresenter {
 
     private var visibleIssues: [WorkspaceHealthIssue] {
         health.issues
+            .filter { $0.subsystem != .language }
             .filter {
                 !dismissedGenerations.contains(
                     DismissedGeneration(id: $0.id, generation: $0.generation)

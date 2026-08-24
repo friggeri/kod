@@ -101,7 +101,6 @@ final class MultiLanguageServicesCoordinator {
     /// Snapshot-normalized diagnostics for the currently open editors.
     /// Raw, workspace-wide diagnostics live in `diagnosticsStore` instead.
     var onNormalizedDiagnostics: ((URL, [NormalizedDiagnostic]) -> Void)?
-    var onMissingServer: ((LanguageProfile) -> Void)?
     var onUnknownFileType: ((URL) -> Void)?
     var onDocumentReplayFailure: ((LanguageProfile, String) -> Void)?
     /// Fires with the standardized document URL once its *final* live pane
@@ -819,7 +818,11 @@ final class MultiLanguageServicesCoordinator {
 
     func status(
         forURL url: URL
-    ) -> (languageName: String, state: LanguageServerState)? {
+    ) -> (
+        profileIdentifier: String,
+        languageName: String,
+        state: LanguageServerState
+    )? {
         guard let resolved = resolvedProfile(forOpenURL: url),
               resolved.profile.languageServer != nil else {
             return nil
@@ -831,7 +834,11 @@ final class MultiLanguageServicesCoordinator {
             state = statesByProfile[resolved.profile.identifier]
                 ?? .missing(reason: "Not started")
         }
-        return (resolved.profile.displayName, state)
+        return (
+            resolved.profile.identifier,
+            resolved.profile.displayName,
+            state
+        )
     }
 
     func languageKey(forURL url: URL) -> String? {
@@ -1348,9 +1355,6 @@ final class MultiLanguageServicesCoordinator {
                         profile: profile,
                         newState
                     )
-                    if case .missing = newState {
-                        self.onMissingServer?(profile)
-                    }
                     self.onStateChange?()
                 }
             },
@@ -1414,7 +1418,6 @@ final class MultiLanguageServicesCoordinator {
             statesByProfile[key] = .missing(
                 reason: error.localizedDescription
             )
-            onMissingServer?(profile)
             onStateChange?()
             return nil
         }

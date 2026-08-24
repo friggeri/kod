@@ -359,7 +359,6 @@ final class WorkspaceSession {
     var onGitStatusChanged: ((GitStatusSnapshot?) -> Void)?
     var onLanguageStateChanged: (() -> Void)?
     var onLanguageDiagnostics: ((URL, [NormalizedDiagnostic]) -> Void)?
-    var onLanguageMissingServer: ((LanguageProfile) -> Void)?
     var onLanguageUnknownFileType: ((URL) -> Void)?
     var onLanguageDocumentClosed: ((URL) -> Void)?
     var onHealthChanged: ((WorkspaceHealth) -> Void)?
@@ -679,7 +678,6 @@ final class WorkspaceSession {
         onGitStatusChanged = nil
         onLanguageStateChanged = nil
         onLanguageDiagnostics = nil
-        onLanguageMissingServer = nil
         onLanguageUnknownFileType = nil
         onLanguageDocumentClosed = nil
         onHealthChanged = nil
@@ -1157,9 +1155,6 @@ final class WorkspaceSession {
         languageServices.onNormalizedDiagnostics = { [weak self] url, diagnostics in
             self?.publishLanguageDiagnostics(url: url, diagnostics: diagnostics)
         }
-        languageServices.onMissingServer = { [weak self] profile in
-            self?.publishLanguageMissingServer(profile)
-        }
         languageServices.onUnknownFileType = { [weak self] url in
             self?.publishLanguageUnknownFileType(url)
         }
@@ -1510,13 +1505,6 @@ final class WorkspaceSession {
             return
         }
         onLanguageDiagnostics?(url, diagnostics)
-    }
-
-    private func publishLanguageMissingServer(_ profile: LanguageProfile) {
-        guard isPublishing else {
-            return
-        }
-        onLanguageMissingServer?(profile)
     }
 
     private func publishLanguageUnknownFileType(_ url: URL) {

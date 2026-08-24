@@ -111,7 +111,7 @@ A standard window contains:
 2. **Sidebar:** mutually exclusive Explorer, Search, Source Control, and Problems views.
 3. **Content area:** one or more split groups containing tabs and a code or preview surface.
 4. **Breadcrumb bar:** path and symbol ancestry for the active code view.
-5. **Status bar:** a centered, visually separated strip for Git context, file type/encoding/line ending with an adjacent language-server state or remediation icon, cursor/selection location, and workspace trust.
+5. **Status bar:** a centered, visually separated strip for Git context, file type/encoding/line ending with an adjacent language-server state icon, cursor/selection location, and workspace trust. The language-server icon describes its state in a tooltip and opens the matching language settings when the state is actionable.
 
 The sidebar and status bar may be hidden. Layout changes must not reparse source or restart language servers.
 
@@ -121,7 +121,7 @@ The sidebar and status bar may be hidden. Layout changes must not reparse source
 2. Kod canonicalizes the root, detects a Git worktree, and checks workspace trust.
 3. The window becomes usable immediately in syntax/search-only mode.
 4. Root file discovery, Git status, and state restoration run concurrently. Full quick-open indexing starts only when Quick Open is first used.
-5. The first time an untrusted workspace is opened, Kod shows a non-modal trust banner. A persistent status-bar indicator shows the current trust state thereafter and opens a confirmation prompt before allowing or revoking trust. No language server or repository-discovered executable starts before approval.
+5. A persistent status-bar indicator shows the current workspace trust state in its tooltip and opens a confirmation prompt before allowing or revoking trust. No language server or repository-discovered executable starts before approval.
 6. Once trusted, configured language servers start lazily when a matching source file is opened or a workspace-symbol operation requires one.
 
 Opening a workspace must not automatically fetch network content.
@@ -285,9 +285,9 @@ catalog keyed by default profile identifier
 (`DefaultLanguageServerInstallationGuides`) to identify official installation
 documentation. This catalog is never part of the editable, Codable profile
 model. Settings shows its copyable installation commands and official
-documentation, while the workspace banner's Find action opens that
-documentation directly instead of the generic directory. Kod never executes a
-package manager, shell command, update, or removal.
+documentation. An unavailable language server is represented only by its
+status-bar icon; activating that icon opens Settings on the matching language.
+Kod never executes a package manager, shell command, update, or removal.
 
 ## 7. Syntax and visual presentation
 

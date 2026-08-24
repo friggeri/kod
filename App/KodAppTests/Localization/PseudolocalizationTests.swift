@@ -65,7 +65,7 @@ final class PseudolocalizationTests: XCTestCase {
         ("WorkspaceViewController toolbar toggle accessibility label", "Toggle Source and Preview"),
         ("KeyboardCommandRegistry menu title", "Show Problems"),
         ("SearchSidebarViewController status label", "No results"),
-        ("WorkspaceViewController trust banner text", "Workspace trust granted"),
+        ("WorkspaceTrustPresenter status tooltip", "Restricted mode: language servers and repository tools are disabled."),
         ("Language Support settings title", "Language Support"),
         ("GitBlamePanelController accessibility label", "Commit details"),
         ("SourceControlSidebarViewController section title", "Merge Changes"),

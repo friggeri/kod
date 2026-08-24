@@ -86,9 +86,9 @@ actually complete Kod's primary workflows end to end.
       (not just shown visually).
 - [ ] Source Control panel: confirm each entry's change kind is announced
       as text.
-- [ ] Workspace trust: confirm the banner is announced only on the first
-      open, its dismiss button is last, and the status-bar trust indicator
-      announces the current state and opens a labeled confirmation prompt.
+- [ ] Workspace trust: confirm the status-bar trust indicator announces the
+      current state and action from its tooltip, and opens a labeled
+      confirmation prompt.
 - [ ] Status bar: confirm VoiceOver announces one "Workspace status" group.
       Verify branch or full detached-HEAD identity, Git change count and
       staged/unstaged/untracked/conflicted breakdown, language-server profile
@@ -100,9 +100,8 @@ actually complete Kod's primary workflows end to end.
       Confirm the status bar updates after each refresh and says Git is
       unavailable on failure rather than announcing a clean repository.
 - [ ] Exercise every language-server lifecycle state available in the test
-      setup. Confirm the state icon is spoken as text and becomes an enabled
-      remediation action only for actionable states, with a clear label and
-      tooltip.
+      setup. Confirm the state icon is spoken as text, has a clear tooltip, and
+      opens Settings on the matching language only for actionable states.
 - [ ] Switch active editor splits and select text containing emoji. Confirm
       line/column and selection count follow only the active split and count
       the emoji in UTF-16 code units. Preview and full-diff tabs must retain

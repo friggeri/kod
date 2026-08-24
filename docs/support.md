@@ -52,9 +52,10 @@ If a server is missing:
    **Command** field. The executable must be an absolute local executable path.
    Clear the field to return to automatic discovery.
 3. Use the selected language's **Installation** section to copy a supported
-   install command or open the official guide. **Installation Help…** in the
-   workspace missing-server banner opens the same documentation. Kod never
-   runs a package manager, shell command, update, or removal on your behalf.
+   install command or open the official guide. Clicking an unavailable
+   language-server icon in the status bar opens Settings on that language.
+   Kod never runs a package manager, shell command, update, or removal on your
+   behalf.
 4. If launch still fails, include the displayed server state and error text
    in the issue.
 

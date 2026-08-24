@@ -83,8 +83,8 @@ may be browsed, searched, and previewed, but Kod will not start a
 language server or any repository-discovered executable until you
 explicitly trust that workspace. Trust can be revoked at any time from
 the trust indicator at the bottom-right of the status bar, which
-immediately stops any running language servers for it. The trust banner
-is shown only the first time each workspace is opened.
+describes the current state in its tooltip and immediately stops any running
+language servers after revocation.
 
 Trust also gates remote schema resolution by the built-in JSON, YAML, and TOML
 language-server profiles. Revoking trust stops those servers immediately.

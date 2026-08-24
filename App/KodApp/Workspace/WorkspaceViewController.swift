@@ -353,13 +353,10 @@ final class WorkspaceViewController: NSViewController {
     /// The Explorer tree: outline view, node cache, filtering, decoration.
     let explorer: WorkspaceExplorerController
 
-    /// Trust banner, status control and confirmation UI. Built lazily so
-    /// the one-time "show the banner on first open" claim is made when the
-    /// banner is actually built, exactly as before.
+    /// Trust status control and confirmation UI.
     private lazy var trustPresenter = makeTrustPresenter()
 
-    /// Queueing/suppression state machine behind the language-support
-    /// banner. The banner itself is rendered here.
+    /// Queueing/suppression state machine behind the unknown-language prompt.
     private let languagePrompts = LanguageSupportPromptQueue()
 
     /// One request/projection/error policy for both Quick Diff consumers.
@@ -371,26 +368,10 @@ final class WorkspaceViewController: NSViewController {
     private let languageSupportBanner = NSStackView()
     private let languageSupportBannerLabel = NSTextField(labelWithString: "")
 
-    private let languageSupportFindButton = NSButton(
+    private let languageSupportRequestButton = NSButton(
         title: Localized.string(
-            "Find a Server...",
-            comment: "Button title opening the public language-server directory from the missing-server banner"
-        ),
-        target: nil,
-        action: nil
-    )
-    private let languageSupportChooseButton = NSButton(
-        title: Localized.string(
-            "Choose Existing...",
-            comment: "Button title in the missing language-server banner"
-        ),
-        target: nil,
-        action: nil
-    )
-    private let languageSupportSettingsButton = NSButton(
-        title: Localized.string(
-            "Language Support...",
-            comment: "Button title opening Language Support settings from the missing-server banner"
+            "Request Language...",
+            comment: "Button title requesting support for an unknown file type"
         ),
         target: nil,
         action: nil
@@ -398,24 +379,16 @@ final class WorkspaceViewController: NSViewController {
     private let languageSupportNotNowButton = NSButton(
         title: Localized.string(
             "Not Now",
-            comment: "Button title dismissing the missing language-server banner for this session"
+            comment: "Button title dismissing the unknown-file-type prompt for this session"
         ),
         target: nil,
         action: nil
     )
-    private var contentTopWithTrustBannerConstraint: NSLayoutConstraint?
-    private var contentTopWithoutTrustBannerConstraint: NSLayoutConstraint?
+    private var contentTopWithBannerConstraint: NSLayoutConstraint?
+    private var contentTopWithoutBannerConstraint: NSLayoutConstraint?
     private lazy var workspaceHealthPresenter = WorkspaceHealthPresenter(
         session: session
     )
-    /// The official installation-documentation URL to open when the
-    /// banner's "Find a Server.../Installation Help..." button is
-    /// pressed for the *currently presented* missing-server prompt. Set
-    /// only when that prompt is for a known default profile with
-    /// shipped guidance (`DefaultLanguageServerInstallationGuides`);
-    /// `nil` for unknown/custom profiles or default profiles without
-    /// guidance, which fall back to the public LSP directory.
-    private var currentMissingLanguageInstallationDocumentationURL: URL?
     private var activityBarView: WorkspaceActivityBarView?
     private let workspaceTitleLabel = NSTextField(labelWithString: "")
     private var workspaceSplitViewController: NSSplitViewController!
@@ -567,23 +540,7 @@ final class WorkspaceViewController: NSViewController {
     }
 
     private func makeTrustPresenter() -> WorkspaceTrustPresenter {
-        let isBannerEligible: Bool
-        do {
-            isBannerEligible = try trustStore
-                .claimInitialTrustBannerPresentation(for: identity)
-        } catch {
-            isBannerEligible = true
-            recordTrustPersistenceFailure(
-                message: Localized.string(
-                    "Workspace trust state could not be saved",
-                    comment: "Workspace health summary when trust banner persistence fails"
-                ),
-                error: error
-            )
-        }
-        let presenter = WorkspaceTrustPresenter(
-            isBannerEligible: isBannerEligible
-        )
+        let presenter = WorkspaceTrustPresenter()
         presenter.presentingWindow = { [weak self] in
             self?.viewIfLoaded?.window
         }
@@ -591,12 +548,6 @@ final class WorkspaceViewController: NSViewController {
             self?.handleTrustIntent(intent)
         }
         presenter.render(isTrusted: trustStore.isTrusted(identity))
-        // Assigned only after the initial render so the workspace's banner
-        // stack is never asked about a presenter that is still being
-        // constructed.
-        presenter.onBannerVisibilityChanged = { [weak self] in
-            self?.updateWorkspaceBannerVisibility()
-        }
         return presenter
     }
 
@@ -658,9 +609,6 @@ final class WorkspaceViewController: NSViewController {
                 $0.applyDiagnostics(url: url, diagnostics: diagnostics)
             }
         }
-        session.onLanguageMissingServer = { [weak self] profile in
-            self?.enqueueMissingLanguageServer(profile)
-        }
         session.onLanguageUnknownFileType = { [weak self] url in
             self?.enqueueUnknownFileType(for: url)
         }
@@ -682,70 +630,28 @@ final class WorkspaceViewController: NSViewController {
         }
     }
 
-    /// A shipped profile's Command changed. The registry has already
-    /// reloaded from the store, so this refreshes discovery and any
-    /// currently displayed missing-server prompt.
+    /// A shipped profile's Command changed. Clear any unknown-file prompt that
+    /// the updated registry can now resolve.
     private func handleLanguageProfileConfigurationChanged(
-        languageKey: String
+        languageKey _: String
     ) {
         languageHoverController.invalidateCache()
         definitionNavigationTask?.cancel()
         definitionNavigationTask = nil
-        languagePrompts.bumpGeneration()
-        languagePrompts.removeQueuedMissingServer(languageKey: languageKey)
-        if languagePrompts.currentMissingServerKey == languageKey {
-            Task { [weak self] in
-                guard let self else {
-                    return
-                }
-                await self.languageSupportService.refresh()
-                guard self.languagePrompts.currentMissingServerKey == languageKey else {
-                    return
-                }
-                guard let item = self.languageSupportService.items.first(
-                    where: { $0.id == languageKey }
-                ) else {
-                    self.finishMissingLanguagePrompt(
-                        suppressForSession: false
-                    )
-                    return
-                }
-                switch item.serverState {
-                case .available, .syntaxOnly:
-                    self.finishMissingLanguagePrompt(
-                        suppressForSession: false
-                    )
-                case .checking, .missing:
-                    break
-                }
-            }
-        } else if let currentUnknownLanguageURL = languagePrompts.currentUnknownFileTypeURL,
-                  languageSupportService.profileRegistry.resolve(
-                      url: currentUnknownLanguageURL
-                  ) != nil {
-                      finishMissingLanguagePrompt(suppressForSession: false)
-                  }
+        if let currentUnknownLanguageURL =
+                languagePrompts.currentUnknownFileTypeURL,
+           languageSupportService.profileRegistry.resolve(
+               url: currentUnknownLanguageURL
+           ) != nil {
+            finishUnknownLanguagePrompt(suppressForSession: false)
+        }
     }
 
     /// `LanguageSupportService.refresh()` discovered that `languageKey`'s
-    /// executable, previously unavailable, is now available. Nothing
-    /// about the profile's configuration changed, so this never calls
-    /// `refresh()` again (which would risk a notify → refresh → notify
-    /// loop) — it only clears the now-stale missing-server queue/banner
-    /// for this key and asks the coordinator to retry/restart the
-    /// affected service. An unrelated unknown-type or different-profile
-    /// prompt currently on screen is left alone.
+    /// executable is now available, so retry the affected service.
     private func handleLanguageServerExecutableDiscovered(
         languageKey: String
     ) {
-        languagePrompts.removeQueuedMissingServer(languageKey: languageKey)
-        if languagePrompts.currentMissingServerKey == languageKey,
-           let item = languageSupportService.items.first(
-               where: { $0.id == languageKey }
-           ),
-           item.serverState.isAvailable {
-            finishMissingLanguagePrompt(suppressForSession: false)
-        }
         multiLanguageServicesCoordinator.handleLanguageServerExecutableAvailable(
             languageKey: languageKey
         )
@@ -770,8 +676,6 @@ final class WorkspaceViewController: NSViewController {
             trustWorkspace(nil)
         case .revokeTrust:
             revokeTrust(nil)
-        case .dismissBanner:
-            break
         }
     }
 
@@ -785,7 +689,6 @@ final class WorkspaceViewController: NSViewController {
 
         configureLanguageSupportBanner()
         configureWorkspaceBannerStack()
-        trustPresenter.bannerView.translatesAutoresizingMaskIntoConstraints = false
 
         let outerSplit = NSSplitViewController()
         workspaceSplitViewController = outerSplit
@@ -849,15 +752,15 @@ final class WorkspaceViewController: NSViewController {
         container.addSubview(statusBar)
         container.addSubview(titleOverlay)
 
-        let contentTopWithTrustBannerConstraint = splitContainer.view.topAnchor.constraint(
+        let contentTopWithBannerConstraint = splitContainer.view.topAnchor.constraint(
             equalTo: workspaceBannerStack.bottomAnchor,
             constant: 8
         )
-        let contentTopWithoutTrustBannerConstraint = splitContainer.view.topAnchor.constraint(
+        let contentTopWithoutBannerConstraint = splitContainer.view.topAnchor.constraint(
             equalTo: editorContainer.safeAreaLayoutGuide.topAnchor
         )
-        self.contentTopWithTrustBannerConstraint = contentTopWithTrustBannerConstraint
-        self.contentTopWithoutTrustBannerConstraint = contentTopWithoutTrustBannerConstraint
+        self.contentTopWithBannerConstraint = contentTopWithBannerConstraint
+        self.contentTopWithoutBannerConstraint = contentTopWithoutBannerConstraint
 
         NSLayoutConstraint.activate([
             workspaceBannerStack.topAnchor.constraint(
@@ -866,10 +769,6 @@ final class WorkspaceViewController: NSViewController {
             ),
             workspaceBannerStack.leadingAnchor.constraint(equalTo: editorContainer.leadingAnchor, constant: 8),
             workspaceBannerStack.trailingAnchor.constraint(equalTo: editorContainer.trailingAnchor, constant: -8),
-            trustPresenter.bannerView.heightAnchor.constraint(
-                equalTo: trustPresenter.bannerHeightReferenceView.heightAnchor,
-                constant: 12
-            ),
             splitContainer.view.leadingAnchor.constraint(equalTo: editorContainer.leadingAnchor),
             splitContainer.view.trailingAnchor.constraint(equalTo: editorContainer.trailingAnchor),
             splitContainer.view.bottomAnchor.constraint(equalTo: editorContainer.bottomAnchor),
@@ -1089,67 +988,19 @@ final class WorkspaceViewController: NSViewController {
 
     // MARK: - Language services (LSP)
 
-    /// Queues a missing-server prompt. Trust is the gate; the queue owns
-    /// de-duplication and per-session suppression.
-    private func enqueueMissingLanguageServer(
-        _ profile: LanguageProfile
-    ) {
-        guard trustStore.isTrusted(identity),
-              languagePrompts.enqueueMissingServer(languageKey: profile.identifier) else {
-            return
-        }
-        Task {
-            await presentNextMissingLanguageServerIfNeeded()
-        }
-    }
-
     private func enqueueUnknownFileType(for url: URL) {
         guard trustStore.isTrusted(identity),
               languagePrompts.enqueueUnknownFileType(url: url) else {
             return
         }
-        Task {
-            await presentNextMissingLanguageServerIfNeeded()
-        }
+        presentNextUnknownFileTypeIfNeeded()
     }
 
-    /// Drains the prompt queue until something is actually worth showing,
-    /// re-running discovery for each candidate. Queueing, suppression and
-    /// generation rules live in `LanguageSupportPromptQueue`; this method
-    /// only performs the awaits it cannot, and renders the result.
-    private func presentNextMissingLanguageServerIfNeeded() async {
+    private func presentNextUnknownFileTypeIfNeeded() {
         guard languagePrompts.beginPreparing() else {
             return
         }
         defer { languagePrompts.endPreparing() }
-
-        while trustStore.isTrusted(identity) {
-            guard let languageKey = languagePrompts.dequeueMissingServerCandidate() else {
-                break
-            }
-
-            let promptGeneration = languagePrompts.generation
-            await languageSupportService.refresh()
-            guard !Task.isCancelled, trustStore.isTrusted(identity) else {
-                return
-            }
-            guard promptGeneration == languagePrompts.generation else {
-                languagePrompts.requeueMissingServerCandidate(languageKey)
-                continue
-            }
-            guard let item = languageSupportService.items.first(where: {
-                $0.id == languageKey
-            }) else {
-                continue
-            }
-            if case .available = item.serverState {
-                continue
-            }
-
-            languagePrompts.activate(.missingServer(languageKey: languageKey))
-            renderMissingServerPrompt(item: item)
-            return
-        }
 
         while trustStore.isTrusted(identity) {
             guard let url = languagePrompts.dequeueUnknownFileTypeCandidate() else {
@@ -1158,68 +1009,14 @@ final class WorkspaceViewController: NSViewController {
             guard languageSupportService.profileRegistry.resolve(url: url) == nil else {
                 continue
             }
-            languagePrompts.activate(.unknownFileType(url: url))
+            languagePrompts.activateUnknownFileType(url)
             renderUnknownFileTypePrompt(url: url)
             return
         }
     }
 
-    private func renderMissingServerPrompt(item: LanguageSupportItem) {
-        languageSupportChooseButton.isHidden = false
-        languageSupportSettingsButton.isHidden = false
-        languageSupportFindButton.isHidden = false
-        languageSupportChooseButton.title = Localized.string(
-            "Choose Executable...",
-            comment: "Button title selecting a local executable from the missing language-server banner"
-        )
-        languageSupportBannerLabel.stringValue = Localized.string(
-            "No \(item.profile.displayName) server was found. Syntax highlighting remains available.",
-            comment: "Missing language-server banner message"
-        )
-        languageSupportBannerLabel.toolTip = languageSupportBannerLabel.stringValue
-        if let guide = item.profile.origin == .default
-            ? DefaultLanguageServerInstallationGuides.guide(
-                for: item.profile
-            )
-            : nil {
-            currentMissingLanguageInstallationDocumentationURL =
-                guide.documentationURL
-            languageSupportFindButton.title = Localized.string(
-                "Installation Help...",
-                comment: "Button title opening a known language server's official installation documentation from the missing-server banner"
-            )
-            languageSupportFindButton.toolTip = Localized.string(
-                "Opens \(item.profile.displayName)'s official installation documentation.",
-                comment: "Tooltip for the missing language-server Installation Help button"
-            )
-        } else {
-            currentMissingLanguageInstallationDocumentationURL = nil
-            languageSupportFindButton.title = Localized.string(
-                "Find a Server...",
-                comment: "Button title opening the public language-server directory from the missing-server banner"
-            )
-            languageSupportFindButton.toolTip = Localized.string(
-                "Open the public LSP server directory.",
-                comment: "Tooltip for the missing language-server Find a Server button"
-            )
-        }
-        languageSupportBanner.setAccessibilityLabel(
-            languageSupportBannerLabel.stringValue
-        )
-        languageSupportBanner.isHidden = false
-        updateWorkspaceBannerVisibility()
-    }
-
     private func renderUnknownFileTypePrompt(url: URL) {
-        currentMissingLanguageInstallationDocumentationURL = nil
-        languageSupportChooseButton.isHidden = false
-        languageSupportSettingsButton.isHidden = true
-        languageSupportFindButton.isHidden = true
-        languageSupportChooseButton.title = Localized.string(
-            "Request Language...",
-            comment: "Button title requesting support for an unknown file type"
-        )
-        languageSupportChooseButton.toolTip = Localized.string(
+        languageSupportRequestButton.toolTip = Localized.string(
             "Request support for this file type on GitHub.",
             comment: "Tooltip for requesting support for an unknown file type"
         )
@@ -1236,70 +1033,27 @@ final class WorkspaceViewController: NSViewController {
         updateWorkspaceBannerVisibility()
     }
 
-    private func finishMissingLanguagePrompt(
+    private func finishUnknownLanguagePrompt(
         suppressForSession: Bool
     ) {
         languagePrompts.finishCurrent(suppressForSession: suppressForSession)
-        currentMissingLanguageInstallationDocumentationURL = nil
         languageSupportBanner.isHidden = true
         updateWorkspaceBannerVisibility()
-        Task {
-            await presentNextMissingLanguageServerIfNeeded()
-        }
+        presentNextUnknownFileTypeIfNeeded()
     }
 
     @objc
-    private func dismissMissingLanguageServer(_ sender: Any?) {
-        finishMissingLanguagePrompt(suppressForSession: true)
+    private func dismissUnknownLanguagePrompt(_ sender: Any?) {
+        finishUnknownLanguagePrompt(suppressForSession: true)
     }
 
     @objc
-    private func openLanguageSupportSettings(_ sender: Any?) {
-        onShowLanguageSupportSettings?(
-            languagePrompts.currentMissingServerKey
-        )
-    }
-
-    @objc
-    private func chooseMissingLanguageServer(_ sender: Any?) {
-        if let url = languagePrompts.currentUnknownFileTypeURL {
-            NSWorkspace.shared.open(languageRequestURL(for: url))
-            finishMissingLanguagePrompt(suppressForSession: true)
+    private func requestUnknownLanguageSupport(_ sender: Any?) {
+        guard let url = languagePrompts.currentUnknownFileTypeURL else {
             return
         }
-        guard let languageKey = languagePrompts.currentMissingServerKey,
-              let window = view.window else {
-            return
-        }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.message = Localized.string(
-            "Choose an existing language-server executable.",
-            comment: "Open panel message for selecting a missing language server"
-        )
-        panel.beginSheetModal(for: window) { [weak self] response in
-            guard response == .OK, let url = panel.url, let self else {
-                return
-            }
-            do {
-                try self.languageSupportService.setSelectedExecutable(
-                    profileIdentifier: languageKey,
-                    url: url
-                )
-            } catch {
-                self.languageSupportBannerLabel.stringValue =
-                    error.localizedDescription
-            }
-        }
-    }
-
-    @objc
-    private func findMissingLanguageServer(_ sender: Any?) {
-        NSWorkspace.shared.open(
-            currentMissingLanguageInstallationDocumentationURL
-                ?? LanguageSupportService.serverDirectoryURL
-        )
+        NSWorkspace.shared.open(languageRequestURL(for: url))
+        finishUnknownLanguagePrompt(suppressForSession: true)
     }
 
     private func languageRequestURL(for fileURL: URL) -> URL {
@@ -1405,17 +1159,24 @@ final class WorkspaceViewController: NSViewController {
         let languageServerStatus: WorkspaceStatusBarView.LanguageServerStatus?
         if let languageStatus {
             languageServerStatus = WorkspaceStatusBarView.languageServerStatus(
+                profileIdentifier: languageStatus.profileIdentifier,
                 profileName: languageStatus.languageName,
-                state: languageStatus.state,
-                isTrusted: trustStore.isTrusted(identity)
+                state: languageStatus.state
             )
         } else if statusDocument != nil {
             let message = Localized.string(
                 "No language server configured",
                 comment: "Language server status shown when the active file has no configured server"
             )
+            let profileIdentifier = fileURL.flatMap {
+                languageSupportService.profileRegistry.resolve(url: $0)?
+                    .profile.identifier
+            }
             languageServerStatus =
-                WorkspaceStatusBarView.unavailableLanguageServerStatus(message)
+                WorkspaceStatusBarView.unavailableLanguageServerStatus(
+                    message,
+                    settingsProfileIdentifier: profileIdentifier
+                )
         } else {
             languageServerStatus = nil
         }
@@ -2295,7 +2056,6 @@ final class WorkspaceViewController: NSViewController {
         workspaceBannerStack.orientation = .vertical
         workspaceBannerStack.alignment = .width
         workspaceBannerStack.spacing = 6
-        workspaceBannerStack.addArrangedSubview(trustPresenter.bannerView)
         workspaceBannerStack.addArrangedSubview(languageSupportBanner)
         workspaceBannerStack.addArrangedSubview(workspaceHealthPresenter.view)
         workspaceHealthPresenter.update(session.health)
@@ -2305,7 +2065,7 @@ final class WorkspaceViewController: NSViewController {
 
     private func configureLanguageSupportBanner() {
         languageSupportBanner.identifier = NSUserInterfaceItemIdentifier(
-            "workspace.missingLanguageServerBanner"
+            "workspace.unknownLanguageBanner"
         )
         languageSupportBanner.orientation = .horizontal
         languageSupportBanner.alignment = .centerY
@@ -2327,8 +2087,8 @@ final class WorkspaceViewController: NSViewController {
             image: NSImage(
                 systemSymbolName: "puzzlepiece.extension",
                 accessibilityDescription: Localized.string(
-                    "Missing language server",
-                    comment: "Accessibility description for the icon in the missing language-server banner"
+                    "Unknown file type",
+                    comment: "Accessibility description for the icon in the unknown-file-type prompt"
                 )
             ) ?? NSImage()
         )
@@ -2342,39 +2102,22 @@ final class WorkspaceViewController: NSViewController {
             for: .horizontal
         )
 
-        let buttons = [
-            languageSupportChooseButton,
-            languageSupportSettingsButton,
-            languageSupportFindButton,
-            languageSupportNotNowButton
-        ]
+        let buttons = [languageSupportRequestButton, languageSupportNotNowButton]
         for button in buttons {
             button.setContentHuggingPriority(.required, for: .horizontal)
             button.target = self
         }
-        languageSupportFindButton.identifier = NSUserInterfaceItemIdentifier(
-            "workspace.missingLanguageServer.findServer"
+        languageSupportRequestButton.identifier = NSUserInterfaceItemIdentifier(
+            "workspace.unknownLanguage.request"
         )
-        languageSupportFindButton.action = #selector(
-            findMissingLanguageServer(_:)
-        )
-        languageSupportChooseButton.identifier = NSUserInterfaceItemIdentifier(
-            "workspace.missingLanguageServer.chooseExisting"
-        )
-        languageSupportChooseButton.action = #selector(
-            chooseMissingLanguageServer(_:)
-        )
-        languageSupportSettingsButton.identifier = NSUserInterfaceItemIdentifier(
-            "workspace.missingLanguageServer.openSettings"
-        )
-        languageSupportSettingsButton.action = #selector(
-            openLanguageSupportSettings(_:)
+        languageSupportRequestButton.action = #selector(
+            requestUnknownLanguageSupport(_:)
         )
         languageSupportNotNowButton.identifier = NSUserInterfaceItemIdentifier(
-            "workspace.missingLanguageServer.notNow"
+            "workspace.unknownLanguage.notNow"
         )
         languageSupportNotNowButton.action = #selector(
-            dismissMissingLanguageServer(_:)
+            dismissUnknownLanguagePrompt(_:)
         )
 
         languageSupportBanner.addArrangedSubview(icon)
@@ -2384,22 +2127,18 @@ final class WorkspaceViewController: NSViewController {
         }
     }
 
-    /// Re-renders both trust surfaces from the store's current, live
-    /// state (SPEC 13.1: trusting/revoking a workspace must be
-    /// immediately reflected). Called after both `trustWorkspace` and
-    /// `revokeTrust` so neither control shows a stale state.
+    /// Re-renders the status control from the store's current, live state.
     private func refreshWorkspaceTrustUI() {
         trustPresenter.render(isTrusted: trustStore.isTrusted(identity))
         refreshLanguageServerStateUI()
     }
 
     private func updateWorkspaceBannerVisibility() {
-        let isVisible = !trustPresenter.isBannerHidden
-            || !languageSupportBanner.isHidden
+        let isVisible = !languageSupportBanner.isHidden
             || !workspaceHealthPresenter.view.isHidden
         workspaceBannerStack.isHidden = !isVisible
-        contentTopWithTrustBannerConstraint?.isActive = isVisible
-        contentTopWithoutTrustBannerConstraint?.isActive = !isVisible
+        contentTopWithBannerConstraint?.isActive = isVisible
+        contentTopWithoutBannerConstraint?.isActive = !isVisible
     }
 
     private func workspaceHealthDidChange(_ health: WorkspaceHealth) {
@@ -2516,8 +2255,8 @@ final class WorkspaceViewController: NSViewController {
         statusBar.onShowSourceControl = { [weak self] in
             self?.selectSidebarSurface(.sourceControl, focus: true)
         }
-        statusBar.onRestartLanguageServer = { [weak self] in
-            self?.restartLanguageServer(nil)
+        statusBar.onShowLanguageSupportSettings = { [weak self] profileIdentifier in
+            self?.onShowLanguageSupportSettings?(profileIdentifier)
         }
         statusBarView = statusBar
         statusBar.update(makeStatusBarModel())
@@ -3032,7 +2771,6 @@ final class WorkspaceViewController: NSViewController {
             )
         }
         languagePrompts.cancelAll()
-        currentMissingLanguageInstallationDocumentationURL = nil
         languageSupportBanner.isHidden = true
         updateWorkspaceBannerVisibility()
         refreshWorkspaceTrustUI()

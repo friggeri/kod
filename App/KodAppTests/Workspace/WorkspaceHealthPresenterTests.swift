@@ -112,7 +112,7 @@ final class WorkspaceHealthPresenterTests: XCTestCase {
         XCTAssertFalse(presenter.view.isHidden)
     }
 
-    func testLanguageProfileIssuesRemainDistinct() {
+    func testLanguageIssuesRemainTrackedButDoNotRenderABanner() {
         var health = WorkspaceHealth()
         health.record(
             WorkspaceHealthIssue(
@@ -138,12 +138,8 @@ final class WorkspaceHealthPresenterTests: XCTestCase {
 
         XCTAssertEqual(health.issues.count, 2)
         XCTAssertNotEqual(health.issues[0].id, health.issues[1].id)
-        XCTAssertEqual(presenter.presentation?.issue.id.rawValue, "language-profile:swift")
-        presenter.selectNext()
-        XCTAssertEqual(
-            presenter.presentation?.issue.id.rawValue,
-            "language-profile:typescript"
-        )
+        XCTAssertNil(presenter.presentation)
+        XCTAssertTrue(presenter.view.isHidden)
     }
 
     func testDiagnosticReasonIsBoundedAndFlattened() {

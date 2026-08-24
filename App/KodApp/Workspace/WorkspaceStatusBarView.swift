@@ -40,8 +40,7 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
     struct LanguageServerStatus: Equatable {
         let item: Item
         let symbolName: String
-        let canRemediate: Bool
-        let isRemediationEnabled: Bool
+        let settingsProfileIdentifier: String?
     }
 
     struct Model: Equatable {
@@ -62,7 +61,7 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
     }
 
     var onShowSourceControl: (() -> Void)?
-    var onRestartLanguageServer: (() -> Void)?
+    var onShowLanguageSupportSettings: ((String) -> Void)?
 
     private let branchButton = NSButton()
     private let gitButton = NSButton()
@@ -415,9 +414,9 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
     }
 
     static func languageServerStatus(
+        profileIdentifier: String?,
         profileName: String?,
-        state: LanguageServerState,
-        isTrusted: Bool
+        state: LanguageServerState
     ) -> LanguageServerStatus {
         let stateName = localizedLanguageServerStateName(state)
         let name = profileName ?? Localized.string(
@@ -428,24 +427,21 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
             "\(name) language server: \(stateName)",
             comment: "Accessibility value describing a language server and its state"
         )
-        let remediation = restartAvailability(
-            profileName: profileName,
-            state: state,
-            isTrusted: isTrusted
-        )
+        let settingsProfileIdentifier: String?
+        switch state {
+        case .missing, .stopped, .crashed, .disabled:
+            settingsProfileIdentifier = profileIdentifier
+        case .starting, .indexing, .ready, .busy, .stopping:
+            settingsProfileIdentifier = nil
+        }
         var toolTip = languageServerReason(state).map {
             "\(value): \($0)"
         } ?? value
-        if remediation.visible {
-            let action = remediation.enabled
-                ? Localized.string(
-                    "Click to restart the language server.",
-                    comment: "Language server status tooltip action offering restart"
-                )
-                : Localized.string(
-                    "Trust the workspace to restart the language server.",
-                    comment: "Language server status tooltip action explaining why restart is disabled"
-                )
+        if settingsProfileIdentifier != nil {
+            let action = Localized.string(
+                "Click to open \(name) language support settings.",
+                comment: "Language server status tooltip action opening the matching language settings"
+            )
             toolTip += "\n\(action)"
         }
         return LanguageServerStatus(
@@ -460,15 +456,25 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
                 tone: languageServerTone(state)
             ),
             symbolName: languageServerSymbolName(state),
-            canRemediate: remediation.visible,
-            isRemediationEnabled: remediation.enabled
+            settingsProfileIdentifier: settingsProfileIdentifier
         )
     }
 
     static func unavailableLanguageServerStatus(
-        _ message: String
+        _ message: String,
+        settingsProfileIdentifier: String? = nil
     ) -> LanguageServerStatus {
-        LanguageServerStatus(
+        let toolTip: String
+        if settingsProfileIdentifier == nil {
+            toolTip = message
+        } else {
+            let action = Localized.string(
+                "Click to open language support settings.",
+                comment: "Language server status tooltip action opening language settings"
+            )
+            toolTip = "\(message)\n\(action)"
+        }
+        return LanguageServerStatus(
             item: Item(
                 text: message,
                 accessibilityLabel: Localized.string(
@@ -476,28 +482,12 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
                     comment: "Accessibility label describing the language server state value"
                 ),
                 accessibilityValue: message,
-                toolTip: message,
+                toolTip: toolTip,
                 tone: .secondary
             ),
-            symbolName: "minus.circle",
-            canRemediate: false,
-            isRemediationEnabled: false
+            symbolName: "exclamationmark.triangle",
+            settingsProfileIdentifier: settingsProfileIdentifier
         )
-    }
-
-    static func restartAvailability(
-        profileName: String?,
-        state: LanguageServerState,
-        isTrusted: Bool
-    ) -> (visible: Bool, enabled: Bool) {
-        let visible: Bool
-        switch state {
-        case .missing, .stopped, .crashed, .disabled:
-            visible = profileName != nil
-        case .starting, .indexing, .ready, .busy, .stopping:
-            visible = false
-        }
-        return (visible, visible && isTrusted)
     }
 
     static func encodingItem(_ encoding: SourceEncoding) -> Item {
@@ -569,7 +559,8 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
                 "File language",
                 comment: "Accessibility label for the active file language profile"
             ),
-            accessibilityValue: languageName
+            accessibilityValue: languageName,
+            tone: .normal
         )
     }
 
@@ -765,7 +756,7 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
     ) -> String {
         switch state {
         case .missing:
-            "exclamationmark.circle"
+            "exclamationmark.triangle"
         case .starting, .stopping:
             "arrow.triangle.2.circlepath"
         case .indexing:
@@ -903,14 +894,13 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
             accessibilityDescription: status.item.accessibilityValue,
             pointSize: 12
         )
-        button.isEnabled = status.canRemediate
-            && status.isRemediationEnabled
+        button.isEnabled = status.settingsProfileIdentifier != nil
         button.contentTintColor = color(for: status.item.tone)
         button.toolTip = status.item.toolTip
         button.setAccessibilityLabel(status.item.accessibilityLabel)
         button.setAccessibilityValue(status.item.accessibilityValue)
         button.setAccessibilityHelp(
-            status.canRemediate ? status.item.toolTip : nil
+            status.settingsProfileIdentifier == nil ? nil : status.item.toolTip
         )
     }
 
@@ -930,10 +920,10 @@ final class WorkspaceStatusBarView: NSVisualEffectView {
 
     @objc
     private func performLanguageServerAction(_ sender: Any?) {
-        guard model?.languageServer?.canRemediate == true,
-              model?.languageServer?.isRemediationEnabled == true else {
+        guard let profileIdentifier =
+                model?.languageServer?.settingsProfileIdentifier else {
             return
         }
-        onRestartLanguageServer?()
+        onShowLanguageSupportSettings?(profileIdentifier)
     }
 }
