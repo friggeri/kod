@@ -25,8 +25,9 @@ require_file "assets/site.css"
 require_file "assets/app-icon.png"
 require_file "assets/favicon.png"
 require_file "assets/apple-touch-icon.png"
-require_file "assets/images/kod-window.svg"
+require_file "assets/images/workspace.png"
 require_file "assets/images/social-card.png"
+require_file "assets/images/previews/html-preview.png"
 require_file "assets/images/previews/markdown-preview.png"
 require_file "assets/images/previews/image-preview.png"
 require_file "assets/images/previews/json-preview.png"
@@ -106,7 +107,7 @@ if ! file "$site_dir/assets/images/social-card.png" | grep -q '1200 x 630'; then
 fi
 
 if command -v xmllint >/dev/null 2>&1; then
-    xmllint --noout "$site_dir/assets/images/kod-window.svg" "$site_dir/sitemap.xml"
+    xmllint --noout "$site_dir/sitemap.xml"
 fi
 
 printf '%s\n' "==> Verified kod.dev static artifact"

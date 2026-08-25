@@ -4,8 +4,8 @@ The Kod website is a dependency-free static site deployed to GitHub Pages by
 [`.github/workflows/pages.yml`](../.github/workflows/pages.yml). It makes no
 runtime requests except when a visitor follows a link, and it uses no
 analytics, cookies, local storage, external fonts, or client-side JavaScript.
-The preview gallery images are captures of Kod's production `PreviewUI`
-controllers rendered with safe, checked-in repository files.
+The product and preview gallery images are captures of production Kod windows
+and `PreviewUI` controllers rendered with safe, checked-in repository files.
 
 ## Build locally
 
