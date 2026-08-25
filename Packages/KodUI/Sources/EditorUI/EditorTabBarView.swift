@@ -298,19 +298,19 @@ final class EditorTabBarView: NSView {
     }
 
     private func updateBarAppearance() {
-        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let component: CGFloat
+        let isDark = effectiveAppearance.bestMatch(
+            from: [.aqua, .darkAqua]
+        ) == .darkAqua
+        let opacity: CGFloat
         if isDark {
-            component = isActive ? 0.20 : 0.16
+            opacity = isActive ? 0.16 : 0.22
         } else {
-            component = isActive ? 237 / 255 : 244 / 255
+            opacity = isActive ? 0.09 : 0.13
         }
-        railBackgroundView.layer?.backgroundColor = NSColor(
-            srgbRed: component,
-            green: component,
-            blue: component,
-            alpha: 1
-        ).cgColor
+        railBackgroundView.layer?.backgroundColor = NSColor.black
+            .withAlphaComponent(opacity)
+            .cgColor
+        railBackgroundView.layer?.borderWidth = 0
     }
 
     func update(

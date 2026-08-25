@@ -1,5 +1,4 @@
 import AppKit
-import KodUIComponents
 import WorkspaceCore
 import XCTest
 @testable import Kod
@@ -55,12 +54,16 @@ final class WorkspaceWindowControllerTests: XCTestCase {
             controller.window?.styleMask.contains(.fullSizeContentView) == true
         )
         XCTAssertTrue(controller.window?.delegate === controller)
+        XCTAssertEqual(controller.window?.isOpaque, false)
+        XCTAssertEqual(controller.window?.backgroundColor, .clear)
+        let workspaceBackground = try XCTUnwrap(
+            controller.workspaceViewController.view as? NSVisualEffectView
+        )
+        XCTAssertEqual(workspaceBackground.material, .windowBackground)
+        XCTAssertEqual(workspaceBackground.blendingMode, .behindWindow)
         XCTAssertEqual(
-            controller.window?.backgroundColor,
-            ThemeColorAppKitBridge.nsColor(
-                fixture.environment.appearanceCenter.snapshot.theme
-                    .surface.windowBackground
-            )
+            workspaceBackground.state,
+            .followsWindowActiveState
         )
     }
 

@@ -268,8 +268,6 @@ final class CodeMinimapGlyphAtlas: @unchecked Sendable {
 
 @MainActor
 final class CodeMinimapRenderer {
-    static let maximumBackgroundOpacity: CGFloat = 0.5
-
     private var buffers: [NSImage?] = [nil, nil]
     private var frontBufferIndex = 0
     private(set) var generation = 0
@@ -322,10 +320,6 @@ final class CodeMinimapRenderer {
         NSGraphicsContext.current = surface.graphicsContext
         defer { NSGraphicsContext.restoreGraphicsState() }
 
-        theme.minimap.background.nsColor.withAlphaComponent(
-            min(Self.maximumBackgroundOpacity, CGFloat(theme.minimap.background.alpha))
-        ).setFill()
-        NSRect(origin: .zero, size: layout.bounds.size).fill()
         let atlas = CodeMinimapGlyphAtlas.shared
         var resolvedColors: [ThemeColor: NSColor] = [:]
 

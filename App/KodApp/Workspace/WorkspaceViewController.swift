@@ -64,8 +64,20 @@ private final class WorkspaceTitleOverlayView: NSView {
 }
 
 @MainActor
-private final class WorkspaceRootView: NSView {
+private final class WorkspaceRootView: NSVisualEffectView {
     var onEffectiveAppearanceChanged: (() -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        material = .windowBackground
+        blendingMode = .behindWindow
+        state = .followsWindowActiveState
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -681,7 +693,7 @@ final class WorkspaceViewController: NSViewController {
 
 
     override func loadView() {
-        let container = WorkspaceRootView()
+        let container = WorkspaceRootView(frame: .zero)
         container.onEffectiveAppearanceChanged = { [weak self] in
             self?.appearanceCenter.refresh()
         }

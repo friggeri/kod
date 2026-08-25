@@ -255,6 +255,12 @@ final class EditorGroupTabAccessibilityTests: XCTestCase {
 
         let tabBar = try XCTUnwrap(findView(identifier: "editorGroup.tabBar", in: controller.view))
         let tabRail = try XCTUnwrap(findView(identifier: "editorGroup.tabRail", in: controller.view))
+        let selectedTabBackground = try XCTUnwrap(
+            findView(
+                identifier: "tab.background.third.swift",
+                in: controller.view
+            ) as? NSVisualEffectView
+        )
         let tabCollection = try XCTUnwrap(
             findView(identifier: "editorGroup.tabCollection", in: controller.view) as? NSCollectionView
         )
@@ -264,6 +270,13 @@ final class EditorGroupTabAccessibilityTests: XCTestCase {
 
         XCTAssertEqual(totalTabWidth + 16, tabBar.bounds.width, accuracy: 2)
         XCTAssertEqual(tabRail.layer?.cornerRadius, 16)
+        XCTAssertGreaterThan(tabRail.layer?.backgroundColor?.alpha ?? 0, 0)
+        XCTAssertEqual(tabRail.layer?.borderWidth, 0)
+        XCTAssertFalse(selectedTabBackground.isHidden)
+        XCTAssertEqual(selectedTabBackground.material, .windowBackground)
+        XCTAssertEqual(selectedTabBackground.blendingMode, .behindWindow)
+        XCTAssertEqual(selectedTabBackground.layer?.borderWidth, 0)
+        XCTAssertGreaterThan(selectedTabBackground.layer?.shadowOpacity ?? 0, 0)
         XCTAssertEqual(tabRail.frame.minX, 8, accuracy: 0.5)
         XCTAssertEqual(tabRail.frame.maxX, tabBar.bounds.maxX - 8, accuracy: 0.5)
         XCTAssertNil(tabCollection.enclosingScrollView)

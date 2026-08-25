@@ -6,11 +6,47 @@ import SyntaxCore
 import ThemeCore
 
 @MainActor
+private final class CodeMinimapBackgroundView: NSView {
+    override var isOpaque: Bool {
+        false
+    }
+
+    override var wantsUpdateLayer: Bool {
+        true
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func updateLayer() {
+        let isDark = effectiveAppearance.bestMatch(
+            from: [.aqua, .darkAqua]
+        ) == .darkAqua
+        layer?.backgroundColor = NSColor.labelColor
+            .withAlphaComponent(isDark ? 0.06 : 0.035)
+            .cgColor
+    }
+}
+
+@MainActor
 public final class CodeDocumentViewController: NSViewController {
     public let snapshot: SourceSnapshot
     public let viewport: CodeViewport
 
     private let scrollView = NSScrollView()
+    private let minimapBackgroundView = CodeMinimapBackgroundView(frame: .zero)
     private lazy var minimapView = CodeMinimapView(viewport: viewport, scrollView: scrollView)
     private var minimapTrailingConstraint: NSLayoutConstraint?
     private var minimapWidthConstraint: NSLayoutConstraint?
@@ -207,6 +243,7 @@ public final class CodeDocumentViewController: NSViewController {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
         // Sticky headers are painted relative to the clip view's visible
         // origin, so every bounds change explicitly invalidates the viewport.
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -219,8 +256,14 @@ public final class CodeDocumentViewController: NSViewController {
         scrollView.documentView = viewport
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
+        minimapBackgroundView.identifier = NSUserInterfaceItemIdentifier(
+            "code.minimapBackground"
+        )
+        minimapBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+
         container.addSubview(headerStack)
         container.addSubview(scrollView)
+        container.addSubview(minimapBackgroundView)
         container.addSubview(minimapView)
         minimapView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -244,7 +287,19 @@ public final class CodeDocumentViewController: NSViewController {
             minimapView.topAnchor.constraint(equalTo: scrollView.topAnchor),
             minimapTrailing,
             minimapView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
-            minimapWidth
+            minimapWidth,
+            minimapBackgroundView.topAnchor.constraint(
+                equalTo: minimapView.topAnchor
+            ),
+            minimapBackgroundView.leadingAnchor.constraint(
+                equalTo: minimapView.leadingAnchor
+            ),
+            minimapBackgroundView.trailingAnchor.constraint(
+                equalTo: minimapView.trailingAnchor
+            ),
+            minimapBackgroundView.bottomAnchor.constraint(
+                equalTo: minimapView.bottomAnchor
+            )
         ])
 
         view = container
@@ -318,6 +373,7 @@ public final class CodeDocumentViewController: NSViewController {
             return
         }
         minimapView.isHidden = !minimapEnabled
+        minimapBackgroundView.isHidden = !minimapEnabled
         minimapWidthConstraint?.constant = minimapEnabled
             ? CodeMinimapLayout.recommendedWidth(
                 containerWidth: view.bounds.width,

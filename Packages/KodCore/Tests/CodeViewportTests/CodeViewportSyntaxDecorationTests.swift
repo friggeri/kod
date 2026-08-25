@@ -399,7 +399,7 @@ final class CodeViewportStickyHeaderTests: XCTestCase {
         withExtendedLifetime(window) {}
     }
 
-    func testStickyScopeUsesEditorBackground() async throws {
+    func testStickyScopeClearsUnderlyingRowsOnTransparentViewport() async throws {
         let source = "func outer() {\n    let first = 1\n    let second = 2\n    let third = 3\n}\n"
         let snapshot = SourceSnapshot(text: source, url: URL(fileURLWithPath: "/tmp/sample.swift"))
         var theme = BundledThemes.dark
@@ -450,15 +450,19 @@ final class CodeViewportStickyHeaderTests: XCTestCase {
         viewport.draw(visibleRect)
         NSGraphicsContext.restoreGraphicsState()
 
-        for y in [1, bitmap.pixelsHigh - 2] {
-            let color = try XCTUnwrap(
-                bitmap.colorAt(x: bitmap.pixelsWide - 2, y: y)?
-                    .usingColorSpace(.sRGB)
-            )
-            XCTAssertEqual(color.redComponent, 1, accuracy: 0.01)
-            XCTAssertEqual(color.greenComponent, 0, accuracy: 0.01)
-            XCTAssertEqual(color.blueComponent, 0, accuracy: 0.01)
-        }
+        let stickyBackground = try XCTUnwrap(
+            bitmap.colorAt(x: bitmap.pixelsWide - 2, y: 1)?
+                .usingColorSpace(.sRGB)
+        )
+        XCTAssertEqual(stickyBackground.alphaComponent, 0, accuracy: 0.01)
+
+        let viewportBackground = try XCTUnwrap(
+            bitmap.colorAt(
+                x: bitmap.pixelsWide - 2,
+                y: bitmap.pixelsHigh - 2
+            )?.usingColorSpace(.sRGB)
+        )
+        XCTAssertEqual(viewportBackground.alphaComponent, 0, accuracy: 0.01)
         withExtendedLifetime(window) {}
     }
 }

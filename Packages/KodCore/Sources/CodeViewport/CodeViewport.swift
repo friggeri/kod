@@ -201,6 +201,10 @@ public final class CodeViewport: NSView {
         true
     }
 
+    public override var isOpaque: Bool {
+        false
+    }
+
     public override var acceptsFirstResponder: Bool {
         true
     }
@@ -736,8 +740,7 @@ public final class CodeViewport: NSView {
     }
 
     public override func draw(_ dirtyRect: NSRect) {
-        theme.editor.background.nsColor.setFill()
-        dirtyRect.fill()
+        NSGraphicsContext.current?.cgContext.clear(dirtyRect)
 
         rebuildVisualMetricsIfNeeded()
         let metrics = currentMetrics
@@ -1813,8 +1816,14 @@ public final class CodeViewport: NSView {
             }
             let rowOriginY = top + (CGFloat(index) * lineHeight)
 
-            theme.editor.background.nsColor.setFill()
-            NSRect(x: 0, y: rowOriginY, width: max(bounds.width, visibleRect.width), height: lineHeight).fill()
+            context.clear(
+                NSRect(
+                    x: 0,
+                    y: rowOriginY,
+                    width: max(bounds.width, visibleRect.width),
+                    height: lineHeight
+                )
+            )
 
             let ctLine = CTLineCreateWithAttributedString(
                 attributedString(forSegment: text, utf8Range: lineRange)

@@ -104,6 +104,17 @@ final class CodeDocumentViewControllerTests: XCTestCase {
         XCTAssertTrue(controller.viewport.needsDisplay)
     }
 
+    func testSourceViewportLetsWindowMaterialShowThrough() throws {
+        let controller = makeController(text: "let value = 42\n")
+        let scrollView = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: NSScrollView.self)
+        )
+
+        XCTAssertFalse(controller.viewport.isOpaque)
+        XCTAssertFalse(scrollView.drawsBackground)
+        XCTAssertFalse(scrollView.contentView.drawsBackground)
+    }
+
     func testFindHighlightsFirstMatchAndNavigatesToNext() throws {
         let controller = makeController(text: "foo bar foo baz foo")
         controller.toggleFindBar()
@@ -244,6 +255,11 @@ final class CodeDocumentViewControllerTests: XCTestCase {
         let minimap = try XCTUnwrap(
             controller.view.firstDescendant(withIdentifier: "code.minimap")
         )
+        let minimapBackground = try XCTUnwrap(
+            controller.view.firstDescendant(
+                withIdentifier: "code.minimapBackground"
+            )
+        )
         let verticalScroller = try XCTUnwrap(scrollView.verticalScroller)
         let verticalScrollerFrame = controller.view.convert(
             verticalScroller.bounds,
@@ -251,6 +267,9 @@ final class CodeDocumentViewControllerTests: XCTestCase {
         )
 
         XCTAssertTrue(controller.isMinimapVisible)
+        XCTAssertFalse(minimapBackground is NSVisualEffectView)
+        XCTAssertFalse(minimapBackground.isOpaque)
+        XCTAssertEqual(minimapBackground.frame, minimap.frame)
         XCTAssertEqual(controller.reservedMinimapWidth, 0)
         XCTAssertEqual(scrollView.frame.maxX, controller.view.bounds.maxX, accuracy: 0.5)
         XCTAssertEqual(minimap.frame.maxX, verticalScrollerFrame.minX, accuracy: 0.5)

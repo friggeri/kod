@@ -119,7 +119,7 @@ private final class EditorTabContentView: NSStackView {
 }
 
 @MainActor
-private final class EditorTabBackgroundView: NSView {
+private final class EditorTabBackgroundView: NSVisualEffectView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
@@ -195,6 +195,9 @@ final class EditorTabCollectionItem: NSCollectionViewItem {
         visualView.autoresizingMask = [.width, .height]
 
         selectionBackgroundView.wantsLayer = true
+        selectionBackgroundView.material = .windowBackground
+        selectionBackgroundView.blendingMode = .behindWindow
+        selectionBackgroundView.state = .followsWindowActiveState
         selectionBackgroundView.layer?.cornerRadius = 13
         selectionBackgroundView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -343,6 +346,9 @@ final class EditorTabCollectionItem: NSCollectionViewItem {
         fileIconView.identifier = NSUserInterfaceItemIdentifier("tab.icon.\(tab.relativePath)")
         contentView.identifier = NSUserInterfaceItemIdentifier("tab.content.\(tab.relativePath)")
         visualView.identifier = NSUserInterfaceItemIdentifier("tab.visual.\(tab.relativePath)")
+        selectionBackgroundView.identifier = NSUserInterfaceItemIdentifier(
+            "tab.background.\(tab.relativePath)"
+        )
         trailingSeparator.identifier = NSUserInterfaceItemIdentifier("tab.separator.\(tab.relativePath)")
         pinButton.isHidden = tab.isPinned || !isHovered
         pinButton.identifier = NSUserInterfaceItemIdentifier("tab.pin.\(tab.relativePath)")
@@ -408,25 +414,27 @@ final class EditorTabCollectionItem: NSCollectionViewItem {
     private func applySelectionAppearance() {
         let selected = isSelected || configuredSelection
         if selected {
-            let isDark = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            let component: CGFloat = isDark ? 0.27 : 250 / 255
-            selectionBackgroundView.layer?.backgroundColor = NSColor(
-                srgbRed: component,
-                green: component,
-                blue: component,
-                alpha: 1
-            ).cgColor
+            let isDark = view.effectiveAppearance.bestMatch(
+                from: [.aqua, .darkAqua]
+            ) == .darkAqua
+            selectionBackgroundView.isHidden = false
+            selectionBackgroundView.alphaValue = 1
+            selectionBackgroundView.layer?.backgroundColor = NSColor.clear.cgColor
+            selectionBackgroundView.layer?.borderWidth = 0
             selectionBackgroundView.layer?.shadowColor = NSColor.shadowColor.cgColor
-            selectionBackgroundView.layer?.shadowOpacity = isBeingDragged ? 0.24 : 0.12
-            selectionBackgroundView.layer?.shadowRadius = isBeingDragged ? 4 : 1
+            selectionBackgroundView.layer?.shadowOpacity = isBeingDragged
+                ? 0.32
+                : (isDark ? 0.28 : 0.16)
+            selectionBackgroundView.layer?.shadowRadius = isBeingDragged ? 5 : 3
             selectionBackgroundView.layer?.shadowOffset = NSSize(
                 width: 0,
-                height: isBeingDragged ? -1 : -0.5
+                height: -1
             )
         } else {
-            selectionBackgroundView.layer?.backgroundColor = isHovered
-                ? NSColor.labelColor.withAlphaComponent(0.06).cgColor
-                : NSColor.clear.cgColor
+            selectionBackgroundView.isHidden = !isHovered
+            selectionBackgroundView.alphaValue = isHovered ? 0.35 : 1
+            selectionBackgroundView.layer?.backgroundColor = NSColor.clear.cgColor
+            selectionBackgroundView.layer?.borderWidth = 0
             selectionBackgroundView.layer?.shadowOpacity = 0
         }
         trailingSeparator.isHidden = selected
