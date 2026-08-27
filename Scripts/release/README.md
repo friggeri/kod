@@ -59,12 +59,15 @@ The protected `release` environment must define these secrets:
 - `DEVELOPER_ID_P12_BASE64`
 - `DEVELOPER_ID_P12_PASSWORD`
 - `DEVELOPER_ID_APPLICATION_IDENTITY`
-- `APPLE_TEAM_ID`
 - `APP_STORE_CONNECT_PRIVATE_KEY`
+- `SPARKLE_PRIVATE_KEY`
+
+These non-secret Actions variables may be repository- or environment-scoped:
+
+- `APPLE_TEAM_ID`
 - `APP_STORE_CONNECT_KEY_ID`
 - `APP_STORE_CONNECT_ISSUER_ID`
 - `SPARKLE_PUBLIC_ED_KEY`
-- `SPARKLE_PRIVATE_KEY`
 
 Generate the Sparkle key with Sparkle's official `generate_keys` tool. Retain
 an offline backup of the private key. Once generated, replace

@@ -202,10 +202,10 @@ jobs:
       - name: Build signed and notarized binaries
         env:
           KOD_CODE_SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_IDENTITY }}
-          KOD_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
-          KOD_NOTARIZATION_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          KOD_NOTARIZATION_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+          KOD_DEVELOPMENT_TEAM: ${{ vars.APPLE_TEAM_ID }}
+          KOD_NOTARIZATION_API_KEY_ID: ${{ vars.APP_STORE_CONNECT_KEY_ID }}
+          KOD_NOTARIZATION_API_ISSUER_ID: ${{ vars.APP_STORE_CONNECT_ISSUER_ID }}
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
         run: |
           set -euo pipefail
           : "${KOD_CODE_SIGN_IDENTITY:?DEVELOPER_ID_APPLICATION_IDENTITY is empty}"
