@@ -153,6 +153,13 @@ final class MarkdownPreviewViewControllerTests: XCTestCase {
         )
     }
 
+    func testMarkdownSurfaceLetsWindowChromeShowThrough() async {
+        let controller = await makeController(markdown: "Body", isWorkspaceTrusted: true)
+
+        XCTAssertFalse(controller.markdownDrawsBackground)
+        XCTAssertFalse(controller.scrollViewDrawsBackground)
+    }
+
     func testPlainDocumentCollapsesStatusBannerAndHasNoOuterTopGap() async {
         let controller = await makeController(markdown: "Body", isWorkspaceTrusted: true)
         let window = NSWindow(

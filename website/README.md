@@ -14,8 +14,8 @@ copies the app icon from the Xcode asset catalog, and injects direct download
 links from a published release:
 
 ```sh
-KOD_ARM64_DOWNLOAD_URL='https://github.com/friggeri/kod/releases/download/v0.1.0/Kod-0.1.0-arm64.dmg' \
-KOD_RELEASE_TAG='v0.1.0' \
+KOD_ARM64_DOWNLOAD_URL='https://github.com/friggeri/kod/releases/download/v0.1.1/Kod-0.1.1-arm64.dmg' \
+KOD_RELEASE_TAG='v0.1.1' \
 Scripts/build-website
 ```
 

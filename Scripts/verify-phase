@@ -216,9 +216,8 @@ KOD_RUN_PERFORMANCE_SUITE="${KOD_RUN_PERFORMANCE_SUITE:-0}" swift test \
 # `CodeViewportAccessibilityTests`/`DiagnosticsCoreTests` (package-level)
 # KodUI's headless tab/controller tests, and the remaining App-shell
 # view-controller/view-model tests below — a real VoiceOver session is
-# deliberately never launched by this script;
-# see `docs/manual-voiceover-checklist.md` for the manual release check
-# that covers what only a human running VoiceOver can verify.
+# deliberately never launched by this script and remains a manual release
+# confirmation.
 printf '%s\n' "==> Testing Kod app logic (headless; UI automation is never launched)"
 KOD_DISABLE_UPDATER=1 xcodebuild \
     -project "$repository_root/Kod.xcodeproj" \

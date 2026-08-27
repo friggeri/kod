@@ -135,18 +135,12 @@ final class MarkdownPreviewViewController: NSViewController {
         textView.isEditable = false
         textView.isSelectable = true
         textView.identifier = NSUserInterfaceItemIdentifier("markdownPreview.textView")
-        textView.drawsBackground = true
-        textView.backgroundColor = ThemeColorAppKitBridge.nsColor(
-            theme.editor.background
-        )
+        textView.drawsBackground = false
         textView.delegate = self
         textView.textContainerInset = NSSize(width: 24, height: 24)
 
         scrollView.hasVerticalScroller = true
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = ThemeColorAppKitBridge.nsColor(
-            theme.editor.background
-        )
+        scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         configureReadOnlyScrollingTextView(textView, in: scrollView, wrapsLines: true)
 
@@ -391,6 +385,8 @@ extension MarkdownPreviewViewController {
     var statusBannerIsVisible: Bool { !statusBanner.isHidden }
     var previewTopGap: CGFloat { view.bounds.maxY - scrollView.frame.maxY }
     var previewScrollViewFrame: NSRect { scrollView.frame }
+    var markdownDrawsBackground: Bool { textView.drawsBackground }
+    var scrollViewDrawsBackground: Bool { scrollView.drawsBackground }
     var remoteImagesButtonIsEnabled: Bool { remoteImagesButton.isEnabled }
     var remoteImagesButtonIsHidden: Bool { remoteImagesButton.isHidden }
     var usesMarkdownLayoutManager: Bool { textView.layoutManager is MarkdownPreviewLayoutManager }

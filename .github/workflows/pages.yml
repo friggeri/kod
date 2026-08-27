@@ -81,8 +81,8 @@ jobs:
             export KOD_ARM64_DOWNLOAD_URL="$RELEASE_ARM64_URL"
             export KOD_RELEASE_TAG="$RELEASE_TAG"
           else
-            export KOD_ARM64_DOWNLOAD_URL="https://github.com/friggeri/kod/releases/download/v0.1.0/Kod-0.1.0-arm64.dmg"
-            export KOD_RELEASE_TAG="v0.1.0"
+            export KOD_ARM64_DOWNLOAD_URL="https://github.com/friggeri/kod/releases/download/v0.1.1/Kod-0.1.1-arm64.dmg"
+            export KOD_RELEASE_TAG="v0.1.1"
           fi
 
           Scripts/build-website

@@ -61,7 +61,7 @@ public actor LanguageServerConnection {
             environment: [String: String]? = nil,
             rootURL: URL,
             clientName: String = "Kod",
-            clientVersion: String = "0.1.0",
+            clientVersion: String = "0.1.1",
             requestTimeout: TimeInterval = 10,
             shutdownTimeout: TimeInterval = 3,
             restartBudget: RestartBudget = RestartBudget(),

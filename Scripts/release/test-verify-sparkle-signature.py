@@ -23,7 +23,7 @@ SIGNATURE = bytes.fromhex(
     "5fb8821590a33bacc61e39701cf9b46b"
     "d25bf5f0595bbe24655141438e7a100b"
 )
-URL = "https://github.com/friggeri/kod/releases/download/v0.1.0/Kod-0.1.0-arm64.zip"
+URL = "https://github.com/friggeri/kod/releases/download/v0.1.1/Kod-0.1.1-arm64.zip"
 
 
 def write_appcast(root: Path, archive: Path, signature: bytes, url: str = URL) -> Path:
@@ -49,7 +49,7 @@ class SparkleSignatureTests(unittest.TestCase):
     def test_verifies_the_exact_appcast_enclosure(self) -> None:
         with tempfile.TemporaryDirectory(dir=REPO_ROOT / "Scripts" / "release") as temporary_dir:
             root = Path(temporary_dir)
-            archive = root / "Kod-0.1.0-arm64.zip"
+            archive = root / "Kod-0.1.1-arm64.zip"
             archive.write_bytes(b"")
             appcast = write_appcast(root, archive, SIGNATURE)
             VERIFIER.verify_appcast(PUBLIC_KEY, appcast, archive, URL)
@@ -57,7 +57,7 @@ class SparkleSignatureTests(unittest.TestCase):
     def test_rejects_tampered_archive_bytes(self) -> None:
         with tempfile.TemporaryDirectory(dir=REPO_ROOT / "Scripts" / "release") as temporary_dir:
             root = Path(temporary_dir)
-            archive = root / "Kod-0.1.0-arm64.zip"
+            archive = root / "Kod-0.1.1-arm64.zip"
             archive.write_bytes(b"tampered")
             appcast = write_appcast(root, archive, SIGNATURE)
             with self.assertRaises(VERIFIER.VerificationError):
@@ -66,7 +66,7 @@ class SparkleSignatureTests(unittest.TestCase):
     def test_rejects_mismatched_enclosure_signature(self) -> None:
         with tempfile.TemporaryDirectory(dir=REPO_ROOT / "Scripts" / "release") as temporary_dir:
             root = Path(temporary_dir)
-            archive = root / "Kod-0.1.0-arm64.zip"
+            archive = root / "Kod-0.1.1-arm64.zip"
             archive.write_bytes(b"")
             altered_signature = bytearray(SIGNATURE)
             altered_signature[0] ^= 1

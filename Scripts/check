@@ -89,8 +89,8 @@ root = ARGV.fetch(0)
 Dir["#{root}/.github/workflows/*.yml"].each { |path| YAML.load_file(path) }
 RUBY
         "$repository_root/Scripts/audit-release-blockers/run.sh"
-        KOD_ARM64_DOWNLOAD_URL="https://github.com/friggeri/kod/releases/download/v0.1.0/Kod-0.1.0-arm64.dmg" \
-            KOD_RELEASE_TAG="v0.1.0" \
+        KOD_ARM64_DOWNLOAD_URL="https://github.com/friggeri/kod/releases/download/v0.1.1/Kod-0.1.1-arm64.dmg" \
+            KOD_RELEASE_TAG="v0.1.1" \
             "$repository_root/Scripts/build-website"
         "$repository_root/Scripts/verify-website"
         ;;

@@ -9,7 +9,7 @@
         "processId": 56561,
         "clientInfo": {
           "name": "Kod",
-          "version": "0.1.0"
+          "version": "0.1.1"
         },
         "rootUri": "file://<FIXTURE_ROOT>",
         "capabilities": {

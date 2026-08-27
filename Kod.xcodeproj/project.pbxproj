@@ -524,7 +524,7 @@
 				CODE_SIGN_ENTITLEMENTS = App/KodApp/Configuration/Kod.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				EXTRACT_APP_INTENTS_METADATA = NO;
@@ -534,7 +534,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kodapp.Kod;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SPARKLE_PUBLIC_ED_KEY = "QPc9/PCKjkwBSStH1DrppI657aOAUc6UVUaYrIVQsec=";
@@ -553,7 +553,7 @@
 				CODE_SIGN_ENTITLEMENTS = App/KodApp/Configuration/Kod.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				EXTRACT_APP_INTENTS_METADATA = NO;
@@ -563,7 +563,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kodapp.Kod;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SPARKLE_PUBLIC_ED_KEY = "QPc9/PCKjkwBSStH1DrppI657aOAUc6UVUaYrIVQsec=";

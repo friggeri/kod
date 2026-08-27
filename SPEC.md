@@ -1,10 +1,10 @@
 # Kod Product and Technical Specification
 
-**Status:** v0.1.0 release specification
+**Status:** v0.1.1 release specification
 **Target:** Kod v0.1.x
 **Platform:** macOS 14 Sonoma and later on Apple Silicon
 **Architecture priority:** Apple silicon only
-**Last updated:** 2026-08-06
+**Last updated:** 2026-08-27
 
 ## 1. Product definition
 
@@ -649,7 +649,7 @@ Trust is recorded against canonical path and volume identity, is visible in the 
 - Kod Light and Kod Dark meet WCAG AA for normal text.
 - Reduce Motion, Increase Contrast, Differentiate Without Color, and system accent behavior are respected.
 - No status is communicated by color alone; the status bar uses monochrome foregrounds.
-- User-facing strings are localized through string catalogs from the first release, even if v0.1.0 initially ships in English.
+- User-facing strings are localized through string catalogs from the first release, even if v0.1.1 initially ships in English.
 
 ## 15. Reliability and error behavior
 
@@ -678,9 +678,9 @@ Trust is recorded against canonical path and volume identity, is visible in the 
   memory, security, and packaging gates.
 - Filesystem tests that snapshot a fixture repository before and after Kod workflows and require byte-for-byte repository equality.
 
-### 16.2 v0.1.0 acceptance criteria
+### 16.2 v0.1.1 acceptance criteria
 
-Kod v0.1.0 is releasable only when all of the following are true:
+Kod v0.1.1 is releasable only when all of the following are true:
 
 1. A 100,000-file reference repository opens within the stated time and memory budgets.
 2. A 10 MB source file paints, scrolls, searches, selects, copies, and navigates without blocking the main thread or crashing.

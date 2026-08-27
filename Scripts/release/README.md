@@ -86,9 +86,9 @@ well as configuring the release environment.
 The workflow runs `package-release.sh`, then `sign-appcast.sh`, then
 `finalize-release.sh`. Together they produce:
 
-- `Kod-0.1.0-arm64.dmg`
-- `Kod-0.1.0-arm64.zip`
-- `Kod-0.1.0-licenses.zip`
+- `Kod-0.1.1-arm64.dmg`
+- `Kod-0.1.1-arm64.zip`
+- `Kod-0.1.1-licenses.zip`
 - `appcast.xml`
 - `SHA256SUMS.txt`
 - `sbom.cdx.json`
@@ -103,4 +103,4 @@ attestations for every distributable archive against that commit and
 `.github/workflows/release.yml`; draft checksums are supplementary rather than
 the trust root.
 
-Homebrew and Intel builds are not supported for v0.1.0.
+Homebrew and Intel builds are not supported for v0.1.1.

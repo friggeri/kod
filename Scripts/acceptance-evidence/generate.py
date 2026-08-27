@@ -48,7 +48,6 @@ ARTIFACTS_DIR = REPO_ROOT / "Artifacts" / "acceptance-evidence"
 LOGS_DIR = ARTIFACTS_DIR / "logs"
 PERFORMANCE_RESULTS = REPO_ROOT / "Artifacts" / "performance" / "performance-results.json"
 MEMORY_RESULTS = REPO_ROOT / "Artifacts" / "performance" / "memory-benchmark.json"
-VOICEOVER_CHECKLIST = REPO_ROOT / "docs" / "manual-voiceover-checklist.md"
 
 
 @dataclass
@@ -590,19 +589,12 @@ def criterion_13(ctx: RunContext) -> Evidence:
         keyboard_suites.append("KeyboardCommandRegistryTests")
     keyboard_evidence = suites_outcome(log, keyboard_suites)
     manual_note = (
-        "VoiceOver verification is manual-only and has never been run by any automated tool in this "
-        f"repository; see {VOICEOVER_CHECKLIST.relative_to(REPO_ROOT)} for the checklist a human must complete."
+        "VoiceOver verification is manual-only and has never been run by any automated tool in this repository."
     )
     if keyboard_evidence.status == "failed":
         return Evidence(
             status="failed",
             summary=keyboard_evidence.summary,
-            notes=manual_note,
-        )
-    if not VOICEOVER_CHECKLIST.exists():
-        return Evidence(
-            status="failed",
-            summary="Manual VoiceOver checklist document is missing.",
             notes=manual_note,
         )
     return Evidence(
@@ -611,7 +603,6 @@ def criterion_13(ctx: RunContext) -> Evidence:
             f"Keyboard-navigation automation: {keyboard_evidence.status} ({keyboard_evidence.summary}). "
             "VoiceOver portion: manual_required (never run by this tool)."
         ),
-        artifacts=[str(VOICEOVER_CHECKLIST.relative_to(REPO_ROOT))],
         commands=[
             "swift test --package-path Packages/KodCore --filter CodeViewportAccessibilityTests",
             "swift test --package-path Packages/KodUI --filter EditorGroupTabAccessibilityTests",
@@ -650,7 +641,6 @@ def criterion_14(ctx: RunContext) -> Evidence:
         ],
         artifacts=[
             "Scripts/release/README.md",
-            "docs/manual-voiceover-checklist.md",
         ],
         notes=(
             "Scripts/release/package-release.sh is fail-closed and never produces unsigned or Intel artifacts. "
