@@ -162,7 +162,7 @@ class RunContext:
                 "swift",
                 "test",
                 "--filter",
-                "TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests",
+                "TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests|PreviewCoreLatencyTests",
                 "-Xswiftc",
                 "-warnings-as-errors",
             ],
@@ -376,6 +376,7 @@ def criterion_2(ctx: RunContext) -> Evidence:
         [
             "TenMegabyteParseBenchmarkTests",
             "TenMegabyteRepaintBenchmarkTests",
+            "PreviewCoreLatencyTests",
         ],
     )
     viewport_evidence = suites_outcome(
@@ -387,7 +388,8 @@ def criterion_2(ctx: RunContext) -> Evidence:
             status="passed",
             summary=(
                 "All mapped suites passed: TenMegabyteParseBenchmarkTests, "
-                "TenMegabyteRepaintBenchmarkTests, CodeDocumentViewControllerTests"
+                "TenMegabyteRepaintBenchmarkTests, PreviewCoreLatencyTests, "
+                "CodeDocumentViewControllerTests"
             ),
         )
     else:
@@ -406,7 +408,11 @@ def criterion_2(ctx: RunContext) -> Evidence:
             evidence.notes += f" 10MB first-layout p95={ten_mb['p95Milliseconds']:.1f}ms (budget {ten_mb['budgetMilliseconds']}ms)."
             if not ten_mb["passed"]:
                 evidence.status = "failed"
-    evidence.commands.append('swift test --filter "TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests|CodeDocumentViewControllerTests"')
+    evidence.commands.append(
+        'swift test --filter "TenMegabyteParseBenchmarkTests|'
+        'TenMegabyteRepaintBenchmarkTests|PreviewCoreLatencyTests|'
+        'CodeDocumentViewControllerTests"'
+    )
     return evidence
 
 

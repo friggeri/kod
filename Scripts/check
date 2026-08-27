@@ -70,10 +70,19 @@ for path in (root / "App").rglob("*.xcstrings"):
 for path in (root / "Packages/KodUI").rglob("*.xcstrings"):
     json.loads(path.read_text())
 PY
-        plutil -lint \
-            "$repository_root/App/KodApp/Configuration/Info.plist" \
-            "$repository_root/App/KodApp/Configuration/Kod.entitlements" \
-            >/dev/null
+        python3 - "$repository_root" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+for path in (
+    root / "App/KodApp/Configuration/Info.plist",
+    root / "App/KodApp/Configuration/Kod.entitlements",
+):
+    with path.open("rb") as handle:
+        plistlib.load(handle)
+PY
         ruby - "$repository_root" <<'RUBY'
 require "yaml"
 root = ARGV.fetch(0)
@@ -93,7 +102,7 @@ RUBY
             KOD_RUN_SCALE_TESTS=0 \
             swift test \
             --package-path "$repository_root/Packages/KodCore" \
-            --filter 'TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests' \
+            --filter 'TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests|PreviewCoreLatencyTests' \
             -Xswiftc -warnings-as-errors \
             --quiet
         ;;

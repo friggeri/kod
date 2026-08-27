@@ -11,7 +11,6 @@ Thank you for your interest in contributing to Kod!
    ```sh
    Scripts/check core
    Scripts/check language
-   Scripts/check large-file
    Scripts/check ui
    Scripts/check app
    Scripts/check ui-1
@@ -20,6 +19,10 @@ Thank you for your interest in contributing to Kod!
 
 4. Run `Scripts/verify` before release-sensitive changes. It is the complete,
    deliberately slower release-qualification gate.
+
+Large-file performance checks are release-only by default. Run
+`Scripts/check large-file` explicitly when changing parsing, rendering, or
+preview algorithms.
 
 ## Guidelines
 

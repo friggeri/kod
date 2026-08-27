@@ -11,6 +11,17 @@ import XCTest
 /// pathological emphasis run went from milliseconds to over ten seconds)
 /// before it reaches users, not to track fine-grained performance.
 final class PreviewCoreLatencyTests: XCTestCase {
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        guard ProcessInfo.processInfo.environment[
+            "KOD_RUN_LARGE_FILE_BENCHMARKS"
+        ] == "1" else {
+            throw XCTSkip(
+                "Set KOD_RUN_LARGE_FILE_BENCHMARKS=1 to run 10 MB benchmarks."
+            )
+        }
+    }
+
     func testMarkdownAtMaximumDocumentedSizeParsesAndRendersWithinBudget() async throws {
         let limits = MarkdownLimits.default
         // Build a realistic-shaped (not pathological) document right at

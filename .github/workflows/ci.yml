@@ -19,7 +19,7 @@ env:
 jobs:
   static:
     name: Static checks
-    runs-on: macos-26
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
@@ -32,6 +32,7 @@ jobs:
 
   core:
     name: KodCore tests
+    needs: static
     runs-on: macos-26
     permissions:
       contents: read
@@ -47,6 +48,7 @@ jobs:
 
   language:
     name: Language integration tests
+    needs: static
     runs-on: macos-26
     permissions:
       contents: read
@@ -64,23 +66,9 @@ jobs:
       - name: Run language integration tests
         run: Scripts/check language
 
-  large-file:
-    name: Large-file benchmarks
-    runs-on: macos-26
-    permissions:
-      contents: read
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Verify pinned toolchain
-        run: test "$(xcodebuild -version | sed -n '1p')" = "Xcode 26.5"
-      - name: Run isolated 10 MB benchmarks
-        run: Scripts/check large-file
-
   ui-package:
     name: KodUI tests
+    needs: static
     runs-on: macos-26
     permissions:
       contents: read
@@ -96,6 +84,7 @@ jobs:
 
   app:
     name: App logic tests
+    needs: static
     runs-on: macos-26
     permissions:
       contents: read
@@ -111,6 +100,12 @@ jobs:
 
   release-build:
     name: Release build
+    needs:
+      - core
+      - language
+      - ui-package
+      - app
+      - ui
     runs-on: macos-26
     permissions:
       contents: read
@@ -126,6 +121,7 @@ jobs:
 
   ui:
     name: UI tests (${{ matrix.shard }}/2)
+    needs: static
     runs-on: macos-26
     permissions:
       contents: read
