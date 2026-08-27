@@ -6,7 +6,20 @@ Thank you for your interest in contributing to Kod!
 
 1. Ensure you are on an Apple Silicon Mac running macOS 14+ with Xcode 26.5.
 2. Open `Kod.xcodeproj` and build the `Kod` scheme.
-3. Run `Scripts/verify` to run the cumulative test gate.
+3. Run the smallest matching CI surface while iterating:
+
+   ```sh
+   Scripts/check core
+   Scripts/check language
+   Scripts/check large-file
+   Scripts/check ui
+   Scripts/check app
+   Scripts/check ui-1
+   Scripts/check ui-2
+   ```
+
+4. Run `Scripts/verify` before release-sensitive changes. It is the complete,
+   deliberately slower release-qualification gate.
 
 ## Guidelines
 

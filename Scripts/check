@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+surface=${1:-}
+architecture=$(uname -m)
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: Scripts/check static|core|language|large-file|ui|app|release-build|ui-1|ui-2
+
+Each surface matches one GitHub Actions job so failures can be reproduced
+without rerunning the complete release qualification.
+EOF
+    exit 64
+}
+
+require_apple_silicon() {
+    if [[ "$architecture" != "arm64" ]]; then
+        printf '%s\n' "Kod checks require Apple Silicon; found $architecture." >&2
+        exit 1
+    fi
+}
+
+configure_swiftpm() {
+    git config --global safe.bareRepository all
+}
+
+run_xcode() {
+    local derived_data=$1
+    shift
+    KOD_DISABLE_UPDATER=1 xcodebuild \
+        -project "$repository_root/Kod.xcodeproj" \
+        -scheme Kod \
+        -destination "platform=macOS,arch=arm64" \
+        -derivedDataPath "$repository_root/DerivedData/$derived_data" \
+        SWIFT_ENABLE_EXPLICIT_MODULES=NO \
+        "$@" \
+        -quiet
+}
+
+case "$surface" in
+    static)
+        bash -n \
+            "$repository_root/Scripts/check" \
+            "$repository_root/Scripts/verify" \
+            "$repository_root/Scripts/verify-phase" \
+            "$repository_root/Scripts/acceptance-evidence/run.sh" \
+            "$repository_root/Scripts/vendor-ripgrep/vendor.sh" \
+            "$repository_root/Scripts/vendor-test-language-servers/setup.sh" \
+            "$repository_root"/Scripts/release/*.sh
+        python3 -m py_compile \
+            "$repository_root/Scripts/acceptance-evidence/generate.py" \
+            "$repository_root"/Scripts/release/*.py
+        python3 - "$repository_root" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+for path in (
+    root / "Scripts/vendor-ripgrep/manifest.json",
+    root / "Scripts/vendor-test-language-servers/manifest.json",
+    root / "Kod.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+):
+    json.loads(path.read_text())
+for path in (root / "App").rglob("*.xcstrings"):
+    json.loads(path.read_text())
+for path in (root / "Packages/KodUI").rglob("*.xcstrings"):
+    json.loads(path.read_text())
+PY
+        plutil -lint \
+            "$repository_root/App/KodApp/Configuration/Info.plist" \
+            "$repository_root/App/KodApp/Configuration/Kod.entitlements" \
+            >/dev/null
+        ruby - "$repository_root" <<'RUBY'
+require "yaml"
+root = ARGV.fetch(0)
+Dir["#{root}/.github/workflows/*.yml"].each { |path| YAML.load_file(path) }
+RUBY
+        "$repository_root/Scripts/audit-release-blockers/run.sh"
+        KOD_ARM64_DOWNLOAD_URL="https://github.com/friggeri/kod/releases/download/v0.1.0/Kod-0.1.0-arm64.dmg" \
+            KOD_RELEASE_TAG="v0.1.0" \
+            "$repository_root/Scripts/build-website"
+        "$repository_root/Scripts/verify-website"
+        ;;
+    large-file)
+        require_apple_silicon
+        configure_swiftpm
+        KOD_RUN_LARGE_FILE_BENCHMARKS=1 \
+            KOD_RUN_PERFORMANCE_SUITE=0 \
+            KOD_RUN_SCALE_TESTS=0 \
+            swift test \
+            --package-path "$repository_root/Packages/KodCore" \
+            --filter 'TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests' \
+            -Xswiftc -warnings-as-errors \
+            --quiet
+        ;;
+    core)
+        require_apple_silicon
+        configure_swiftpm
+        KOD_RUN_PERFORMANCE_SUITE=0 \
+            KOD_RUN_SCALE_TESTS=0 \
+            KOD_RUN_LARGE_FILE_BENCHMARKS=0 \
+            swift test \
+            --package-path "$repository_root/Packages/KodCore" \
+            --skip 'LanguageClientTests|LanguageAdaptersTests' \
+            -Xswiftc -warnings-as-errors \
+            --quiet
+        ;;
+    language)
+        require_apple_silicon
+        configure_swiftpm
+        KOD_RUN_PERFORMANCE_SUITE=0 \
+            KOD_RUN_SCALE_TESTS=0 \
+            KOD_RUN_LARGE_FILE_BENCHMARKS=0 \
+            swift test \
+            --package-path "$repository_root/Packages/KodCore" \
+            --filter 'LanguageClientTests|LanguageAdaptersTests' \
+            -Xswiftc -warnings-as-errors \
+            --quiet
+        ;;
+    ui)
+        require_apple_silicon
+        configure_swiftpm
+        swift test \
+            --package-path "$repository_root/Packages/KodUI" \
+            -Xswiftc -warnings-as-errors \
+            --quiet
+        ;;
+    app)
+        require_apple_silicon
+        configure_swiftpm
+        run_xcode CIApp \
+            -configuration Debug \
+            -only-testing:KodAppTests \
+            test
+        ;;
+    release-build)
+        require_apple_silicon
+        configure_swiftpm
+        run_xcode CIRelease \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+        ;;
+    ui-1)
+        require_apple_silicon
+        configure_swiftpm
+        run_xcode CIUI1 \
+            -configuration Debug \
+            -only-testing:KodAppUITests/KodAppUITests/testWelcomeWindowLaunchesWithVisibleCommands \
+            -only-testing:KodAppUITests/KodAppUITests/testSettingsSidebarNavigatesBetweenFontAndLanguages \
+            -only-testing:KodAppUITests/KodAppUITests/testLanguageSidebarShowsStatusAndSelectionWithoutSearch \
+            -only-testing:KodAppUITests/KodAppUITests/testLanguageDetailContainsOnlyServerConfiguration \
+            -only-testing:KodAppUITests/KodAppUITests/testOpeningAndTypingNeverChangesSourceFile \
+            -only-testing:KodAppUITests/KodAppUITests/testWorkspaceQuickOpenAndTrustNeverChangeFiles \
+            test
+        ;;
+    ui-2)
+        require_apple_silicon
+        configure_swiftpm
+        run_xcode CIUI2 \
+            -configuration Debug \
+            -only-testing:KodAppUITests/KodAppUITests/testExplorerClicksOpenPersistentTabs \
+            -only-testing:KodAppUITests/KodAppUITests/testSplitPaneControlsRemainClickableAndCanUnsplit \
+            -only-testing:KodAppUITests/KodAppUITests/testTabDragReordersFromTheTitleAcrossTheRail \
+            -only-testing:KodAppUITests/KodAppUITests/testTabDragMovesBetweenPanesAndEmptyPanesCollapse \
+            -only-testing:KodAppUITests/KodAppUITests/testWorkspaceWindowChromeAndSidebarToggle \
+            -only-testing:KodAppUITests/KodAppUITests/testOpenFindSplitNavigateAndRelaunchPreservesLayoutWithoutMutatingFixtures \
+            test
+        ;;
+    *)
+        usage
+        ;;
+esac

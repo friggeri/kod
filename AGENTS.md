@@ -5,8 +5,10 @@ Automated tools and AI agents must follow these invariants when working on the K
 1. **Read-Only App**: Kod is a strictly read-only macOS application. Agents
    must never introduce code that edits, compiles, executes, or deletes
    workspace files.
-2. **Build/Test**: Use `Scripts/verify` to run the cumulative test suite. Do
-   not introduce new test runners.
+2. **Build/Test**: During iteration, run the smallest matching
+   `Scripts/check <surface>` command; each surface maps one-to-one to a CI job
+   and fails independently. Use `Scripts/verify` only for complete
+   release-qualification. Do not introduce new test runners.
 3. **Dependencies**: Do not add remote package dependencies. Sparkle 2.9.6 is
    the sole approved exception and must stay exactly pinned.
 4. **Platform**: Kod is for Apple Silicon and macOS 14+ only. Do not add Intel/x86_64 specific code or fallbacks.
