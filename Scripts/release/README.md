@@ -4,8 +4,9 @@ Kod v0.1.x is distributed as a Developer-ID-signed and notarized Apple
 Silicon DMG. Sparkle uses a separately published ZIP and signed appcast from
 the same GitHub Release.
 
-Production releases run only through the protected manual GitHub Actions
-workflow. It resolves dependencies, runs every qualification test, and
+Pushing an annotated `v*` tag automatically starts the protected draft-build
+workflow; `workflow_dispatch` remains available for retries against that exact
+tag. The workflow resolves dependencies, runs every qualification test, and
 downloads/checksums Sparkle and CycloneDX tools before importing Developer ID
 credentials or writing any notarization key. `package-release.sh` is
 intentionally fail-closed: `preflight.sh` requires the exact annotated
