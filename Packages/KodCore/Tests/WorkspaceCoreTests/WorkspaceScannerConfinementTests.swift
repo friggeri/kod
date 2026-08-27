@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import WorkspaceCore
 import XCTest
@@ -245,17 +246,15 @@ final class WorkspaceScannerConfinementTests: XCTestCase {
 
         let scanner = WorkspaceScanner()
         try await exercise(scanner, root: root, missing: missing)
-        let baseline = openDescriptorCount()
+        try await assertNoOpenDescriptors(under: root)
 
-        for _ in 0..<10 {
+        for iteration in 0..<10 {
             try await exercise(scanner, root: root, missing: missing)
+            try await assertNoOpenDescriptors(
+                under: root,
+                context: "iteration \(iteration)"
+            )
         }
-
-        XCTAssertEqual(
-            openDescriptorCount(),
-            baseline,
-            "scans, expansions, failures and cancellation must all release their descriptors"
-        )
     }
 
     /// One round of everything that opens a descriptor: a full scan, an
@@ -283,14 +282,56 @@ final class WorkspaceScannerConfinementTests: XCTestCase {
         )
     }
 
-    /// Counts the descriptors this process holds without opening one.
-    private func openDescriptorCount() -> Int {
-        var count = 0
+    /// Returns only descriptors whose kernel-resolved path is the fixture
+    /// root or one of its descendants. XCTest and system frameworks may open
+    /// unrelated descriptors concurrently, so a process-wide count is not a
+    /// stable leak assertion.
+    private func openDescriptorPaths(under root: URL) -> [String] {
+        let rootPath = root.path
+        let prefix = rootPath + "/"
+        var paths: [String] = []
         for descriptor in 0..<Int32(min(getdtablesize(), 4_096))
         where fcntl(descriptor, F_GETFD) != -1 {
-            count += 1
+            var info = vnode_fdinfowithpath()
+            let result = withUnsafeMutablePointer(to: &info) {
+                proc_pidfdinfo(
+                    getpid(),
+                    descriptor,
+                    PROC_PIDFDVNODEPATHINFO,
+                    $0,
+                    Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+                )
+            }
+            guard result == MemoryLayout<vnode_fdinfowithpath>.size else {
+                continue
+            }
+            let path = withUnsafeBytes(of: info.pvip.vip_path) { bytes in
+                String(
+                    decoding: bytes.prefix { $0 != 0 },
+                    as: UTF8.self
+                )
+            }
+            if path == rootPath || path.hasPrefix(prefix) {
+                paths.append(path)
+            }
         }
-        return count
+        return paths.sorted()
+    }
+
+    private func assertNoOpenDescriptors(
+        under root: URL,
+        context: String = "warm-up"
+    ) async throws {
+        for _ in 0..<100 {
+            if openDescriptorPaths(under: root).isEmpty {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail(
+            "scanner-owned descriptors remain after \(context): "
+                + openDescriptorPaths(under: root).joined(separator: ", ")
+        )
     }
 
     // MARK: - Helpers
