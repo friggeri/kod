@@ -242,7 +242,12 @@ public actor LanguageWorkspaceService {
             semanticTokenTypes: configuration.semanticTokenTypes,
             semanticTokenModifiers: configuration.semanticTokenModifiers,
             initializationOptions: configuration.initializationOptions,
-            workspaceConfiguration: configuration.workspaceConfiguration
+            workspaceConfiguration: configuration.workspaceConfiguration,
+            // The same gate this `start()` just consulted, handed to the
+            // connection so its own automatic crash-restart re-checks it
+            // instead of relaunching a server for a workspace whose trust
+            // has since been revoked.
+            launchAuthorization: authorization
         )
         connectionGeneration += 1
         let generation = connectionGeneration
@@ -267,7 +272,16 @@ public actor LanguageWorkspaceService {
             }
         )
         self.connection = connection
-        try await connection.start()
+        do {
+            try await connection.start()
+        } catch LanguageClientError.notTrusted {
+            // Trust was revoked between this service's own gate above and
+            // the connection's pre-spawn gate. Report the same typed
+            // not-trusted outcome, and drop the unstarted connection so a
+            // later start can succeed once trust is granted.
+            self.connection = nil
+            throw LanguageWorkspaceServiceError.notTrusted
+        }
     }
 
     /// Forwards every state change to the caller, and — when a

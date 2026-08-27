@@ -5,6 +5,7 @@ import CodeViewport
 enum WorkspaceCommandID: String, CaseIterable {
     // --- Application ---
     case applicationAbout = "application.about"
+    case applicationCheckForUpdates = "application.checkForUpdates"
     case applicationSettings = "application.settings"
     case applicationHide = "application.hide"
     case applicationHideOthers = "application.hideOthers"
@@ -17,6 +18,7 @@ enum WorkspaceCommandID: String, CaseIterable {
     case fileQuickOpen = "command.quickOpen"
     case fileGoToLine = "command.goToLine"
     case fileCommandPalette = "file.commandPalette"
+    case filePinTab = "command.pinTab"
     case fileCloseTab = "command.closeTab"
     case fileCloseWindow = "file.closeWindow"
 
@@ -57,6 +59,12 @@ enum WorkspaceCommandID: String, CaseIterable {
     case windowMinimize = "window.minimize"
     case windowZoom = "window.zoom"
     case windowBringAllToFront = "window.bringAllToFront"
+
+    // --- Help ---
+    case helpSupport = "help.support"
+    case helpPrivacy = "help.privacy"
+    case helpReportIssue = "help.reportIssue"
+    case helpExportSupportBundle = "help.exportSupportBundle"
 }
 
 enum ReachableSurface: Equatable {
@@ -76,6 +84,7 @@ enum ValidationRequirement: Equatable {
     case requiresCanGoBack
     case requiresCanGoForward
     case requiresActiveGitQuickDiffController
+    case requiresUnpinnedSelectedTab
     case stateWordWrap
     case stateMinimap
     case systemStandard
@@ -150,6 +159,11 @@ final class WorkspaceCommandCatalog {
             surface: .menuOnly(exclusionReason: "System standard application command"),
             target: .responderChain,
             validation: .systemStandard)
+        add(id: .applicationCheckForUpdates,
+            menuTitle: Localized.string("Check for Updates...", comment: "Application menu item that checks for a newer Kod release"),
+            action: #selector(AppDelegate.checkForUpdates(_:)),
+            surface: .menuOnly(exclusionReason: "System standard application command"),
+            target: .appDelegate)
         add(id: .applicationSettings,
             menuTitle: Localized.string("Settings...", comment: "Application menu item that opens the Settings window"),
             action: #selector(AppDelegate.showSettings(_:)),
@@ -216,6 +230,11 @@ final class WorkspaceCommandCatalog {
             key: "p",
             modifiers: [.command, .shift],
             surface: .menuOnly(exclusionReason: "Cannot trigger palette from palette"))
+        add(id: .filePinTab,
+            menuTitle: Localized.string("Pin Tab", comment: "File menu item that pins the active editor tab"),
+            action: #selector(WorkspaceViewController.pinActiveTab(_:)),
+            surface: .menuAndPalette,
+            validation: .requiresUnpinnedSelectedTab)
         add(id: .fileCloseTab,
             menuTitle: Localized.string("Close Tab", comment: "File menu item that closes the active editor tab"),
             action: #selector(WorkspaceViewController.closeActiveTab(_:)),
@@ -399,6 +418,28 @@ final class WorkspaceCommandCatalog {
             target: .responderChain,
             validation: .systemStandard)
 
+        // --- Help ---
+        add(id: .helpSupport,
+            menuTitle: Localized.string("Kod Support", comment: "Help menu item that opens Kod support documentation"),
+            action: #selector(AppDelegate.showSupport(_:)),
+            surface: .menuOnly(exclusionReason: "External help link"),
+            target: .appDelegate)
+        add(id: .helpPrivacy,
+            menuTitle: Localized.string("Privacy", comment: "Help menu item that opens Kod privacy documentation"),
+            action: #selector(AppDelegate.showPrivacy(_:)),
+            surface: .menuOnly(exclusionReason: "External help link"),
+            target: .appDelegate)
+        add(id: .helpReportIssue,
+            menuTitle: Localized.string("Report an Issue...", comment: "Help menu item that opens the Kod issue tracker"),
+            action: #selector(AppDelegate.reportIssue(_:)),
+            surface: .menuOnly(exclusionReason: "External issue tracker"),
+            target: .appDelegate)
+        add(id: .helpExportSupportBundle,
+            menuTitle: Localized.string("Export Support Bundle...", comment: "Help menu item that exports redacted diagnostics"),
+            action: #selector(AppDelegate.exportSupportBundle(_:)),
+            surface: .menuOnly(exclusionReason: "Requires OS save panel interaction"),
+            target: .appDelegate)
+
         self.commands = cmds
 
         var byID: [WorkspaceCommandID: WorkspaceCommandMetadata] = [:]
@@ -423,6 +464,7 @@ final class WorkspaceCommandCatalog {
             .viewSplitRight,
             .viewSplitDown,
             .viewCloseGroup,
+            .filePinTab,
             .fileCloseTab,
             .navigateBack,
             .navigateForward,
@@ -434,6 +476,7 @@ final class WorkspaceCommandCatalog {
         self.mainMenu = [
             .submenu(title: Localized.string("Kod", comment: "Title of the application (Kod) main menu"), children: [
                 .command(.applicationAbout),
+                .command(.applicationCheckForUpdates),
                 .separator,
                 .command(.applicationSettings),
                 .separator,
@@ -454,6 +497,7 @@ final class WorkspaceCommandCatalog {
                 .command(.fileGoToLine),
                 .command(.fileCommandPalette),
                 .separator,
+                .command(.filePinTab),
                 .command(.fileCloseTab),
                 .command(.fileCloseWindow)
             ]),
@@ -498,7 +542,13 @@ final class WorkspaceCommandCatalog {
                 .separator,
                 .command(.windowBringAllToFront)
             ]),
-            .submenu(title: Localized.string("Help", comment: "Title of the Help menu"), children: [])
+            .submenu(title: Localized.string("Help", comment: "Title of the Help menu"), children: [
+                .command(.helpSupport),
+                .command(.helpPrivacy),
+                .command(.helpReportIssue),
+                .separator,
+                .command(.helpExportSupportBundle)
+            ])
         ]
     }
 

@@ -22,9 +22,9 @@
       for Kod's *own* process are unaffected by what those subprocesses
       are or aren't signed with, and no entitlement is needed for that
       either.
-    - Kod's network use is limited to explicit app-update and opt-in
-      crash-report submission and remote Markdown image loading (SPEC
-      13.3); com.apple.security.network.client is present so those
+    - Kod's network use is limited to signed app-update checks and
+      user-approved remote Markdown image loading (SPEC 13.3);
+      com.apple.security.network.client is present so those
       (non-sandboxed, but still worth being explicit and minimal about)
       network paths keep working under any future sandboxing decision
       without silently degrading.

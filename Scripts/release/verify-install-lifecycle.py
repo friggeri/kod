@@ -10,9 +10,8 @@ app-bundle check (bundle structure, Info.plist keys, code-signature
 validity, `UserDefaults`-domain persistence via an isolated suite name)
 — it never launches `Kod.app`'s UI, never uses `XCUIApplication`, and
 is explicitly *not* a substitute for a real clean-Mac install/launch
-test, which this script's own report and `docs/intel-compatibility-
-report.md` both say plainly requires physical hardware this
-environment does not have.
+test, which the release workflow records separately on a clean Apple
+Silicon Mac.
 
 Usage: Scripts/release/verify-install-lifecycle.py <path-to-Kod.app>
 """
@@ -77,7 +76,11 @@ def verify_code_signature(app_path: Path) -> str:
     assert result.returncode == 0, f"codesign --verify failed: {result.stderr.strip()}"
     info = subprocess.run(["codesign", "-dvvv", str(app_path)], capture_output=True, text=True).stderr
     is_adhoc = "Signature=adhoc" in info
-    return f"codesign --verify passed ({'ad-hoc' if is_adhoc else 'identity-signed'} signature — a real release must be Developer-ID-signed, not ad hoc)"
+    assert not is_adhoc, "archive is ad-hoc signed; a production release must use Developer ID"
+    assert "Authority=Developer ID Application:" in info, (
+        "archive is not signed by a Developer ID Application identity"
+    )
+    return "codesign --verify passed (Developer ID Application signature)"
 
 
 def verify_hardened_runtime(app_path: Path) -> str:
@@ -178,8 +181,8 @@ def main() -> int:
         "appPath": str(app_path),
         "note": (
             "Every step below is a static package/app-bundle check on isolated temporary roots. None of them "
-            "launch Kod.app's UI or constitute a real clean-Mac install/launch test — see this script's module "
-            "docstring and docs/intel-compatibility-report.md for what a real release still requires."
+            "launch Kod.app's UI or constitute a real clean-Mac install/launch test; that manual result is "
+            "required before the protected publish workflow can make the draft public."
         ),
         "steps": [{"name": s.name, "status": s.status, "detail": s.detail, "notes": s.notes} for s in report.steps],
     }

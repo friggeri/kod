@@ -91,3 +91,59 @@ public enum GitInvocationHardening {
         globalArgumentPrefix + [command.rawValue] + arguments
     }
 }
+
+/// Why a caller-supplied revision string was refused before it could
+/// reach `Process.arguments`.
+public enum GitRevisionArgumentError: Error, Equatable, Sendable {
+    /// Empty, or nothing but whitespace.
+    case empty
+    /// Begins with `-`, so Git would parse it as an option (or as the
+    /// `--` separator) instead of as a revision, silently changing the
+    /// meaning of the whole invocation.
+    case leadingOption(String)
+    /// Contains whitespace, an ASCII control character, or NUL — none of
+    /// which Git accepts in a revision name, and any of which would make
+    /// the argument's interpretation ambiguous.
+    case invalidCharacter(String)
+    /// Longer than any real revision name; refused rather than passed on.
+    case tooLong(count: Int)
+}
+
+/// Validates a caller-supplied revision *before* it is placed in an
+/// argument array.
+///
+/// Nothing in GitCore ever builds a shell string, so a revision cannot
+/// inject a second command — but `Process.arguments` still lets a value
+/// starting with `-` be re-read by Git itself as an option (`--reverse`,
+/// `--output=…`, or a bare `--`), which would change what the invocation
+/// does even though every element was passed separately. Kod's read-only
+/// guarantee is structural, so it refuses such a revision outright rather
+/// than relying on argument ordering to defuse it.
+public enum GitRevisionArgument {
+    /// Generous upper bound: far longer than any ref name, short SHA, or
+    /// `HEAD@{…}` form Kod ever produces.
+    public static let maximumLength = 512
+
+    /// Returns `revision` unchanged when it is safe to pass as a single
+    /// Git revision argument, or throws describing why it is not.
+    public static func validated(_ revision: String) throws -> String {
+        guard !revision.isEmpty, revision.contains(where: { !$0.isWhitespace }) else {
+            throw GitRevisionArgumentError.empty
+        }
+        guard revision.utf8.count <= maximumLength else {
+            throw GitRevisionArgumentError.tooLong(count: revision.utf8.count)
+        }
+        guard !revision.hasPrefix("-") else {
+            throw GitRevisionArgumentError.leadingOption(revision)
+        }
+        let hasInvalidCharacter = revision.unicodeScalars.contains { scalar in
+            scalar.properties.isWhitespace
+                || scalar.value < 0x20
+                || scalar.value == 0x7F
+        }
+        guard !hasInvalidCharacter else {
+            throw GitRevisionArgumentError.invalidCharacter(revision)
+        }
+        return revision
+    }
+}

@@ -33,8 +33,8 @@
 		B000000000000000000000AF /* SourceIO in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000001F /* SourceIO */; };
 		B000000000000000000000B6 /* SettingsCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000020 /* SettingsCore */; };
 		B000000000000000000000B7 /* SettingsCore in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000021 /* SettingsCore */; };
-		B000000000000000000000B8 /* KodUIComponents in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000023 /* KodUIComponents */; };
-		B000000000000000000000B9 /* KodUIComponents in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000024 /* KodUIComponents */; };
+		B000000000000000000000B8 /* KodUI in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000023 /* KodUI */; };
+		B000000000000000000000B9 /* KodUI in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000024 /* KodUI */; };
 		B000000000000000000000BA /* SearchUI in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000025 /* SearchUI */; };
 		B000000000000000000000BB /* SearchUI in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000026 /* SearchUI */; };
 		B000000000000000000000BC /* PreviewUI in Frameworks */ = {isa = PBXBuildFile; productRef = I00000000000000000000027 /* PreviewUI */; };
@@ -47,6 +47,9 @@
 		B00000000000000000000053 /* PreviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000001B /* PreviewCore */; };
 		B00000000000000000000059 /* DiagnosticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000001C /* DiagnosticsCore */; };
 		B0000000000000000000005A /* DiagnosticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = I0000000000000000000001D /* DiagnosticsCore */; };
+		B10000000000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = I10000000000000000000002 /* Sparkle */; };
+		B10000000000000000000002 /* KodUIComponents in Frameworks */ = {isa = PBXBuildFile; productRef = I10000000000000000000003 /* KodUIComponents */; };
+		B10000000000000000000003 /* KodUIComponents in Frameworks */ = {isa = PBXBuildFile; productRef = I10000000000000000000004 /* KodUIComponents */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -78,10 +81,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				B00000000000000000000003 /* KodCore in Frameworks */,
+				B000000000000000000000B8 /* KodUI in Frameworks */,
 				B00000000000000000000007 /* SourceModel in Frameworks */,
 				B000000000000000000000AE /* SourceIO in Frameworks */,
 				B000000000000000000000B6 /* SettingsCore in Frameworks */,
-				B000000000000000000000B8 /* KodUIComponents in Frameworks */,
+				B10000000000000000000002 /* KodUIComponents in Frameworks */,
 				B000000000000000000000BA /* SearchUI in Frameworks */,
 				B000000000000000000000BC /* PreviewUI in Frameworks */,
 				B000000000000000000000BE /* GitUI in Frameworks */,
@@ -97,6 +101,7 @@
 				B0000000000000000000004C /* GitCore in Frameworks */,
 				B00000000000000000000052 /* PreviewCore in Frameworks */,
 				B00000000000000000000059 /* DiagnosticsCore in Frameworks */,
+				B10000000000000000000001 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -105,11 +110,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				B00000000000000000000005 /* KodCore in Frameworks */,
+				B000000000000000000000B9 /* KodUI in Frameworks */,
 				B00000000000000000000023 /* SearchCore in Frameworks */,
 				B00000000000000000000027 /* SourceModel in Frameworks */,
 				B000000000000000000000AF /* SourceIO in Frameworks */,
 				B000000000000000000000B7 /* SettingsCore in Frameworks */,
-				B000000000000000000000B9 /* KodUIComponents in Frameworks */,
+				B10000000000000000000003 /* KodUIComponents in Frameworks */,
 				B000000000000000000000BB /* SearchUI in Frameworks */,
 				B000000000000000000000BD /* PreviewUI in Frameworks */,
 				B000000000000000000000BF /* GitUI in Frameworks */,
@@ -167,9 +173,22 @@
 		};
 /* End PBXGroup section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A10000000000000000000001 /* Exceptions for "KodApp" folder in "Kod" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Configuration/Info.plist,
+			);
+			target = E00000000000000000000001 /* Kod */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A00000000000000000000007 /* KodApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A10000000000000000000001 /* Exceptions for "KodApp" folder in "Kod" target */,
+			);
 			explicitFileTypes = {
 			};
 			explicitFolders = (
@@ -217,10 +236,11 @@
 			name = Kod;
 			packageProductDependencies = (
 				I00000000000000000000002 /* KodCore */,
+				I00000000000000000000023 /* KodUI */,
 				I00000000000000000000004 /* SourceModel */,
 				I0000000000000000000001E /* SourceIO */,
 				I00000000000000000000020 /* SettingsCore */,
-				I00000000000000000000023 /* KodUIComponents */,
+				I10000000000000000000003 /* KodUIComponents */,
 				I00000000000000000000025 /* SearchUI */,
 				I00000000000000000000027 /* PreviewUI */,
 				I00000000000000000000029 /* GitUI */,
@@ -236,6 +256,7 @@
 				I00000000000000000000018 /* GitCore */,
 				I0000000000000000000001A /* PreviewCore */,
 				I0000000000000000000001C /* DiagnosticsCore */,
+				I10000000000000000000002 /* Sparkle */,
 			);
 			productName = Kod;
 			productReference = C00000000000000000000001 /* Kod.app */;
@@ -260,11 +281,12 @@
 			name = KodAppTests;
 			packageProductDependencies = (
 				I00000000000000000000003 /* KodCore */,
+				I00000000000000000000024 /* KodUI */,
 				I0000000000000000000000A /* SearchCore */,
 				I0000000000000000000000B /* SourceModel */,
 				I0000000000000000000001F /* SourceIO */,
 				I00000000000000000000021 /* SettingsCore */,
-				I00000000000000000000024 /* KodUIComponents */,
+				I10000000000000000000004 /* KodUIComponents */,
 				I00000000000000000000026 /* SearchUI */,
 				I00000000000000000000028 /* PreviewUI */,
 				I0000000000000000000002A /* GitUI */,
@@ -340,6 +362,7 @@
 			packageReferences = (
 				I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */,
 				I00000000000000000000022 /* XCLocalSwiftPackageReference "KodUI" */,
+				I10000000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			productRefGroup = A00000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -456,6 +479,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
+				EXTRACT_APP_INTENTS_METADATA = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
@@ -463,6 +487,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 6.0;
 			};
@@ -474,13 +499,17 @@
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
+				EXTRACT_APP_INTENTS_METADATA = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				SDKROOT = macosx;
+				STRIP_INSTALLED_PRODUCT = NO;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 6.0;
 				VALIDATE_PRODUCT = YES;
@@ -491,16 +520,16 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ARCHS = arm64;
+				CODE_SIGN_ENTITLEMENTS = App/KodApp/Configuration/Kod.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Kod;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_NSHighResolutionCapable = YES;
-				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				EXTRACT_APP_INTENTS_METADATA = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/KodApp/Configuration/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -508,6 +537,7 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kodapp.Kod;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SPARKLE_PUBLIC_ED_KEY = REPLACE_WITH_SPARKLE_PUBLIC_KEY;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
@@ -519,16 +549,16 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ARCHS = arm64;
+				CODE_SIGN_ENTITLEMENTS = App/KodApp/Configuration/Kod.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Kod;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_NSHighResolutionCapable = YES;
-				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				EXTRACT_APP_INTENTS_METADATA = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/KodApp/Configuration/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -536,6 +566,7 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kodapp.Kod;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SPARKLE_PUBLIC_ED_KEY = REPLACE_WITH_SPARKLE_PUBLIC_KEY;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
@@ -656,6 +687,17 @@
 			relativePath = Packages/KodUI;
 		};
 /* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		I10000000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.9.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		I00000000000000000000002 /* KodCore */ = {
@@ -808,15 +850,15 @@
 			package = I00000000000000000000001 /* XCLocalSwiftPackageReference "KodCore" */;
 			productName = SettingsCore;
 		};
-		I00000000000000000000023 /* KodUIComponents */ = {
+		I00000000000000000000023 /* KodUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = I00000000000000000000022 /* XCLocalSwiftPackageReference "KodUI" */;
-			productName = KodUIComponents;
+			productName = KodUI;
 		};
-		I00000000000000000000024 /* KodUIComponents */ = {
+		I00000000000000000000024 /* KodUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = I00000000000000000000022 /* XCLocalSwiftPackageReference "KodUI" */;
-			productName = KodUIComponents;
+			productName = KodUI;
 		};
 		I00000000000000000000025 /* SearchUI */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -857,6 +899,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = I00000000000000000000022 /* XCLocalSwiftPackageReference "KodUI" */;
 			productName = EditorUI;
+		};
+		I10000000000000000000002 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I10000000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+		I10000000000000000000003 /* KodUIComponents */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000022 /* XCLocalSwiftPackageReference "KodUI" */;
+			productName = KodUIComponents;
+		};
+		I10000000000000000000004 /* KodUIComponents */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I00000000000000000000022 /* XCLocalSwiftPackageReference "KodUI" */;
+			productName = KodUIComponents;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

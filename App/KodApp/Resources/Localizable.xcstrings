@@ -1831,6 +1831,18 @@
         }
       }
     },
+    "Opening %@..." : {
+      "comment" : "Visible and accessible status shown while a standalone file is opening",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening %@..."
+          }
+        }
+      }
+    },
     "Opens the public LSP server directory." : {
       "comment" : "Tooltip for the settings 'Find a Language Server...' button",
       "extractionState" : "manual",

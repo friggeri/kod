@@ -98,6 +98,30 @@ final class KeyboardCommandRegistryTests: XCTestCase {
         XCTAssertTrue(command(titled: "Show Git Blame")?.isMenuOnly ?? false)
     }
 
+    func testUpdateSettingsAndHelpActionsAppearInTheirNativeMenus() throws {
+        let commands = KeyboardCommandRegistry.commands(in: try mainMenu())
+
+        XCTAssertEqual(
+            commands.first { $0.displayName == "Check for Updates..." }?.menuPath,
+            ["Kod", "Check for Updates..."]
+        )
+        XCTAssertEqual(
+            commands.first { $0.displayName == "Settings..." }?.menuPath,
+            ["Kod", "Settings..."]
+        )
+        for title in [
+            "Kod Support",
+            "Privacy",
+            "Report an Issue...",
+            "Export Support Bundle..."
+        ] {
+            XCTAssertEqual(
+                commands.first { $0.displayName == title }?.menuPath,
+                ["Help", title]
+            )
+        }
+    }
+
     /// `KeyboardCommand.identifier` must be unique across the whole
     /// real menu, so a registry consumer (or a future rotor/palette
     /// built on top of it) can safely key off it.
@@ -194,6 +218,7 @@ final class KeyboardCommandRegistryTests: XCTestCase {
                 "command.splitRight",
                 "command.splitDown",
                 "command.closeGroup",
+                "command.pinTab",
                 "command.closeTab",
                 "command.navigateBack",
                 "command.navigateForward",
@@ -213,7 +238,16 @@ final class KeyboardCommandRegistryTests: XCTestCase {
         )
         XCTAssertEqual(
             appDelegateIDs,
-            [.applicationSettings, .fileOpenFolder, .fileOpenFile]
+            [
+                .applicationCheckForUpdates,
+                .applicationSettings,
+                .fileOpenFolder,
+                .fileOpenFile,
+                .helpSupport,
+                .helpPrivacy,
+                .helpReportIssue,
+                .helpExportSupportBundle
+            ]
         )
         XCTAssertEqual(
             catalog.metadata(for: .viewWordWrap)?.validation,
@@ -226,6 +260,10 @@ final class KeyboardCommandRegistryTests: XCTestCase {
         XCTAssertEqual(
             catalog.metadata(for: .viewCloseGroup)?.validation,
             .requiresActiveGroupCountGreaterThanOne
+        )
+        XCTAssertEqual(
+            catalog.metadata(for: .filePinTab)?.validation,
+            .requiresUnpinnedSelectedTab
         )
     }
 }

@@ -104,6 +104,7 @@ enum KeyboardCommandRegistry {
         // open
         "Open Folder...",
         "Open File...",
+        "Pin Tab",
         // search / navigate-to
         "Quick Open...",
         "Find in File...",

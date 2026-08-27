@@ -109,12 +109,19 @@ enum ImagePreviewZoomMode: Equatable {
 
 /// The built-in image preview: fit/actual-size/zoom/pan, an optional
 /// transparency checkerboard background, safe (decode-limited, non-
-/// animated-by-default) frame display, and a read-only metadata panel.
+/// animated unless Reduce Motion is enabled) frame display, and a read-only
+/// metadata panel.
 /// Only ever receives bytes already decoded by `PreviewCore.ImageDecoder`
 /// (raster formats) or `SVGDocumentLoader` (SVG) — this type never parses
 /// or fetches anything itself.
 @MainActor
 final class ImagePreviewViewController: NSViewController {
+    private enum PlaybackPreference {
+        case automatic
+        case playing
+        case paused
+    }
+
     private let scrollView = NSScrollView()
     private let imageView = NSImageView()
     private let checkerboardView = TransparencyBackgroundView()
@@ -136,6 +143,9 @@ final class ImagePreviewViewController: NSViewController {
         action: nil
     )
     private let playPauseButton = NSButton(title: previewUIStrings.string("Pause", comment: "Initial title of the animated-image play/pause button"), target: nil, action: nil)
+    private let accessibilityDisplayShouldReduceMotion: @MainActor () -> Bool
+    private let notificationCenter: NotificationCenter
+    private let accessibilityDisplayOptionsDidChangeNotification: Notification.Name
 
     private(set) var metadata: ImageMetadata?
     private(set) var diagnostic: ImageDecodeDiagnostic?
@@ -147,12 +157,28 @@ final class ImagePreviewViewController: NSViewController {
     private var frames: [CGImage] = []
     private var frameDurations: [Double] = []
     private nonisolated(unsafe) var animationTimer: Timer?
+    private var playbackPreference: PlaybackPreference = .automatic
+    private var isObservingAccessibilityDisplayOptions = false
     private var showsCheckerboardBackground = true {
         didSet { checkerboardView.showsCheckerboard = showsCheckerboardBackground }
     }
 
     /// Constructs from an already-decoded raster result.
-    init(decodeResult: ImageDecodeResult) {
+    init(
+        decodeResult: ImageDecodeResult,
+        accessibilityDisplayShouldReduceMotion: @escaping @MainActor () -> Bool = {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        },
+        notificationCenter: NotificationCenter =
+            NSWorkspace.shared.notificationCenter,
+        accessibilityDisplayOptionsDidChangeNotification: Notification.Name =
+            NSWorkspace.accessibilityDisplayOptionsDidChangeNotification
+    ) {
+        self.accessibilityDisplayShouldReduceMotion =
+            accessibilityDisplayShouldReduceMotion
+        self.notificationCenter = notificationCenter
+        self.accessibilityDisplayOptionsDidChangeNotification =
+            accessibilityDisplayOptionsDidChangeNotification
         super.init(nibName: nil, bundle: nil)
         switch decodeResult {
         case .decoded(let metadata, let frameList):
@@ -166,7 +192,21 @@ final class ImagePreviewViewController: NSViewController {
 
     /// Constructs from a rejected/valid SVG document result (SVG never
     /// goes through `ImageDecoder`; see `SVGDocumentLoader`).
-    init(svgResult: SVGDocumentResult) {
+    init(
+        svgResult: SVGDocumentResult,
+        accessibilityDisplayShouldReduceMotion: @escaping @MainActor () -> Bool = {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        },
+        notificationCenter: NotificationCenter =
+            NSWorkspace.shared.notificationCenter,
+        accessibilityDisplayOptionsDidChangeNotification: Notification.Name =
+            NSWorkspace.accessibilityDisplayOptionsDidChangeNotification
+    ) {
+        self.accessibilityDisplayShouldReduceMotion =
+            accessibilityDisplayShouldReduceMotion
+        self.notificationCenter = notificationCenter
+        self.accessibilityDisplayOptionsDidChangeNotification =
+            accessibilityDisplayOptionsDidChangeNotification
         super.init(nibName: nil, bundle: nil)
         switch svgResult {
         case .valid:
@@ -186,6 +226,13 @@ final class ImagePreviewViewController: NSViewController {
 
     deinit {
         animationTimer?.invalidate()
+        if isObservingAccessibilityDisplayOptions {
+            notificationCenter.removeObserver(
+                self,
+                name: accessibilityDisplayOptionsDidChangeNotification,
+                object: nil
+            )
+        }
     }
 
     override func loadView() {
@@ -296,7 +343,8 @@ final class ImagePreviewViewController: NSViewController {
             applyCurrentFrame()
         }
         metadataLabel.stringValue = metadataText()
-        startAnimatingIfNeeded()
+        observeAccessibilityDisplayOptions()
+        applyPlaybackPreference()
     }
 
     override func viewDidLayout() {
@@ -427,11 +475,64 @@ final class ImagePreviewViewController: NSViewController {
         zoomOutButton.setAccessibilityValue(accessibilityValue)
     }
 
+    private func observeAccessibilityDisplayOptions() {
+        guard !isObservingAccessibilityDisplayOptions else {
+            return
+        }
+        notificationCenter.addObserver(
+            self,
+            selector: #selector(accessibilityDisplayOptionsDidChange),
+            name: accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
+        isObservingAccessibilityDisplayOptions = true
+    }
+
+    @objc
+    private func accessibilityDisplayOptionsDidChange(_ notification: Notification) {
+        applyPlaybackPreference()
+    }
+
+    private func applyPlaybackPreference() {
+        let shouldAnimate: Bool
+        switch playbackPreference {
+        case .automatic:
+            shouldAnimate = !accessibilityDisplayShouldReduceMotion()
+        case .playing:
+            shouldAnimate = true
+        case .paused:
+            shouldAnimate = false
+        }
+        isAnimating = shouldAnimate
+        updatePlayPauseControl()
+        if isAnimating {
+            startAnimatingIfNeeded()
+        } else {
+            animationTimer?.invalidate()
+        }
+    }
+
     private func startAnimatingIfNeeded() {
         guard frames.count > 1, isAnimating else {
             return
         }
         scheduleNextFrame()
+    }
+
+    private func updatePlayPauseControl() {
+        playPauseButton.title = isAnimating
+            ? previewUIStrings.string("Pause", comment: "Play/pause button title when the animated image is currently playing")
+            : previewUIStrings.string("Play", comment: "Play/pause button title when the animated image is paused")
+        playPauseButton.setAccessibilityLabel(
+            isAnimating
+                ? previewUIStrings.string("Pause Animation", comment: "Accessibility label for the play/pause button when the animation is playing")
+                : previewUIStrings.string("Play Animation", comment: "Accessibility label for the play/pause button when the animation is paused")
+        )
+        playPauseButton.setAccessibilityValue(
+            isAnimating
+                ? previewUIStrings.string("Playing", comment: "Accessibility value indicating the animated image is currently playing")
+                : previewUIStrings.string("Paused", comment: "Accessibility value indicating the animated image is paused")
+        )
     }
 
     private func scheduleNextFrame() {
@@ -491,30 +592,14 @@ final class ImagePreviewViewController: NSViewController {
 
     @objc
     private func handleTogglePlayPause(_ sender: Any?) {
-        isAnimating.toggle()
-        playPauseButton.title = isAnimating
-            ? previewUIStrings.string("Pause", comment: "Play/pause button title when the animated image is currently playing")
-            : previewUIStrings.string("Play", comment: "Play/pause button title when the animated image is currently paused")
-        playPauseButton.setAccessibilityLabel(
-            isAnimating
-                ? previewUIStrings.string("Pause Animation", comment: "Accessibility label for the play/pause button when the animation is playing")
-                : previewUIStrings.string("Play Animation", comment: "Accessibility label for the play/pause button when the animation is paused")
-        )
-        playPauseButton.setAccessibilityValue(
-            isAnimating
-                ? previewUIStrings.string("Playing", comment: "Accessibility value indicating the animated image is currently playing")
-                : previewUIStrings.string("Paused", comment: "Accessibility value indicating the animated image is currently paused")
-        )
-        if isAnimating {
-            scheduleNextFrame()
-        } else {
-            animationTimer?.invalidate()
-        }
+        playbackPreference = isAnimating ? .paused : .playing
+        applyPlaybackPreference()
     }
 
     // MARK: - Test-facing state
 
     var frameCount: Int { frames.count }
+    var isAnimationPlaying: Bool { isAnimating }
 
     /// Exposed so headless tests can assert on the *real* AppKit
     /// accessibility API return values (not a parallel string a test

@@ -9,6 +9,8 @@ import ThemeCore
 final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     struct Services {
         var load: @MainActor (URL) async throws -> SourceSnapshot
+        var loadIgnoringByteLimit: @MainActor (URL) async throws ->
+            SourceSnapshot = { _ in throw CancellationError() }
         var makeContentViewController: @MainActor (
             SourceSnapshot
         ) throws -> StandaloneDocumentViewController
@@ -21,13 +23,15 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             languageSupportService: LanguageSupportService,
             appearanceCenter: AppearanceCenter
         ) -> Services {
-            Services(
+            let loader = SourceSnapshotLoader(
+                renderingSafetyPolicy: .codeViewportDefault
+            )
+            return Services(
                 load: { url in
-                    try await Task.detached(priority: .userInitiated) {
-                        try SourceSnapshotLoader(
-                            renderingSafetyPolicy: .codeViewportDefault
-                        ).load(url: url)
-                    }.value
+                    try await loader.loadDetached(url: url)
+                },
+                loadIgnoringByteLimit: { url in
+                    try await loader.loadIgnoringByteLimitDetached(url: url)
                 },
                 makeContentViewController: { snapshot in
                     StandaloneDocumentViewController(
@@ -57,6 +61,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
     let documentURL: URL
     var onWindowWillClose: ((DocumentWindowController) -> Void)?
+    var oversizedFileLoadConfirmation: ((URL, Int, Int) -> Bool)?
     private(set) var contentController: StandaloneDocumentViewController?
 
     private let services: Services
@@ -69,7 +74,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     init(url: URL, services: Services) {
         documentURL = url.standardizedFileURL.resolvingSymlinksInPath()
         self.services = services
-        let loadingController = Self.makeLoadingViewController()
+        let loadingController = Self.makeLoadingViewController(
+            filename: documentURL.lastPathComponent
+        )
         let window = services.makeWindow(loadingController)
         super.init(window: window)
         window.identifier = NSUserInterfaceItemIdentifier(
@@ -95,8 +102,18 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         if let loadTask {
             task = loadTask
         } else {
-            task = Task { [services, documentURL] in
-                try await services.load(documentURL)
+            // The guarded read, the user's answer to the oversized
+            // question, and the unrestricted retry are one task, not
+            // three awaits with the handle dropped in between. Clearing
+            // `loadTask` before the retry (as this once did) meant
+            // `shutdown()` had nothing left to cancel or await, so
+            // closing the window walked away from a read of the largest
+            // file the app ever opens while it was still running.
+            task = Task { @MainActor [weak self] in
+                guard let self else {
+                    throw CancellationError()
+                }
+                return try await self.loadAskingBeforeExceedingTheByteLimit()
             }
             loadTask = task
         }
@@ -114,6 +131,35 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             window?.layoutIfNeeded()
             didFinishLoading = true
             loadTask = nil
+        }
+    }
+
+    /// The full open-a-file flow, start to finish, inside the caller's
+    /// task: read within the safety limit, and if the file is above it,
+    /// ask the user once and read it in full only if they say yes.
+    private func loadAskingBeforeExceedingTheByteLimit() async throws -> SourceSnapshot {
+        do {
+            return try await services.load(documentURL)
+        } catch SourceIOError.fileExceedsRenderingByteLimit(
+            let url,
+            let byteCount,
+            let limit
+        ) {
+            // Never put a modal question in front of the user for a
+            // window that is already closing or a load already abandoned.
+            try Task.checkCancellation()
+            guard !isShuttingDown else {
+                throw CancellationError()
+            }
+            guard confirmLoadingOversizedFile(
+                url: url,
+                byteCount: byteCount,
+                limit: limit
+            ) else {
+                throw CancellationError()
+            }
+            try Task.checkCancellation()
+            return try await services.loadIgnoringByteLimit(url)
         }
     }
 
@@ -159,23 +205,84 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         guard !hasPresented else {
             return
         }
+
         hasPresented = true
         services.present(self)
         services.activate()
     }
 
-    private static func makeLoadingViewController() -> NSViewController {
+    private func confirmLoadingOversizedFile(
+        url: URL,
+        byteCount: Int,
+        limit: Int
+    ) -> Bool {
+        if let oversizedFileLoadConfirmation {
+            return oversizedFileLoadConfirmation(url, byteCount, limit)
+        }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = Localized.string(
+            "Open Large File?",
+            comment: "Confirmation title before loading an oversized standalone source file"
+        )
+        alert.informativeText = Localized.string(
+            "\(url.lastPathComponent) is \(Self.formattedByteCount(byteCount)), above Kod's \(Self.formattedByteCount(limit)) safety limit. Loading it may use substantial memory.",
+            comment: "Confirmation detail before loading an oversized standalone source file"
+        )
+        alert.addButton(
+            withTitle: Localized.string(
+                "Load Anyway",
+                comment: "Confirmation button that loads an oversized source file"
+            )
+        )
+        alert.addButton(
+            withTitle: Localized.string(
+                "Cancel",
+                comment: "Button that cancels loading an oversized source file"
+            )
+        )
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private static func formattedByteCount(_ count: Int) -> String {
+        ByteCountFormatter.string(
+            fromByteCount: Int64(count),
+            countStyle: .file
+        )
+    }
+
+    static func makeLoadingViewController(filename: String) -> NSViewController {
         let controller = NSViewController()
         let view = NSView()
         let indicator = NSProgressIndicator()
         indicator.style = .spinning
         indicator.controlSize = .regular
+        indicator.setAccessibilityElement(false)
         indicator.startAnimation(nil)
         indicator.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(indicator)
+        let status = NSTextField(
+            labelWithString: Localized.string(
+                "Opening \(filename)...",
+                comment: "Visible and accessible status shown while a standalone file is opening"
+            )
+        )
+        status.identifier = NSUserInterfaceItemIdentifier("document.loadingStatus")
+        status.alignment = .center
+        status.setAccessibilityElement(true)
+        status.setAccessibilityRole(.staticText)
+        status.setAccessibilityLabel(status.stringValue)
+        status.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = NSStackView(views: [indicator, status])
+        stack.identifier = NSUserInterfaceItemIdentifier("document.loading")
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
         NSLayoutConstraint.activate([
-            indicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            indicator.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+            stack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: view.centerYAnchor)
         ])
         controller.view = view
         return controller

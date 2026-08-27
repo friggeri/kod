@@ -9,19 +9,21 @@
 # What it does, in order:
 #   1. Downloads the ripgrep source tarball at the exact pinned commit from
 #      GitHub and verifies its SHA-256 against manifest.json.
-#   2. Builds the `rg` binary from that vendored source for both Apple
-#      silicon (aarch64-apple-darwin) and Intel (x86_64-apple-darwin) with
-#      Cargo's default (non-PCRE2) feature set, so the result has no
+#   2. Builds the `rg` binary from that vendored source for Apple silicon
+#      (aarch64-apple-darwin) with Cargo's default (non-PCRE2) feature set,
+#      so the result has no
 #      dependency on a system libpcre2.
-#   3. Strips debug symbols, ad-hoc code-signs each binary, and copies it
-#      into the SearchCore package resources, overwriting the previous pin.
+#   3. Strips debug symbols, applies an ad-hoc development signature so macOS
+#      can execute package tests, and copies the binary into SearchCore.
+#      Production release signing replaces it with the Developer ID identity
+#      inside-out before the app itself is signed.
 #   4. Copies the upstream license texts into Vendor/Licenses.
 #
-# Requirements: curl, python3, a Rust toolchain (cargo/rustc) with the
-# aarch64-apple-darwin and x86_64-apple-darwin targets installed
-# (`rustup target add x86_64-apple-darwin` on an Apple silicon host).
+# Requirements: curl, python3, and an Apple Silicon Rust toolchain
+# (cargo/rustc) with the aarch64-apple-darwin target installed.
 
 set -eu
+set -o pipefail
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
@@ -53,7 +55,7 @@ printf '%s\n' "==> Extracting"
 mkdir -p "$work_dir/src"
 tar -xzf "$work_dir/ripgrep-src.tar.gz" -C "$work_dir/src" --strip-components=1
 
-for target in aarch64-apple-darwin x86_64-apple-darwin; do
+for target in aarch64-apple-darwin; do
     printf '%s\n' "==> Building rg for $target"
     (
         cd "$work_dir/src"
@@ -66,7 +68,7 @@ for target in aarch64-apple-darwin x86_64-apple-darwin; do
     cp "$built_binary" "$vendored_binary"
     chmod 755 "$vendored_binary"
     strip -S -x "$vendored_binary"
-    codesign -s - -f "$vendored_binary"
+    codesign --force --sign - "$vendored_binary"
     printf '%s  %s\n' "$(shasum -a 256 "$vendored_binary" | awk '{print $1}')" "$target/rg"
 done
 

@@ -2,17 +2,16 @@
 
 ## Collecting support information
 
-The current Settings window does not expose the internal diagnostics log or
-support-bundle export. When filing an issue, include the Kod version/build,
-macOS version, workspace trust state, steps to reproduce, and any visible
-status or error text. For a crash, attach the standard macOS crash report
-described below.
+Choose **Help > Export Support Bundle...** to write a human-readable JSON file
+to a location you select. The bundle contains bounded, redacted diagnostic
+metadata and corrupt-settings records; it contains no source files or
+repository contents and is never uploaded automatically. Inspect it before
+attaching it to an issue.
 
-Kod still keeps its bounded, redacted runtime event log internally, and
-`DiagnosticsCore` retains the support-bundle generator and redaction rules
-documented in [privacy.md](privacy.md). Removing the Settings screen does not
-weaken those runtime privacy boundaries or delete previously persisted
-crash-reporting preferences.
+When filing an issue, include the Kod version/build, macOS version, workspace
+trust state, steps to reproduce, and any visible status or error text. For a
+crash, attach the standard macOS crash report described below only if you
+choose to share it.
 
 ## Corrupt settings recovery
 
@@ -27,9 +26,7 @@ is retained outside the workspace.
 
 ## Crash reports
 
-Crash reporting is off by default and, in this build, has no real
-upload destination configured — see [privacy.md](privacy.md) for the
-full explanation. If you want to manually share a crash report with a
+Crash reporting is handled entirely by macOS. Kod does not include a custom crash reporter. If you want to manually share a crash report with a
 support request, the crash log is the standard macOS
 `~/Library/Logs/DiagnosticReports/` crash report for the `Kod` process,
 which you can attach yourself; Kod does not automatically collect or
@@ -66,19 +63,11 @@ workspace.
 
 ## Updating and rolling back
 
-Kod checks for updates via a single signed feed (see
-[privacy.md](privacy.md)'s "The update mechanism" section) and never
-installs anything whose signature or downloaded-artifact digest fails
-verification. If a newly-installed update misbehaves, Kod can only ever
-offer to roll back to a version the release process explicitly marked
-safe for that purpose — never an arbitrary older version — so you are
-never silently downgraded past a security fix. If rollback is not
-offered for your situation, reinstalling the previous DMG/ZIP you
-already downloaded (or via Homebrew: `brew reinstall --cask
-kod@<previous-version>`, once a versioned cask exists) works exactly as
-a normal reinstall.
+Kod uses Sparkle for automatic updates. Checks are enabled by default but can be disabled in Settings. Updates are never installed without user confirmation. If you need to roll back to a previous version, download the older DMG from the [releases page](https://github.com/friggeri/kod/releases) and reinstall it. Kod is not distributed via Homebrew.
 
 ## Filing an issue
+
+Please file issues at: https://github.com/friggeri/kod/issues
 
 Please include:
 

@@ -201,7 +201,7 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         XCTAssertEqual(cell.textField?.font?.pointSize, NSFont.systemFontSize + 3)
     }
 
-    func testStatusBarTrustControlIsTrailingAndReflectsCurrentState() throws {
+    func testStatusBarTrustControlFollowsStatusItemsAndReflectsCurrentState() throws {
         let (controller, trustStore, _, _) = try makeFixture()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),
@@ -218,10 +218,24 @@ final class WorkspaceViewControllerTrustControlTests: XCTestCase {
         let trustButton = try XCTUnwrap(
             findView(identifier: "workspace.trustStatus", in: controller.view) as? NSButton
         )
+        let content = try XCTUnwrap(
+            findView(
+                identifier: "workspace.status.content",
+                in: statusBar
+            ) as? NSStackView
+        )
+        let trustGroup = try XCTUnwrap(
+            findView(
+                identifier: "workspace.status.trustGroup",
+                in: statusBar
+            )
+        )
 
         XCTAssertTrue(trustButton.isDescendant(of: statusBar))
-        let trustFrame = trustButton.convert(trustButton.bounds, to: statusBar)
-        XCTAssertEqual(trustFrame.maxX, statusBar.bounds.maxX - 6, accuracy: 0.5)
+        XCTAssertTrue(trustButton.isDescendant(of: trustGroup))
+        XCTAssertTrue(content.arrangedSubviews.last === trustGroup)
+        let contentFrame = content.convert(content.bounds, to: statusBar)
+        XCTAssertEqual(contentFrame.midX, statusBar.bounds.midX, accuracy: 0.5)
         XCTAssertNotNil(trustButton.image)
         XCTAssertEqual(
             trustButton.action,

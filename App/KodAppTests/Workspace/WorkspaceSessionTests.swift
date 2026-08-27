@@ -477,6 +477,101 @@ final class WorkspaceSessionTests: XCTestCase {
         XCTAssertEqual(session.health.issue(for: .git)?.state, .failed)
     }
 
+    // MARK: - Watcher survives a root that changes
+
+    /// The bug this pins down: `startFileWatcherIfNeeded()` short-circuits
+    /// on a non-`nil` handle, so once the root changed underneath the
+    /// stream, live updates were dead for the rest of the session even
+    /// though the session still reported itself as watching.
+    func testRootInvalidationAlwaysBuildsAFreshStream() async throws {
+        let fixture = try makeFixture()
+        let session = fixture.session
+        await session.start()
+        await session.waitForPendingWork()
+        XCTAssertEqual(fixture.recorder.watcherFactoryCount, 1)
+        let original = try XCTUnwrap(fixture.recorder.watchers.first)
+
+        XCTAssertEqual(session.handleRootInvalidation(), .restored)
+
+        XCTAssertEqual(original.stopCount, 1)
+        XCTAssertEqual(fixture.recorder.watcherFactoryCount, 2)
+        XCTAssertEqual(fixture.recorder.watchers.count, 2)
+        XCTAssertTrue(session.isWatchingFileSystem)
+        XCTAssertNil(session.health.issue(for: .watcher))
+    }
+
+    func testReplacedRootIsReportedAndRewatched() async throws {
+        let fixture = try makeFixture()
+        let session = fixture.session
+        await session.start()
+        await session.waitForPendingWork()
+
+        // Same path, different directory.
+        try FileManager.default.removeItem(at: fixture.root)
+        try FileManager.default.createDirectory(
+            at: fixture.root,
+            withIntermediateDirectories: true
+        )
+
+        XCTAssertEqual(session.handleRootInvalidation(), .replaced)
+        XCTAssertEqual(fixture.recorder.watcherFactoryCount, 2)
+        XCTAssertTrue(session.isWatchingFileSystem)
+        XCTAssertNil(session.health.issue(for: .watcher))
+    }
+
+    func testMissingRootStopsWatchingUntilTheRootComesBack() async throws {
+        let fixture = try makeFixture()
+        let session = fixture.session
+        await session.start()
+        await session.waitForPendingWork()
+        let original = try XCTUnwrap(fixture.recorder.watchers.first)
+
+        try FileManager.default.removeItem(at: fixture.root)
+
+        XCTAssertEqual(session.handleRootInvalidation(), .missing)
+        XCTAssertEqual(original.stopCount, 1)
+        XCTAssertFalse(session.isWatchingFileSystem)
+        XCTAssertEqual(
+            fixture.recorder.watcherFactoryCount,
+            1,
+            "there is nothing to watch, so no stream is created for a path that does not exist"
+        )
+        XCTAssertEqual(
+            session.health.issue(for: .watcher)?.severity,
+            .unavailable
+        )
+
+        // Discovery finding the root again is what brings live updates
+        // back; nothing else has to be restarted for it.
+        try FileManager.default.createDirectory(
+            at: fixture.root,
+            withIntermediateDirectories: true
+        )
+        session.startFileWatcherIfNeeded()
+
+        XCTAssertTrue(session.isWatchingFileSystem)
+        XCTAssertEqual(fixture.recorder.watcherFactoryCount, 2)
+        XCTAssertNil(session.health.issue(for: .watcher))
+    }
+
+    func testWatcherRecoveryReplacesAHealthyLookingStream() async throws {
+        let fixture = try makeFixture()
+        let session = fixture.session
+        await session.start()
+        await session.waitForPendingWork()
+        let original = try XCTUnwrap(fixture.recorder.watchers.first)
+
+        await session.refresh([.watcher])
+
+        XCTAssertEqual(
+            original.stopCount,
+            1,
+            "an explicit watcher retry must discard the old stream rather than no-op on a non-nil handle"
+        )
+        XCTAssertEqual(fixture.recorder.watcherFactoryCount, 2)
+        XCTAssertTrue(session.isWatchingFileSystem)
+    }
+
     // MARK: - Shutdown cancels in-flight work
 
     func testShutdownCancelsAndAwaitsDiscoverySearchAndReloadWork() async throws {
@@ -510,7 +605,7 @@ final class WorkspaceSessionTests: XCTestCase {
             recorder.searchObservedCancellation = Task.isCancelled
         }
 
-        session.beginExternalReload {
+        session.beginExternalReload(forPath: "reloaded.swift") {
             recorder.reloadStarted = true
             await reloadGate.wait()
             recorder.reloadObservedCancellation = Task.isCancelled
@@ -546,6 +641,134 @@ final class WorkspaceSessionTests: XCTestCase {
         XCTAssertEqual(recorder.languageStopCount, 1)
         XCTAssertTrue(session.languageServices.isShutDown)
         XCTAssertFalse(session.isWatchingFileSystem)
+    }
+
+    /// One FSEvents batch routinely touches several open files. Each
+    /// path's reload must stand on its own: only a newer reload of the
+    /// *same* path may supersede an older one.
+    func testExternalReloadsOfDifferentPathsDoNotCancelEachOther() async throws {
+        let fixture = try makeFixture()
+        let session = fixture.session
+        await session.start()
+        await session.waitForPendingWork()
+
+        let firstGate = ContinuationGate()
+        let secondGate = ContinuationGate()
+        let observations = ReloadObservations()
+
+        session.beginExternalReload(forPath: "first.swift") {
+            await firstGate.wait()
+            observations.record("first", cancelled: Task.isCancelled)
+        }
+        session.beginExternalReload(forPath: "second.swift") {
+            await secondGate.wait()
+            observations.record("second", cancelled: Task.isCancelled)
+        }
+
+        XCTAssertEqual(
+            session.pathsWithExternalReloadInFlight,
+            ["first.swift", "second.swift"]
+        )
+
+        firstGate.open()
+        secondGate.open()
+        await session.waitForPendingWork()
+
+        XCTAssertEqual(Set(observations.completedPaths), ["first", "second"])
+        XCTAssertEqual(observations.cancelledPaths, [])
+        XCTAssertTrue(session.pathsWithExternalReloadInFlight.isEmpty)
+    }
+
+    func testExternalReloadOfTheSamePathSupersedesTheOlderOne() async throws {
+        let fixture = try makeFixture()
+        let session = fixture.session
+        await session.start()
+        await session.waitForPendingWork()
+
+        let staleGate = ContinuationGate()
+        let freshGate = ContinuationGate()
+        let observations = ReloadObservations()
+
+        session.beginExternalReload(forPath: "same.swift") {
+            await staleGate.wait()
+            observations.record("stale", cancelled: Task.isCancelled)
+        }
+        session.beginExternalReload(forPath: "same.swift") {
+            await freshGate.wait()
+            observations.record("fresh", cancelled: Task.isCancelled)
+        }
+        freshGate.open()
+        await session.waitForPendingWork()
+
+        XCTAssertEqual(observations.cancelledPaths, ["stale"])
+        XCTAssertEqual(Set(observations.completedPaths), ["fresh", "stale"])
+        XCTAssertTrue(session.pathsWithExternalReloadInFlight.isEmpty)
+    }
+
+    func testCancellingAnExternalReloadStopsOnlyThatPath() async throws {
+        let fixture = try makeFixture()
+        let session = fixture.session
+        await session.start()
+        await session.waitForPendingWork()
+
+        let deletedGate = ContinuationGate()
+        let survivingGate = ContinuationGate()
+        let observations = ReloadObservations()
+
+        session.beginExternalReload(forPath: "deleted.swift") {
+            await deletedGate.wait()
+            observations.record("deleted", cancelled: Task.isCancelled)
+        }
+        session.beginExternalReload(forPath: "surviving.swift") {
+            await survivingGate.wait()
+            observations.record("surviving", cancelled: Task.isCancelled)
+        }
+        session.cancelExternalReload(forPath: "deleted.swift")
+        survivingGate.open()
+        await session.waitForPendingWork()
+
+        XCTAssertEqual(observations.cancelledPaths, ["deleted"])
+        XCTAssertEqual(
+            session.pathsWithExternalReloadInFlight,
+            []
+        )
+    }
+
+    /// A cancelled reload finishing late must not deregister the reload
+    /// that replaced it, or the next change to that path would have
+    /// nothing to supersede and two reads would race for the same tab.
+    func testARestartedReloadStaysTrackedWhenItsPredecessorFinishesLate() async throws {
+        let fixture = try makeFixture()
+        let session = fixture.session
+        await session.start()
+        await session.waitForPendingWork()
+
+        let staleGate = ContinuationGate()
+        let freshGate = ContinuationGate()
+        let observations = ReloadObservations()
+
+        let stale = session.beginExternalReload(forPath: "restarted.swift") {
+            await staleGate.wait()
+            observations.record("stale", cancelled: Task.isCancelled)
+        }
+        session.cancelExternalReload(forPath: "restarted.swift")
+        let fresh = session.beginExternalReload(forPath: "restarted.swift") {
+            await freshGate.wait()
+            observations.record("fresh", cancelled: Task.isCancelled)
+        }
+        await stale.value
+
+        XCTAssertEqual(
+            session.pathsWithExternalReloadInFlight,
+            ["restarted.swift"],
+            "the restarted reload must still be the tracked one for its path"
+        )
+
+        freshGate.open()
+        await fresh.value
+
+        XCTAssertEqual(observations.cancelledPaths, ["stale"])
+        XCTAssertTrue(session.pathsWithExternalReloadInFlight.isEmpty)
     }
 
     func testWorkStartedAfterShutdownIsRefused() async throws {
@@ -655,6 +878,21 @@ final class WorkspaceSessionTests: XCTestCase {
 
 private enum SubsystemFailure: Error {
     case cannotStart
+}
+
+/// Records which per-path external reloads ran and which of them
+/// observed cancellation, from inside session-owned work.
+@MainActor
+private final class ReloadObservations {
+    private(set) var completedPaths: [String] = []
+    private(set) var cancelledPaths: [String] = []
+
+    func record(_ path: String, cancelled: Bool) {
+        completedPaths.append(path)
+        if cancelled {
+            cancelledPaths.append(path)
+        }
+    }
 }
 
 /// Resumes exactly once, either explicitly or on task cancellation,

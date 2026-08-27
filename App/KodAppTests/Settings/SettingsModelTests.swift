@@ -111,6 +111,7 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(window.minSize.width, 800)
         XCTAssertGreaterThanOrEqual(window.minSize.height, 560)
         XCTAssertTrue(window.styleMask.contains(.resizable))
+        XCTAssertEqual(window.title, "Updates")
 
         controller.showLanguageSupport(profileIdentifier: "swift")
         XCTAssertEqual(window.title, "Swift")

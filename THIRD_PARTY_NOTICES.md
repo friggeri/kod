@@ -1,8 +1,9 @@
 # Third-party notices
 
-Kod includes or adapts the following third-party work. Third-party work shipped
-in Kod is pinned to exact upstream commits, included locally, and never fetched
-at build or run time. Test-only tooling that is not shipped is called out
+Kod includes or adapts the following third-party work. Vendored components are
+pinned to exact upstream commits and included locally. Sparkle is pinned to an
+exact Swift Package release and resolved at build time; no dependency is
+downloaded at runtime. Test-only tooling that is not shipped is called out
 separately.
 
 ## PVC color themes
@@ -122,8 +123,8 @@ is adjusted in the same reproducible script for the target-local header path.
   `Vendor/Licenses/ripgrep-LICENSE-MIT.txt`, and
   `Vendor/Licenses/ripgrep-COPYING.txt`.
 - **Vendored at:** `Packages/KodCore/Sources/SearchCore/Resources/ripgrep/`,
-  as a prebuilt, stripped, ad-hoc-signed `rg` executable for each supported
-  architecture (`aarch64-apple-darwin`, `x86_64-apple-darwin`), copied as an
+  as a prebuilt, stripped, ad-hoc-signed Apple Silicon `rg` executable
+  (`aarch64-apple-darwin`), copied as an
   `SearchCore` package resource so it ships inside the app bundle with no
   runtime download, `PATH` lookup, or shell invocation. Kod always launches
   it via an absolute executable `URL` with a fixed argument array (see
@@ -133,20 +134,16 @@ is adjusted in the same reproducible script for the target-local header path.
 - `Scripts/vendor-ripgrep/manifest.json` records the pinned commit and the
   exact source-tarball SHA-256; `Scripts/vendor-ripgrep/vendor.sh` is the
   reproducible script that re-downloads that exact source, verifies the
-  checksum, rebuilds both architectures with Cargo, strips debug symbols,
-  ad-hoc code-signs the result, and re-vendors it — the same process used
-  to produce the binaries currently checked in. Re-run it to refresh the
+  checksum, rebuilds the Apple Silicon binary with Cargo, strips debug symbols,
+  applies a development signature, and re-vendors it — the same process used
+  to produce the binary currently checked in. The production release replaces
+  that signature with Kod's Developer ID identity before sealing the outer
+  app. Re-run the script to refresh the
   pin after review.
-- **Release-packaging note:** the binaries here are genuine, working
-  builds for both architectures (each verified to run and report `ripgrep
-  14.1.1`, including running the Intel build under Rosetta 2 on this
-  Apple-silicon host) — this is not a placeholder. What remains for a
-  shipping release is the standard supply-chain hardening any vendored
-  binary needs before distribution: notarization/hardened-runtime
-  entitlement review for the embedded executable, and wiring the
-  vendoring script into a reproducible/attested CI build rather than a
-  developer-run script, matching whatever process the Tree-sitter
-  vendoring adopts for 1.0.
+- **Release-packaging note:** the binary is a genuine, working build verified
+  to report `ripgrep 14.1.1`; it is not a placeholder. The protected release
+  workflow verifies the final nested code signature, notarizes the containing
+  app, records checksums and SBOM metadata, and emits provenance attestations.
 
 ## Test-only external language servers (never bundled or shipped)
 
@@ -234,24 +231,23 @@ supported macOS version:
 
 No other preview dependency is fetched or resolved at build or runtime.
 
-## UpdaterCore and FuzzSupport (Phase 12 release qualification)
+## Sparkle update framework
 
-`UpdaterCore` (the signed update-feed mechanism) and `FuzzSupport` (the
-seeded fuzz/property-test harness shared by every new Phase 12 fuzz
-suite) are both 100% original Kod code with **no third-party
-dependency of any kind**:
+- **Project:** [sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle)
+- **Pinned release:** `2.9.6`
+- **License:** MIT (Copyright (c) 2006-2013 Andy Matuschak, Copyright (c) 2014-2024 Sparkle Project) — full text at `Vendor/Licenses/sparkle-LICENSE.txt`. Kod itself is licensed separately under its own MIT license.
+- **Use:** Automated, secure macOS application updates (downloading, verifying, and installing).
 
-- `UpdaterCore` uses only `CryptoKit` (Ed25519 signing/verification) and
-  `Foundation`; its semantic-version and release-architecture models are
-  owned by `UpdaterCore`.
-- `FuzzSupport` uses only `Foundation` (a from-scratch SplitMix64
-  pseudo-random generator, not a vendored fuzzing library).
+## FuzzSupport (Phase 12 release qualification)
+
+`FuzzSupport` (the seeded fuzz/property-test harness shared by every new Phase 12 fuzz suite) is 100% original Kod code with **no third-party dependency of any kind**:
+
+- `FuzzSupport` uses only `Foundation` (a from-scratch SplitMix64 pseudo-random generator, not a vendored fuzzing library).
 
 `Scripts/release/`'s packaging scripts call only Apple's own
 command-line tools already present on every macOS development machine
 (`xcodebuild`, `codesign`, `xcrun notarytool`/`stapler`, `spctl`,
-`hdiutil`, `ditto`, `shasum`) plus this repository's own
-`UpdateFeedTool` executable — nothing new to
+`hdiutil`, `ditto`, `shasum`) — nothing new to
 vendor or attribute.
 
 There is nothing to pin, vendor, or attribute here beyond what this

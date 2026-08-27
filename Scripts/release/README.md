@@ -1,59 +1,96 @@
-# Kod release packaging (Phase 12)
+# Kod release pipeline
 
-This directory holds Kod's reproducible release-qualification pipeline: building, cross-building, packaging,
-signing/notarizing, and verifying a distributable Kod build (SPEC 17 M4: "Signed/notarized distribution,
-updater, diagnostics export, and release documentation"; SPEC 16.2 #14).
+Kod v0.1.x is distributed as a Developer-ID-signed and notarized Apple
+Silicon DMG. Sparkle uses a separately published ZIP and signed appcast from
+the same GitHub Release.
 
-## What is and is not possible in this environment
+Production releases run only through the protected manual GitHub Actions
+workflow. It resolves dependencies, runs every qualification test, and
+downloads/checksums Sparkle and CycloneDX tools before importing Developer ID
+credentials or writing any notarization key. `package-release.sh` is
+intentionally fail-closed: `preflight.sh` requires the exact annotated
+`v<MARKETING_VERSION>` tag, a clean `friggeri/kod` tree, Apple Silicon, and
+real signing and notarization credentials. It never packages an ad-hoc or
+Intel build, and it aborts before a draft GitHub Release can be created.
 
-This environment (and any automated CI environment like it) has:
+## Required environment
 
-- **No production Apple Developer ID Application signing certificate.**
-- **No production App Store Connect notarization API credentials.**
-- **No physical Intel Mac.**
-- **No physical clean Mac** to run a real "download and launch for the first time" Gatekeeper test on.
+- `KOD_CODE_SIGN_IDENTITY`
+- `KOD_DEVELOPMENT_TEAM`
+- `KOD_NOTARIZATION_KEYCHAIN_PROFILE`, or all three
+  `KOD_NOTARIZATION_API_KEY_PATH`, `KOD_NOTARIZATION_API_KEY_ID`, and
+  `KOD_NOTARIZATION_API_ISSUER_ID`
+- `SPARKLE_PUBLIC_ED_KEY`
+- `KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR`, populated by a successful
+  dependency-resolution step before credentials are imported
 
-None of the scripts here fabricate evidence for any of these. Every script that needs one of the above reads
-it *only* from an environment variable or the keychain (see each script's own header comment for the exact
-variable names) and, if it is missing, prints exactly what is missing and exits non-zero — it never signs
-with an ad hoc identity and calls that "notarized," never skips a check silently, and never claims a real
-clean-Mac or real-Intel-hardware test happened.
+The short, post-packaging Sparkle signing step additionally requires:
 
-## Pipeline stages
+- `SPARKLE_PRIVATE_KEY`
+- `KOD_SPARKLE_GENERATE_APPCAST`, pinned to Sparkle 2.9.6's
+  `generate_appcast` executable
+- `KOD_SPARKLE_SIGN_UPDATE`, pinned to Sparkle 2.9.6's `sign_update`
+  executable
 
-Run individually or via `Scripts/release/package-release.sh [version]`, which runs all of them in order and
-continues past (rather than aborting on) the credential-gated stages so every non-gated stage still produces
-its artifact:
+The metadata-finalization step requires `KOD_CYCLONEDX_CLI`, the checksummed
+official CycloneDX CLI validator pinned by the release workflow.
 
-| Script | What it does | Gated on |
-| --- | --- | --- |
-| `build-archive.sh [arm64\|x86_64]` | `xcodebuild archive` for Release | nothing — runs fully in this environment |
-| `cross-build-x86_64.sh` | Cross-builds the x86_64 archive | nothing (see `docs/intel-compatibility-report.md` for what cross-building does and does not prove) |
-| `verify-install-lifecycle.py` | Static clean-install/upgrade/rollback/uninstall checks on isolated temp roots | nothing |
-| `generate-sbom.py` | CycloneDX-shaped SBOM of every vendored component | nothing |
-| `codesign-and-notarize.sh` | Hardened-runtime codesign + `notarytool submit --wait` + staple | **`KOD_CODE_SIGN_IDENTITY` and (`KOD_NOTARIZATION_KEYCHAIN_PROFILE` or the `KOD_NOTARIZATION_API_KEY_*` trio)** |
-| `verify-gatekeeper.sh` | Static `spctl -a` assessment (not a real clean-Mac launch) | nothing to run, but only meaningfully *passes* after real notarization |
-| `make-dmg.sh` | Packages a DMG + ZIP with `THIRD_PARTY_NOTICES.md` and complete third-party license texts | nothing |
-| `checksums.sh` | SHA-256 of every DMG/ZIP | nothing |
-| `generate-provenance.py` | Unsigned build-provenance JSON per artifact | nothing (signing it is a separate, credential-gated step — see the script) |
-| `generate-homebrew-cask.py` | Homebrew Cask template | nothing (produces placeholders until a real published DMG exists) |
-| `sign-update-feed.sh` | Signs `UpdaterCore`'s update feed | **`KOD_UPDATE_FEED_SIGNING_KEY_SEED_BASE64` and `KOD_UPDATE_FEED_SIGNING_KEY_ID`** |
+The private Sparkle key exists only in the appcast-signing step and is passed
+to Sparkle over standard input (`--ed-key-file -`), never as an argument.
+Before metadata is finalized, the key is cryptographically challenged against
+the exact `SUPublicEDKey` in the built app, the ZIP enclosure signature is
+verified with that public key, and pinned Sparkle `sign_update` verifies the
+signed appcast. Pinned Sparkle 2.9.6 ships
+universal `arm64+x86_64` framework and helper binaries; `build-archive.sh`
+thins every Sparkle Mach-O to arm64 first (`thin-macho-arm64.sh`) and
+leaves non-Mach-O resources untouched. Missing helpers or a binary without
+an arm64 slice fail closed. The archive is then signed inside-out with a
+real Developer ID identity: Sparkle XPC services, `Updater.app`,
+`Autoupdate`, the Sparkle framework, bundled ripgrep, then `Kod.app`. The
+DMG is signed, and both the app and DMG are notarized and stapled. GitHub
+Actions imports Apple credentials into an ephemeral keychain, keeps the
+login keychain search list, and removes the ephemeral keychain at the end
+of the job. `Scripts/release/test-thin-macho-arm64.sh` exercises the
+thinner with local universal, arm64-only, and invalid fixtures and does
+not need production credentials.
 
-## Credential handling
+The protected `release` environment must define these secrets:
 
-- `KOD_CODE_SIGN_IDENTITY`: a Developer ID Application certificate's common name, already present in the
-  release machine's keychain (never a `.p12` file committed anywhere).
-- `KOD_NOTARIZATION_KEYCHAIN_PROFILE`: a profile name previously stored via `xcrun notarytool
-  store-credentials` on the release machine, **or** `KOD_NOTARIZATION_API_KEY_PATH` /
-  `KOD_NOTARIZATION_API_KEY_ID` / `KOD_NOTARIZATION_API_ISSUER_ID` for an App Store Connect API key.
-- `KOD_UPDATE_FEED_SIGNING_KEY_SEED_BASE64` / `KOD_UPDATE_FEED_SIGNING_KEY_ID`: an Ed25519 seed generated
-  offline via `swift run --package-path Packages/KodCore UpdateFeedTool generate-key` — never generated by,
-  or stored in, this repository.
+- `DEVELOPER_ID_P12_BASE64`
+- `DEVELOPER_ID_P12_PASSWORD`
+- `DEVELOPER_ID_APPLICATION_IDENTITY`
+- `APPLE_TEAM_ID`
+- `APP_STORE_CONNECT_PRIVATE_KEY`
+- `APP_STORE_CONNECT_KEY_ID`
+- `APP_STORE_CONNECT_ISSUER_ID`
+- `SPARKLE_PUBLIC_ED_KEY`
+- `SPARKLE_PRIVATE_KEY`
 
-None of these variables have a default value in this repository, and no script here ever invents one.
+Generate the Sparkle key with Sparkle's official `generate_keys` tool. Retain
+an offline backup of the private key. Once generated, replace
+`REPLACE_WITH_SPARKLE_PUBLIC_KEY` in the Xcode project with the public key as
+well as configuring the release environment.
 
-## Real Intel-hardware and clean-Mac testing
+## Output
 
-See `docs/intel-compatibility-report.md` for exactly what was and was not verified about x86_64 compatibility
-without real Intel hardware, and `docs/manual-voiceover-checklist.md` for the one release check that requires
-a human.
+The workflow runs `package-release.sh`, then `sign-appcast.sh`, then
+`finalize-release.sh`. Together they produce:
+
+- `Kod-0.1.0-arm64.dmg`
+- `Kod-0.1.0-arm64.zip`
+- `Kod-0.1.0-licenses.zip`
+- `appcast.xml`
+- `SHA256SUMS.txt`
+- `sbom.cdx.json`
+- provenance JSON for each primary artifact
+
+`finalize-release.sh` validates the generated SBOM against CycloneDX 1.5 with
+the pinned official CLI; release-specific license locations use CycloneDX
+name/value properties, not unsupported fields. `.github/workflows/release.yml`
+creates a draft only after every gate succeeds. The separate protected publish
+workflow resolves the immutable annotated tag commit and verifies GitHub build
+attestations for every distributable archive against that commit and
+`.github/workflows/release.yml`; draft checksums are supplementary rather than
+the trust root.
+
+Homebrew and Intel builds are not supported for v0.1.0.

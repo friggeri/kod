@@ -5,7 +5,6 @@ set -eu
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 output_dir="$repository_root/Artifacts/website"
 arm64_download_url=${KOD_ARM64_DOWNLOAD_URL:-}
-x86_64_download_url=${KOD_X86_64_DOWNLOAD_URL:-}
 release_tag=${KOD_RELEASE_TAG:-}
 
 if [ "$#" -ne 0 ]; then
@@ -13,8 +12,8 @@ if [ "$#" -ne 0 ]; then
     exit 64
 fi
 
-if [ -z "$arm64_download_url" ] || [ -z "$x86_64_download_url" ] || [ -z "$release_tag" ]; then
-    printf '%s\n' "KOD_ARM64_DOWNLOAD_URL, KOD_X86_64_DOWNLOAD_URL, and KOD_RELEASE_TAG are required." >&2
+if [ -z "$arm64_download_url" ] || [ -z "$release_tag" ]; then
+    printf '%s\n' "KOD_ARM64_DOWNLOAD_URL and KOD_RELEASE_TAG are required." >&2
     exit 64
 fi
 
@@ -23,15 +22,6 @@ case "$arm64_download_url" in
         ;;
     *)
         printf '%s\n' "KOD_ARM64_DOWNLOAD_URL must target an arm64 DMG in a friggeri/kod GitHub release." >&2
-        exit 64
-        ;;
-esac
-
-case "$x86_64_download_url" in
-    https://github.com/friggeri/kod/releases/download/*-x86_64.dmg)
-        ;;
-    *)
-        printf '%s\n' "KOD_X86_64_DOWNLOAD_URL must target an x86_64 DMG in a friggeri/kod GitHub release." >&2
         exit 64
         ;;
 esac
@@ -48,7 +38,6 @@ escape_sed_replacement() {
 }
 
 arm64_replacement=$(escape_sed_replacement "$arm64_download_url")
-x86_64_replacement=$(escape_sed_replacement "$x86_64_download_url")
 release_tag_replacement=$(escape_sed_replacement "$release_tag")
 
 rm -rf "$output_dir"
@@ -65,7 +54,6 @@ cp "$repository_root/App/KodApp/Resources/Assets.xcassets/AppIcon.appiconset/App
 
 sed \
     -e "s|__KOD_ARM64_DOWNLOAD_URL__|$arm64_replacement|g" \
-    -e "s|__KOD_X86_64_DOWNLOAD_URL__|$x86_64_replacement|g" \
     -e "s|__KOD_RELEASE_TAG__|$release_tag_replacement|g" \
     "$output_dir/index.html" > "$output_dir/index.html.tmp"
 mv "$output_dir/index.html.tmp" "$output_dir/index.html"

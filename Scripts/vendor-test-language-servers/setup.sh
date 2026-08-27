@@ -20,6 +20,7 @@
 # from Phase 6) and needs no setup here.
 
 set -eu
+set -o pipefail
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
@@ -83,9 +84,8 @@ chmod 755 "$native_dir/marksman"
 machine_arch=$(uname -m)
 case "$machine_arch" in
     arm64) manifest_arch=arm64 ;;
-    x86_64) manifest_arch=x86_64 ;;
     *)
-        printf '%s\n' "Unsupported test-server architecture: $machine_arch" >&2
+        printf '%s\n' "Kod v0.1.x test servers require Apple Silicon; found $machine_arch." >&2
         exit 1
         ;;
 esac
@@ -113,10 +113,14 @@ python3 -m venv "$install_dir/pyright-venv"
 "$install_dir/pyright-venv/bin/pip" install --quiet "pyright==$pyright_version"
 
 printf '%s\n' "==> Ensuring the pinned rustup 'rust-analyzer' component is installed"
-if command -v rustup >/dev/null 2>&1; then
-    rustup component add rust-analyzer >/dev/null 2>&1 || true
-else
-    printf '%s\n' "rustup not found; skipping rust-analyzer setup (the Rust integration test will report it as the missing executable)." >&2
+if ! command -v rustup >/dev/null 2>&1; then
+    printf '%s\n' "BLOCKED: rustup is required to provision rust-analyzer for Phase 7+ verification." >&2
+    exit 1
+fi
+rustup component add rust-analyzer
+if ! rustup which rust-analyzer >/dev/null 2>&1; then
+    printf '%s\n' "BLOCKED: rust-analyzer is not available after rustup component add." >&2
+    exit 1
 fi
 
 printf '%s\n' "==> Done. Installed executables:"

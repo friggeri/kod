@@ -14,9 +14,17 @@ enum BoundedProcessProbe {
         outputLimit: Int = 64 * 1_024
     ) -> BoundedProcessProbeResult? {
         var descriptors: [Int32] = [0, 0]
-        guard descriptors.withUnsafeMutableBufferPointer({
-            Darwin.pipe($0.baseAddress!)
-        }) == 0 else {
+        // `baseAddress` is non-nil for any non-empty buffer, but that is a
+        // documented property rather than something the type system
+        // guarantees: an explicit guard keeps the failure a returned
+        // `nil` (no probe result) instead of a trap.
+        let pipeResult = descriptors.withUnsafeMutableBufferPointer { buffer -> Int32 in
+            guard let baseAddress = buffer.baseAddress else {
+                return -1
+            }
+            return Darwin.pipe(baseAddress)
+        }
+        guard pipeResult == 0 else {
             return nil
         }
         let readDescriptor = descriptors[0]
@@ -83,14 +91,22 @@ enum BoundedProcessProbe {
         argv.append(nil)
 
         var processIdentifier: pid_t = 0
-        let spawnResult = executableURL.path.withCString { path in
-            argv.withUnsafeMutableBufferPointer { buffer in
-                posix_spawn(
+        let spawnResult = executableURL.path.withCString { path -> Int32 in
+            argv.withUnsafeMutableBufferPointer { buffer -> Int32 in
+                // Same reasoning as the `pipe()` guard above: an empty
+                // buffer is impossible here (argv always holds at least
+                // the executable path plus the trailing `nil`), so a nil
+                // base address is reported as a spawn failure rather than
+                // force-unwrapped.
+                guard let baseAddress = buffer.baseAddress else {
+                    return EINVAL
+                }
+                return posix_spawn(
                     &processIdentifier,
                     path,
                     &fileActions,
                     &attributes,
-                    buffer.baseAddress!,
+                    baseAddress,
                     environ
                 )
             }

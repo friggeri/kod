@@ -1,10 +1,9 @@
 import Foundation
 
-/// The two Apple-silicon/Intel architectures Kod bundles a pinned `rg`
-/// binary for. See `Scripts/vendor-ripgrep` for how these are produced.
+/// The Apple Silicon architecture Kod v0.1.x bundles a pinned `rg`
+/// binary for. See `Scripts/vendor-ripgrep` for how it is produced.
 public enum SearchEngineArchitecture: String, Equatable, Sendable {
     case aarch64 = "aarch64-apple-darwin"
-    case x86_64 = "x86_64-apple-darwin"
 
     /// The architecture of the machine currently running Kod, or `nil` on
     /// an architecture Kod does not bundle an engine for (there is no
@@ -12,8 +11,6 @@ public enum SearchEngineArchitecture: String, Equatable, Sendable {
     public static var current: SearchEngineArchitecture? {
         #if arch(arm64)
         return .aarch64
-        #elseif arch(x86_64)
-        return .x86_64
         #else
         return nil
         #endif

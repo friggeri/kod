@@ -119,20 +119,31 @@ final class GitWorkspaceCoordinator {
     }
 
     static func gitInvalidation(
-        for batch: WorkspaceChangeBatch
+        for batch: WorkspaceChangeBatch,
+        rescanRoot: URL? = nil
     ) -> GitRepositoryInvalidation {
-        GitRepositoryInvalidation(changedPaths: batch.paths.map(\.path))
+        var paths = batch.paths.map(\.path)
+        if batch.requiresRescan, let rescanRoot {
+            paths.append(rescanRoot.path)
+        }
+        return GitRepositoryInvalidation(changedPaths: paths)
     }
 
     /// Translates the workspace's existing FSEvents batch into GitCore's
     /// repository-owned invalidation before loading a fresh snapshot.
     func handle(_ batch: WorkspaceChangeBatch) async {
+        if batch.isRootInvalidated {
+            await start()
+            return
+        }
         guard let context else {
             return
         }
         refreshGeneration &+= 1
         let generation = refreshGeneration
-        await context.invalidate(Self.gitInvalidation(for: batch))
+        await context.invalidate(
+            Self.gitInvalidation(for: batch, rescanRoot: root)
+        )
         await refresh(generation: generation)
     }
 

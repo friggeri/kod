@@ -1,15 +1,50 @@
 import CTreeSitter
 import Foundation
 
-/// Owns a `TSTree*`'s lifetime. `TSTree` is safe to read from multiple
-/// threads concurrently as long as no one is mutating it (Tree-sitter's own
-/// contract), and Kod only ever reads finished trees after parsing, so this
-/// box is `Sendable` by inspection despite wrapping a raw pointer.
-final class TSTreeBox: @unchecked Sendable {
+/// Owns one `TSTree*`'s lifetime.
+///
+/// Deliberately **not** `Sendable`. Tree-sitter's own API documentation is
+/// explicit that "syntax trees are not thread safe" and that a tree must
+/// be copied (`ts_tree_copy`) before being used on more than one thread —
+/// a finished, never-edited tree is no exception, because every tree
+/// shares refcounted `Subtree` storage whose retain/release is not
+/// atomic. Two isolation domains merely *reading* the same tree can
+/// therefore corrupt that shared refcount, so this box models exclusive
+/// ownership and `copy()` is the only way to obtain a second, independent
+/// handle.
+final class TSTreeBox {
     let pointer: OpaquePointer
 
     init(pointer: OpaquePointer) {
         self.pointer = pointer
+    }
+
+    /// An independent tree that another isolation domain may use freely.
+    /// `ts_tree_copy` is a cheap shallow copy, but it retains the shared
+    /// root subtree non-atomically, so it must be called from whichever
+    /// domain currently owns `self` — never concurrently with any other
+    /// use of this tree. Returns `nil` if the allocation fails.
+    func copy() -> sending TSTreeBox? {
+        guard let copied = ts_tree_copy(pointer) else {
+            return nil
+        }
+        return Self.adopting(copied)
+    }
+
+    /// Wraps a freshly-allocated `TSTree*` that nothing else references
+    /// yet, which is exactly what `ts_tree_copy` returns, so the box
+    /// genuinely belongs to no existing isolation region.
+    ///
+    /// Region isolation cannot derive that itself: `OpaquePointer` is not
+    /// `Sendable`, so anything built from one is conservatively treated as
+    /// staying in the caller's region. The `nonisolated(unsafe)` here is
+    /// the narrowest possible escape hatch — it applies to one
+    /// provably-fresh allocation, unlike an `@unchecked Sendable`
+    /// conformance on the type, which would also (wrongly) permit sharing
+    /// the *same* tree across domains.
+    private static func adopting(_ pointer: OpaquePointer) -> sending TSTreeBox {
+        nonisolated(unsafe) let box = TSTreeBox(pointer: pointer)
+        return box
     }
 
     deinit {
@@ -18,7 +53,11 @@ final class TSTreeBox: @unchecked Sendable {
 }
 
 /// Owns a `TSQuery*`'s lifetime, one per language, compiled once and reused
-/// for every parse in that language.
+/// for every parse in that language. Unlike a tree, a compiled query is
+/// immutable after `ts_query_new` and holds no mutable shared state (all
+/// per-execution state lives in a `TSQueryCursor`, which is created,
+/// used, and destroyed inside a single call), so sharing one across
+/// isolation domains is safe.
 final class TSQueryBox: @unchecked Sendable {
     let pointer: OpaquePointer
 

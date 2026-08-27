@@ -6,4 +6,9 @@ build/
 xcuserdata/
 target/
 Artifacts/
+*.profraw
+*.profdata
+__pycache__/
+*.pyc
+*.pyo
 

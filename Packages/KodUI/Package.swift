@@ -14,6 +14,16 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
+        .library(
+            name: "KodUI",
+            targets: [
+                "KodUIComponents",
+                "SearchUI",
+                "PreviewUI",
+                "GitUI",
+                "EditorUI"
+            ]
+        ),
         .library(name: "KodUIComponents", targets: ["KodUIComponents"]),
         .library(name: "SearchUI", targets: ["SearchUI"]),
         .library(name: "PreviewUI", targets: ["PreviewUI"]),

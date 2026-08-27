@@ -6,30 +6,27 @@ summarizes what Kod does and does not do with your data, mirroring
 
 ## What never leaves your Mac
 
-By default, Kod sends nothing over the network. Specifically:
+Kod never sends workspace content or usage telemetry over the network.
+Automatic update checks are the one default network request and are described
+below. Specifically:
 
 - Source code, file paths, symbols, diagnostics, themes, fonts, search
   terms, and repository data never leave your Mac.
 - Kod collects **no usage telemetry** of any kind — no analytics SDK,
   no "phone home" on launch, no anonymous usage counters.
-- Kod does not expose crash-reporting controls in Settings and, in this
-  build, has no real upload destination configured at all. The only shipped
-  crash-report transport is a permanent no-op (`NoopCrashReportTransport`
-  in `DiagnosticsCore`) that does nothing when a report is "sent." This
-  remains true even if an earlier build persisted an enabled preference.
+- Kod has no crash-report transport. Standard macOS crash reports remain under
+  the user's control.
 
 ## The only network activity Kod ever performs
 
-Every network call Kod can make is attributable to exactly one of these
-purposes, and each is either off by default or requires an explicit,
-per-instance opt-in:
+Every network call attributable to Kod is limited to these purposes:
 
 | Purpose | When it happens | Default |
 | --- | --- | --- |
-| App update check | Kod's own signed update-feed check (`UpdaterCore`), verified with a pinned Ed25519 key before any entry is ever considered — see below | Depends on distribution channel |
+| App update check | Sparkle checks `https://github.com/friggeri/kod/releases/latest/download/appcast.xml` over HTTPS | Enabled by default and configurable in Settings; installation always requires confirmation |
 | JSON/YAML/TOML schema lookup | A trusted workspace's language server resolves a remote schema referenced by an open document | Disabled until you trust the workspace |
 | Remote Markdown image | A Markdown file you're viewing references a remote image | Off; requires a per-document opt-in click, and is blocked entirely in untrusted workspaces |
-| Crash report upload | Not exposed by the current UI; the shared `DiagnosticsCore` path still requires a persisted opt-in | Unavailable; no real transport is configured in this build |
+| Crash report upload | Not exposed; relies entirely on native macOS crash reporting | Unavailable in Kod itself |
 
 Third-party language-server processes may have behavior outside Kod's direct
 control after a workspace is trusted. Kod's built-in JSON, YAML, and TOML
@@ -39,24 +36,20 @@ connection for a purpose not listed above, that is a bug — please report it.
 
 ## The update mechanism
 
-Kod's update check (`UpdaterCore`) fetches a single signed JSON feed and
-verifies its Ed25519 signature against a small, pinned set of trusted
-keys **before** any entry in it is ever decoded or considered — an
-unsigned, tampered, or unknown-key feed is rejected outright, never
-silently trusted. A downloaded update archive's SHA-256 digest is
-verified against the feed's declared digest before it is ever
-installed. Rolling back to a previous version is only ever offered for
-a release the signing process explicitly marked as a safe rollback
-target — never "any older signed version" — so a version pulled for a
-security issue can never be reintroduced through rollback. No update
-check, download, or install happens without being attributable to
-this mechanism; see `Packages/KodCore/Sources/UpdaterCore` and
-`Scripts/release/README.md` for the full signing/verification design.
+Kod uses Sparkle 2.9.6 to provide automatic update checks. Sparkle checks the
+appcast at
+`https://github.com/friggeri/kod/releases/latest/download/appcast.xml` once per
+day and when you choose **Check for Updates...**. GitHub receives the ordinary
+connection metadata needed to serve that request, such as your IP address and
+HTTP headers; it receives no workspace content. Checks can be disabled in
+Settings. Sparkle verifies the appcast and archive with Kod's pinned EdDSA
+public key, and the app is Developer-ID signed and notarized. Kod always asks
+before downloading or installing an update.
 
 ## Redaction
 
 Any diagnostic payload produced through `DiagnosticsCore`, including its
-support-bundle generator or crash-report path, deterministically redacts the
+support-bundle generator, deterministically redacts the
 following categories before they can be written anywhere or considered for
 upload (`DiagnosticsCore.RedactionEngine`):
 

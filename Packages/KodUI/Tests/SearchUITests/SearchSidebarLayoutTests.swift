@@ -141,4 +141,200 @@ final class SearchSidebarLayoutTests: XCTestCase {
         XCTAssertEqual(searchField.stringValue, "")
         XCTAssertTrue(clearButton.isHidden)
     }
+
+    func testSearchStatusIsAccessibleAndAnnouncesImportantChangedStates() throws {
+        var announcements: [String] = []
+        let controller = SearchSidebarViewController(
+            root: URL(fileURLWithPath: NSTemporaryDirectory()),
+            makeSearcher: {
+                try WorkspaceTextSearcher(
+                    executableURL: URL(fileURLWithPath: "/usr/bin/true")
+                )
+            },
+            runSearchTask: { _ in Task { @MainActor in } },
+            postAccessibilityAnnouncement: { announcements.append($0) },
+            onSelectMatch: { _ in }
+        )
+        let status = try XCTUnwrap(
+            findView(identifier: "search.status", in: controller.view) as? NSTextField
+        )
+
+        XCTAssertTrue(status.isAccessibilityElement())
+        XCTAssertEqual(status.accessibilityLabel(), "Search status")
+
+        controller.applyCompletion(
+            SearchCompletion(
+                queryVersion: 1,
+                matchedFileCount: 0,
+                matchCount: 0,
+                truncated: false
+            )
+        )
+        controller.applyCompletion(
+            SearchCompletion(
+                queryVersion: 1,
+                matchedFileCount: 0,
+                matchCount: 0,
+                truncated: false
+            )
+        )
+        controller.applyCompletion(
+            SearchCompletion(
+                queryVersion: 2,
+                matchedFileCount: 2,
+                matchCount: 10,
+                truncated: true
+            )
+        )
+        controller.setStatus("Search cancelled.", announcement: .cancellation)
+        controller.setStatus("Search cancelled.", announcement: .cancellation)
+        controller.setStatus(
+            "Search failed: test failure",
+            color: .systemRed,
+            announcement: .error
+        )
+
+        XCTAssertEqual(
+            announcements,
+            [
+                "No results.",
+                "Showing first 10 matches (more available).",
+                "Search cancelled.",
+                "Search failed: test failure"
+            ]
+        )
+        XCTAssertEqual(
+            status.accessibilityValue(),
+            "Search failed: test failure"
+        )
+    }
+
+    private struct CustomSearchUnavailableError: Error, CustomStringConvertible {
+        var description: String { "engine-startup-failure" }
+    }
+
+    func testInitializationErrorDoesNotRecursivelyEnterLoadViewInProductionMode() throws {
+        let controller = SearchSidebarViewController(
+            root: URL(fileURLWithPath: NSTemporaryDirectory()),
+            makeSearcher: { throw CustomSearchUnavailableError() },
+            runSearchTask: { _ in Task { @MainActor in } },
+            onSelectMatch: { _ in }
+        )
+
+        XCTAssertFalse(controller.isViewLoaded)
+
+        let rootView = controller.view
+        XCTAssertTrue(controller.isViewLoaded)
+
+        let status = try XCTUnwrap(
+            findView(identifier: "search.status", in: rootView) as? NSTextField
+        )
+        XCTAssertFalse(status.isHidden)
+        XCTAssertTrue(status.stringValue.contains("engine-startup-failure"))
+        XCTAssertEqual(status.textColor, .systemRed)
+        XCTAssertEqual(status.accessibilityValue(), status.stringValue)
+    }
+
+    func testInitializationErrorAnnouncesStatusDuringLoadViewAndSubsequentErrorsAnnounce() throws {
+        var announcements: [String] = []
+        let controller = SearchSidebarViewController(
+            root: URL(fileURLWithPath: NSTemporaryDirectory()),
+            makeSearcher: { throw CustomSearchUnavailableError() },
+            runSearchTask: { _ in Task { @MainActor in } },
+            postAccessibilityAnnouncement: { announcements.append($0) },
+            onSelectMatch: { _ in }
+        )
+
+        XCTAssertFalse(controller.isViewLoaded)
+        XCTAssertEqual(announcements, [])
+
+        let rootView = controller.view
+        XCTAssertTrue(controller.isViewLoaded)
+        XCTAssertEqual(announcements.count, 1)
+        XCTAssertTrue(announcements[0].contains("engine-startup-failure"))
+
+        controller.setStatus(
+            "Search failed: retry error",
+            color: .systemRed,
+            announcement: .error
+        )
+        XCTAssertEqual(announcements.count, 2)
+        XCTAssertEqual(announcements[1], "Search failed: retry error")
+
+        let status = try XCTUnwrap(
+            findView(identifier: "search.status", in: rootView) as? NSTextField
+        )
+        XCTAssertEqual(status.stringValue, "Search failed: retry error")
+    }
+
+    func testPreLoadStatusUpdateDoesNotForceLoadViewAndPreservesStatusOnLoad() throws {
+        var announcements: [String] = []
+        let controller = SearchSidebarViewController(
+            root: URL(fileURLWithPath: NSTemporaryDirectory()),
+            makeSearcher: {
+                try WorkspaceTextSearcher(
+                    executableURL: URL(fileURLWithPath: "/usr/bin/true")
+                )
+            },
+            runSearchTask: { _ in Task { @MainActor in } },
+            postAccessibilityAnnouncement: { announcements.append($0) },
+            onSelectMatch: { _ in }
+        )
+
+        XCTAssertFalse(controller.isViewLoaded)
+
+        controller.setStatus(
+            "Search failed: offline error",
+            color: .systemRed,
+            announcement: .error
+        )
+
+        XCTAssertFalse(controller.isViewLoaded)
+        XCTAssertEqual(announcements, ["Search failed: offline error"])
+
+        let rootView = controller.view
+        XCTAssertTrue(controller.isViewLoaded)
+
+        let status = try XCTUnwrap(
+            findView(identifier: "search.status", in: rootView) as? NSTextField
+        )
+        XCTAssertFalse(status.isHidden)
+        XCTAssertEqual(status.stringValue, "Search failed: offline error")
+        XCTAssertEqual(status.textColor, .systemRed)
+
+        controller.setStatus(
+            "Search cancelled.",
+            announcement: .cancellation
+        )
+        XCTAssertEqual(announcements, ["Search failed: offline error", "Search cancelled."])
+    }
+
+    func testProductionAnnouncementPostsSafelyWithAndWithoutWindow() throws {
+        let controller = makeController()
+
+        XCTAssertFalse(controller.isViewLoaded)
+
+        controller.setStatus("Pre-load status", announcement: .completion)
+        XCTAssertFalse(controller.isViewLoaded)
+
+        let rootView = controller.view
+        XCTAssertTrue(controller.isViewLoaded)
+
+        controller.setStatus("Post-load detached status", announcement: .completion)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = rootView
+
+        controller.setStatus("Post-load attached status", announcement: .completion)
+
+        let status = try XCTUnwrap(
+            findView(identifier: "search.status", in: rootView) as? NSTextField
+        )
+        XCTAssertEqual(status.stringValue, "Post-load attached status")
+    }
 }

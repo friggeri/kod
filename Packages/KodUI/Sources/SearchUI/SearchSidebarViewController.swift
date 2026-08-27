@@ -2,6 +2,14 @@ import AppKit
 import DiagnosticsCore
 import SearchCore
 
+enum SearchStatusAnnouncement: Equatable {
+    case none
+    case completion
+    case cancellation
+    case truncation
+    case error
+}
+
 /// The Search sidebar surface (SPEC 8.2/5.1): a workspace-wide text search
 /// with streaming, file-grouped results. Selecting a match calls
 /// `onSelectMatch` so the owning `WorkspaceViewController` can open it in
@@ -32,6 +40,7 @@ public final class SearchSidebarViewController: NSViewController {
     /// past the current search session for the Diagnostics viewer/
     /// support bundle. Never logs the search pattern itself.
     private let diagnosticsLog: BoundedEventLog
+    private let postAccessibilityAnnouncement: (@MainActor (String) -> Void)?
 
     private let searchIconView = NSImageView()
     private let searchField = NSTextField()
@@ -50,6 +59,7 @@ public final class SearchSidebarViewController: NSViewController {
     private var fileResults: [SearchFileResult] = []
     private var queryVersion = 0
     private var searchTask: Task<Void, Never>?
+    private var isSearchInProgress = false
 
     public init(
         root: URL,
@@ -63,6 +73,7 @@ public final class SearchSidebarViewController: NSViewController {
             Task { @MainActor in await operation() }
         },
         reportSearchHealth: @escaping @MainActor (String?) -> Void = { _ in },
+        postAccessibilityAnnouncement: (@MainActor (String) -> Void)? = nil,
         onSelectMatch: @escaping (MatchSelection) -> Void
     ) {
         self.root = root
@@ -70,6 +81,7 @@ public final class SearchSidebarViewController: NSViewController {
         self.makeSearcher = makeSearcher
         self.runSearchTask = runSearchTask
         self.reportSearchHealth = reportSearchHealth
+        self.postAccessibilityAnnouncement = postAccessibilityAnnouncement
         self.onSelectMatch = onSelectMatch
         var unavailableReason: String?
         do {
@@ -278,13 +290,24 @@ public final class SearchSidebarViewController: NSViewController {
         searchDetailsStack.translatesAutoresizingMaskIntoConstraints = false
         searchDetailsStack.isHidden = true
 
-        statusLabel.textColor = .secondaryLabelColor
         statusLabel.font = .systemFont(ofSize: 11)
         statusLabel.identifier = NSUserInterfaceItemIdentifier("search.status")
+        statusLabel.setAccessibilityElement(true)
+        statusLabel.setAccessibilityRole(.staticText)
+        statusLabel.setAccessibilityLabel(
+            searchUIStrings.string(
+                "Search status",
+                comment: "Accessibility label for workspace search status updates"
+            )
+        )
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         if let engineUnavailableReason {
-            setStatus(engineUnavailableReason, color: .systemRed)
-        } else {
+            setStatus(
+                engineUnavailableReason,
+                color: .systemRed,
+                announcement: .error
+            )
+        } else if statusLabel.stringValue.isEmpty {
             setStatus("")
         }
 
@@ -423,14 +446,29 @@ public final class SearchSidebarViewController: NSViewController {
 
         fileResults = []
         outlineView.reloadData()
+        let hadActiveSearch = isSearchInProgress
         searchTask?.cancel()
         searchTask = nil
+        isSearchInProgress = false
 
         guard !pattern.isEmpty else {
-            setStatus(
-                engineUnavailableReason ?? "",
-                color: engineUnavailableReason == nil ? .secondaryLabelColor : .systemRed
-            )
+            if let engineUnavailableReason {
+                setStatus(
+                    engineUnavailableReason,
+                    color: .systemRed,
+                    announcement: .error
+                )
+            } else if hadActiveSearch {
+                setStatus(
+                    searchUIStrings.string(
+                        "Search cancelled.",
+                        comment: "Status label shown when an active workspace search is cancelled"
+                    ),
+                    announcement: .cancellation
+                )
+            } else {
+                setStatus("")
+            }
             return
         }
         let searcher: WorkspaceTextSearcher
@@ -449,7 +487,11 @@ public final class SearchSidebarViewController: NSViewController {
                 "Search is unavailable: \(reason).",
                 comment: "Status text shown when the workspace search engine fails to initialize"
             )
-            setStatus(engineUnavailableReason ?? "", color: .systemRed)
+            setStatus(
+                engineUnavailableReason ?? "",
+                color: .systemRed,
+                announcement: .error
+            )
             return
         }
 
@@ -462,6 +504,7 @@ public final class SearchSidebarViewController: NSViewController {
         setStatus(
             searchUIStrings.string("Searching…", comment: "Status label shown while a workspace search is in progress")
         )
+        isSearchInProgress = true
 
         searchTask = runSearchTask { [weak self] in
             guard let self else {
@@ -481,6 +524,7 @@ public final class SearchSidebarViewController: NSViewController {
                             return
                         }
                         self.applyCompletion(completion)
+                        self.isSearchInProgress = false
                         self.reportSearchHealth(nil)
                     }
                 }
@@ -488,12 +532,17 @@ public final class SearchSidebarViewController: NSViewController {
                 guard version == self.queryVersion else {
                     return
                 }
+                self.isSearchInProgress = false
+                guard !Task.isCancelled else {
+                    return
+                }
                 self.setStatus(
                     searchUIStrings.string(
                         "Search failed: \(String(describing: error))",
                         comment: "Status label shown when a workspace search fails"
                     ),
-                    color: .systemRed
+                    color: .systemRed,
+                    announcement: .error
                 )
                 self.reportSearchHealth(String(describing: error))
                 await self.diagnosticsLog.record(
@@ -521,22 +570,30 @@ public final class SearchSidebarViewController: NSViewController {
         )
     }
 
-    private func applyCompletion(_ completion: SearchCompletion) {
+    func applyCompletion(_ completion: SearchCompletion) {
         if completion.matchCount == 0 {
-            setStatus(searchUIStrings.string("No results.", comment: "Status label shown when a workspace search finds no matches"))
+            setStatus(
+                searchUIStrings.string(
+                    "No results.",
+                    comment: "Status label shown when a workspace search finds no matches"
+                ),
+                announcement: .completion
+            )
         } else if completion.truncated {
             setStatus(
                 searchUIStrings.string(
                     "Showing first \(completion.matchCount) matches (more available).",
                     comment: "Status label shown when a workspace search's results were truncated"
-                )
+                ),
+                announcement: .truncation
             )
         } else {
             setStatus(
                 searchUIStrings.string(
                     "\(completion.matchCount) matches in \(completion.matchedFileCount) files.",
                     comment: "Status label summarizing a completed workspace search's match/file counts"
-                )
+                ),
+                announcement: .completion
             )
         }
     }
@@ -598,10 +655,33 @@ public final class SearchSidebarViewController: NSViewController {
         return label
     }
 
-    private func setStatus(_ message: String, color: NSColor = .secondaryLabelColor) {
+    func setStatus(
+        _ message: String,
+        color: NSColor = .secondaryLabelColor,
+        announcement: SearchStatusAnnouncement = .none
+    ) {
+        let didChange = statusLabel.stringValue != message
         statusLabel.stringValue = message
         statusLabel.textColor = color
         statusLabel.isHidden = message.isEmpty
+        statusLabel.setAccessibilityValue(message)
+        guard didChange, !message.isEmpty, announcement != .none else {
+            return
+        }
+        if let postAccessibilityAnnouncement {
+            postAccessibilityAnnouncement(message)
+        } else {
+            let announcementElement: Any =
+                viewIfLoaded?.window ?? NSApplication.shared
+            NSAccessibility.post(
+                element: announcementElement,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: message,
+                    .priority: NSAccessibilityPriorityLevel.high.rawValue
+                ]
+            )
+        }
     }
 
     private func updateClearSearchButton() {

@@ -28,15 +28,32 @@ let package = Package(
         .library(name: "GitCore", targets: ["GitCore"]),
         .library(name: "PreviewCore", targets: ["PreviewCore"]),
         .library(name: "DiagnosticsCore", targets: ["DiagnosticsCore"]),
-        .library(name: "UpdaterCore", targets: ["UpdaterCore"]),
         .executable(name: "KodFixtureGenerator", targets: ["KodFixtureGenerator"]),
         .executable(name: "FakeLanguageServer", targets: ["FakeLanguageServer"]),
         .executable(name: "GitProcessSpy", targets: ["GitProcessSpy"]),
-        .executable(name: "UpdateFeedTool", targets: ["UpdateFeedTool"]),
         .executable(name: "KodMemoryBenchmark", targets: ["KodMemoryBenchmark"])
     ],
     targets: [
-        .target(name: "KodCore"),
+        .target(
+            name: "KodCore",
+            dependencies: [
+                "SettingsCore",
+                "SourceModel",
+                "SourceIO",
+                "CodeViewport",
+                "WorkspaceCore",
+                "SyntaxCore",
+                "ThemeCore",
+                "TextDecorationModel",
+                "FontCore",
+                "SearchCore",
+                "LanguageClient",
+                "LanguageAdapters",
+                "GitCore",
+                "PreviewCore",
+                "DiagnosticsCore"
+            ]
+        ),
         .target(name: "SettingsCore"),
         .target(name: "SourceModel"),
         .target(name: "SourceIO", dependencies: ["SourceModel"]),
@@ -386,11 +403,6 @@ let package = Package(
             ]
         ),
         .target(name: "DiagnosticsCore", dependencies: ["SettingsCore"]),
-        .target(name: "UpdaterCore"),
-        .executableTarget(
-            name: "UpdateFeedTool",
-            dependencies: ["UpdaterCore"]
-        ),
         .executableTarget(
             name: "KodMemoryBenchmark",
             dependencies: ["WorkspaceCore", "SourceModel", "SyntaxCore"]
@@ -487,10 +499,6 @@ let package = Package(
         .testTarget(
             name: "DiagnosticsCoreTests",
             dependencies: ["DiagnosticsCore", "SettingsCore", "FuzzSupport"]
-        ),
-        .testTarget(
-            name: "UpdaterCoreTests",
-            dependencies: ["UpdaterCore"]
         ),
         .testTarget(
             name: "PerformanceSuiteTests",

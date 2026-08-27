@@ -39,9 +39,16 @@ public struct ScopeHeader: Equatable, Sendable {
     }
 }
 
-struct SyntaxTreeLayer: Sendable {
+struct SyntaxTreeLayer {
     let treeBox: TSTreeBox
     let language: SyntaxLanguage
+
+    func copy() -> sending SyntaxTreeLayer? {
+        guard let copiedBox = treeBox.copy() else {
+            return nil
+        }
+        return SyntaxTreeLayer(treeBox: copiedBox, language: language)
+    }
 }
 
 /// A parsed Tree-sitter tree bound to the exact snapshot bytes it was
@@ -49,7 +56,13 @@ struct SyntaxTreeLayer: Sendable {
 /// `SyntaxEngine` discards any `SyntaxTree` whose `snapshotVersion` no
 /// longer matches the active snapshot before it is ever composited into a
 /// decoration layer.
-public struct SyntaxTree: Sendable {
+///
+/// Not `Sendable`: it owns `TSTree`s, which tree-sitter documents as not
+/// thread safe (see `TSTreeBox`). A tree is *transferred* out of
+/// `SyntaxEngine` as a `sending` result, and any second isolation domain
+/// that needs one at the same time gets its own `copy()` rather than a
+/// shared reference.
+public struct SyntaxTree {
     public let language: SyntaxLanguage
     public let snapshotVersion: Int
 
@@ -79,6 +92,36 @@ public struct SyntaxTree: Sendable {
 
     private var rootNode: TSNode {
         ts_tree_root_node(treeBox.pointer)
+    }
+
+    /// An independent tree describing the same parse, safe to hand to
+    /// another isolation domain while this one keeps using the original
+    /// (tree-sitter's documented requirement for using a tree on more
+    /// than one thread). Must be called from the domain that owns `self`;
+    /// the copy is a fresh value with no shared mutable state.
+    ///
+    /// Returns `nil` only if a tree copy could not be allocated, in which
+    /// case the caller does without highlighting rather than sharing a
+    /// tree unsafely.
+    public func copy() -> sending SyntaxTree? {
+        guard let copiedTree = treeBox.copy() else {
+            return nil
+        }
+        var copiedLayers: [SyntaxTreeLayer] = []
+        copiedLayers.reserveCapacity(additionalLayers.count)
+        for layer in additionalLayers {
+            guard let copiedLayer = layer.copy() else {
+                return nil
+            }
+            copiedLayers.append(copiedLayer)
+        }
+        return SyntaxTree(
+            treeBox: copiedTree,
+            additionalLayers: copiedLayers,
+            utf8: utf8,
+            language: language,
+            snapshotVersion: snapshotVersion
+        )
     }
 
     /// Runs the language's bundled highlight query restricted to

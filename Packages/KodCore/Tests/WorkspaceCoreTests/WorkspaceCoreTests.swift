@@ -315,6 +315,11 @@ final class WorkspaceCoreTests: XCTestCase {
             ),
             metadataProvider: FixtureMetadataProvider(
                 metadata: [
+                    sources: WorkspacePathMetadata(
+                        isDirectory: true,
+                        isSymbolicLink: false,
+                        isHidden: false
+                    ),
                     child: WorkspacePathMetadata(
                         isDirectory: false,
                         isSymbolicLink: false,
@@ -449,6 +454,199 @@ final class WorkspaceCoreTests: XCTestCase {
                 .directoryEnumerationFailed(root, .permissionDenied)
             )
         }
+    }
+
+    func testScannerOrdersChildrenByNaturalCaseInsensitiveComparison() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try FileManager.default.removeItem(at: root)
+        }
+
+        for name in ["file-10.swift", "Beta.swift", "file-2.swift", "alpha.swift", "File-3.swift"] {
+            try Data("source".utf8).write(to: root.appendingPathComponent(name))
+        }
+
+        let expected = [
+            "alpha.swift",
+            "Beta.swift",
+            "file-2.swift",
+            "File-3.swift",
+            "file-10.swift"
+        ]
+
+        var scanned: [String] = []
+        for try await batch in WorkspaceScanner().scan(root: root) {
+            scanned.append(contentsOf: batch.entries.map(\.relativePath))
+        }
+        XCTAssertEqual(scanned, expected)
+
+        var listed: [String] = []
+        for try await batch in WorkspaceScanner().scanDirectory(root: root, relativePath: "") {
+            listed.append(contentsOf: batch.entries.map(\.relativePath))
+        }
+        XCTAssertEqual(listed, expected)
+    }
+
+    func testHiddenClassificationUsesChildNameRatherThanAncestorPath() async throws {
+        let root = URL(fileURLWithPath: "/virtual-workspace", isDirectory: true)
+        let hiddenDirectory = root.appendingPathComponent(".config", isDirectory: true)
+        let visibleInsideHidden = hiddenDirectory.appendingPathComponent("settings.json")
+        let sources = root.appendingPathComponent("Sources", isDirectory: true)
+        let nestedDotFile = sources.appendingPathComponent(".env")
+        let nestedFile = sources.appendingPathComponent("main.swift")
+        let rootDotFile = root.appendingPathComponent(".hidden.swift")
+        let directoryMetadata = WorkspacePathMetadata(
+            isDirectory: true,
+            isSymbolicLink: false,
+            isHidden: false
+        )
+        let fileMetadata = WorkspacePathMetadata(
+            isDirectory: false,
+            isSymbolicLink: false,
+            isHidden: false
+        )
+        let scanner = WorkspaceScanner(
+            directoryEnumerator: FixtureDirectoryEnumerator(
+                children: [
+                    root: [hiddenDirectory, rootDotFile, sources],
+                    hiddenDirectory: [visibleInsideHidden],
+                    sources: [nestedDotFile, nestedFile]
+                ]
+            ),
+            metadataProvider: FixtureMetadataProvider(
+                metadata: [
+                    hiddenDirectory: directoryMetadata,
+                    sources: directoryMetadata,
+                    visibleInsideHidden: fileMetadata,
+                    nestedDotFile: fileMetadata,
+                    nestedFile: fileMetadata,
+                    rootDotFile: fileMetadata
+                ]
+            ),
+            ignoreFileSource: FixtureIgnoreFileSource(contents: [:])
+        )
+
+        var visiblePaths: [String] = []
+        for try await batch in scanner.scan(root: root) {
+            visiblePaths.append(contentsOf: batch.entries.map(\.relativePath))
+        }
+        XCTAssertEqual(visiblePaths, ["Sources", "Sources/main.swift"])
+
+        var revealed: [String: WorkspaceFileEntry] = [:]
+        for try await batch in scanner.scan(
+            root: root,
+            options: WorkspaceDiscoveryOptions(includeHidden: true)
+        ) {
+            for entry in batch.entries {
+                revealed[entry.relativePath] = entry
+            }
+        }
+        XCTAssertEqual(revealed[".hidden.swift"]?.isHidden, true)
+        XCTAssertEqual(revealed["Sources/.env"]?.isHidden, true)
+        XCTAssertEqual(revealed[".config"]?.isHidden, true)
+        XCTAssertEqual(revealed[".config/settings.json"]?.isHidden, false)
+
+        for path in [rootDotFile, nestedDotFile, visibleInsideHidden, nestedFile] {
+            guard case .entry(let classified) = try scanner.classify(path: path, root: root) else {
+                return XCTFail("expected injected metadata to classify \(path)")
+            }
+            XCTAssertEqual(classified, revealed[classified.relativePath])
+        }
+    }
+
+    func testLocalMetadataMatchesUncachedValuesForFilesDirectoriesAndSymlinks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try FileManager.default.removeItem(at: root)
+        }
+
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("Sources"),
+            withIntermediateDirectories: true
+        )
+        try Data("source".utf8).write(to: root.appendingPathComponent("main.swift"))
+        try Data("hidden".utf8).write(to: root.appendingPathComponent(".hidden.swift"))
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("source-link"),
+            withDestinationURL: root.appendingPathComponent("Sources")
+        )
+
+        let provider = LocalPathMetadataProvider()
+        let children = try LocalDirectoryEnumerator().children(of: root)
+        XCTAssertEqual(children.count, 4)
+
+        var byName: [String: WorkspacePathMetadata] = [:]
+        for child in children {
+            let listed = try XCTUnwrap(provider.metadata(for: child))
+            let rebuilt = try XCTUnwrap(
+                provider.metadata(for: URL(fileURLWithPath: child.path))
+            )
+            XCTAssertEqual(
+                listed,
+                rebuilt,
+                "a listed URL must answer exactly like a freshly built one for \(child.path)"
+            )
+            byName[child.lastPathComponent] = listed
+        }
+
+        XCTAssertEqual(byName["Sources"]?.isDirectory, true)
+        XCTAssertEqual(byName["Sources"]?.isSymbolicLink, false)
+        XCTAssertEqual(byName["main.swift"]?.isDirectory, false)
+        XCTAssertEqual(byName[".hidden.swift"]?.isHidden, true)
+        XCTAssertEqual(byName["source-link"]?.isSymbolicLink, true)
+    }
+
+    func testUnreadableDirectoryOnDiskReportsTypedPermissionDenied() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let restricted = root.appendingPathComponent("restricted", isDirectory: true)
+        try FileManager.default.createDirectory(at: restricted, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try FileManager.default.removeItem(at: root)
+        }
+        try Data("secret".utf8).write(to: restricted.appendingPathComponent("secret.swift"))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000],
+            ofItemAtPath: restricted.path
+        )
+        addTeardownBlock {
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: restricted.path
+            )
+        }
+        try XCTSkipUnless(
+            (try? FileManager.default.contentsOfDirectory(atPath: restricted.path)) == nil,
+            "process bypasses directory permissions"
+        )
+
+        var visited: [String] = []
+        do {
+            for try await batch in WorkspaceScanner().scan(root: root) {
+                visited.append(contentsOf: batch.entries.map(\.relativePath))
+            }
+            XCTFail("scan should report the unreadable directory")
+        } catch {
+            // The scan opens each directory before it can read anything
+            // inside it, so an unreadable directory is named by the failure
+            // rather than by a probe for a `.gitignore` it could never
+            // have reached.
+            guard case .directoryEnumerationFailed(let url, let failure) = try XCTUnwrap(
+                error as? WorkspaceScannerError
+            ) else {
+                return XCTFail("expected a typed enumeration failure, got \(error)")
+            }
+            XCTAssertEqual(failure, .permissionDenied)
+            XCTAssertTrue(
+                url.path.hasSuffix("/restricted"),
+                "unexpected failure path \(url.path)"
+            )
+        }
+        XCTAssertEqual(visited, ["restricted"])
     }
 
     func testInjectedCapabilitiesKeepInitialAndIncrementalClassificationConsistentWithoutDiskWrites() async throws {

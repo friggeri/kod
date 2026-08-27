@@ -1,9 +1,9 @@
 # Kod Product and Technical Specification
 
-**Status:** Draft for implementation  
-**Target:** Kod 1.0  
-**Platform:** macOS 14 Sonoma and later  
-**Architecture priority:** Apple silicon first; Intel best-effort  
+**Status:** v0.1.0 release specification
+**Target:** Kod v0.1.x
+**Platform:** macOS 14 Sonoma and later on Apple Silicon
+**Architecture priority:** Apple silicon only
 **Last updated:** 2026-08-06
 
 ## 1. Product definition
@@ -22,7 +22,7 @@ Kod is not an editor. It must never offer an operation that changes source files
 2. **First content fast.** File browsing and plain-text rendering must not wait for syntax parsing, Git, search indexing, or a language server.
 3. **Progressive intelligence.** Tree-sitter highlighting, Git context, diagnostics, and semantic information may arrive incrementally without blocking interaction.
 4. **Native where it matters.** Kod uses native windowing, input, accessibility, typography, scrolling, menus, and system appearance.
-5. **Local and private.** Source remains on the Mac. Network access is limited to explicit app updates, user-approved remote preview resources, user-owned language-server behavior, and opt-in crash reports.
+5. **Local and private.** Source remains on the Mac. Network access is limited to explicit app updates (Sparkle), user-approved remote preview resources, and user-owned language-server behavior.
 6. **Predictable over extensible.** Kod ships a curated, tested feature set. There is no extension runtime or arbitrary in-process plug-in API.
 
 ## 2. Goals and non-goals
@@ -41,7 +41,7 @@ Kod is not an editor. It must never offer an operation that changes source files
 - Preview Markdown, static HTML, images, JSON, and property lists.
 - Meet native macOS accessibility, keyboard, appearance, and restoration expectations.
 
-### 2.2 Non-goals for 1.0
+### 2.2 Non-goals for v0.1.x
 
 - Editing, formatting, rename, refactoring, quick fixes, code actions, or applying workspace edits.
 - Git commits, staging, checkout, branch switching, fetch, pull, push, or any other repository mutation.
@@ -192,7 +192,7 @@ Required commands include:
 - Control-G: Go to Line
 - F12 and Command-click: Go to Definition
 
-All commands must appear in menus so macOS users can discover and remap them in System Settings. A custom keybinding file is not part of 1.0.
+All commands must appear in menus so macOS users can discover and remap them in System Settings. A custom keybinding file is not part of v0.1.x.
 
 ## 6. Language intelligence
 
@@ -221,7 +221,7 @@ Capabilities that imply mutation are not advertised during initialization. Dynam
 
 - One server process is shared per workspace, language adapter, and compatible configuration.
 - Servers start lazily after trust and shut down gracefully when the last owning window closes.
-- Communication uses stdio in 1.0. TCP and WebSocket transports are out of scope.
+- Communication uses stdio in v0.1.x. TCP and WebSocket transports are out of scope.
 - Every request has a timeout policy, cancellation token, snapshot version, and visible progress behavior.
 - Kod sends `$/cancelRequest` when navigation becomes obsolete.
 - A crashed server restarts at most three times in five minutes. After that, Kod disables it for the workspace and presents logs and a manual Restart action.
@@ -258,8 +258,8 @@ Discovery order is deterministic:
 Kod exposes the effective executable and fixed arguments as one Command field.
 It must never evaluate shell text or repository-provided command strings.
 
-Settings uses one permanent native sidebar with Font and the shipped language
-catalog as direct destinations. Each profile maps files to fixed shipped
+Settings uses one permanent native sidebar with Updates, Font, and the shipped
+language catalog as direct destinations. Each profile maps files to fixed shipped
 associations and a bundled grammar and may define a language server. File
 associations, grammar, and language ID metadata are not user-editable.
 
@@ -304,7 +304,7 @@ Highlighting is layered in this order:
 
 Each layer is independently versioned and may update without rebuilding unrelated layers. The visible viewport receives priority over offscreen token decoration.
 
-Tree-sitter grammars and queries are compiled into Kod releases. There is no runtime grammar-extension mechanism in 1.0.
+Tree-sitter grammars and queries are compiled into Kod releases. There is no runtime grammar-extension mechanism in v0.1.x.
 
 ### 7.2 Themes
 
@@ -474,7 +474,7 @@ Git integration is read-only and optional for non-Git folders.
 | `FontCore` | Font discovery and validated editor typography settings |
 | `PreviewCore` | Markdown, HTML policy, image, JSON, and plist parsing/render models |
 | `SettingsCore` | Typed adapters, versioned migrations, observation, quarantine |
-| `DiagnosticsCore` | Local logs, crash state, support bundle redaction |
+| `DiagnosticsCore` | Local logs and support bundle redaction |
 
 Module boundaries must be testable without constructing a window or starting a real server.
 
@@ -587,7 +587,7 @@ Unless stated otherwise, targets are p95 across 30 measured runs on the referenc
 | Scrolling at 60 Hz | p95 frame <= 16.7 ms; p99 <= 33 ms |
 | Kod resident memory, 100k-file workspace with one 10 MB file open | <= 350 MB, excluding LSP/search/Git child processes |
 
-At 120 Hz, Kod should render within 8.3 ms when hardware and content permit; 60 Hz correctness is the 1.0 release gate.
+At 120 Hz, Kod should render within 8.3 ms when hardware and content permit; 60 Hz correctness is the v0.1.x release gate.
 
 ### 12.3 Large and pathological files
 
@@ -595,7 +595,8 @@ At 120 Hz, Kod should render within 8.3 ms when hardware and content permit; 60 
 - First paint never waits for a full-file Tree-sitter parse or LSP response.
 - A source line longer than 100 KB, excessive nesting, invalid encoding, or parser resource limit may trigger an explicit safety mode.
 - Safety mode preserves byte-safe viewing, selection, copy, line navigation, and text search while disabling or bounding wrapping, syntax, minimap, inlay hints, and LSP synchronization.
-- Files above 10 MB may enter safety mode automatically. Kod must explain which features are limited and why.
+- Before reading a file above 10 MB, Kod requires explicit confirmation and
+  explains the memory risk. Cancelling performs no content read.
 - No supported or adversarial input may cause unbounded allocation, an uncancellable task, or a crash.
 
 ## 13. Security, trust, and privacy
@@ -634,10 +635,10 @@ Trust is recorded against canonical path and volume identity, is visible in the 
 
 - No source, path, symbol, diagnostic, theme, font, search, or repository data leaves the Mac by default.
 - Kod collects no usage telemetry.
-- Crash reporting is opt-in.
-- Crash reports and support bundles redact source text, search terms, usernames, home-directory prefixes, repository remotes, environment secrets, and full paths by default.
+- Crash reporting relies on Apple's native macOS crash reporter. Kod itself does not capture or transport crash reports.
+- Support bundles redact source text, search terms, usernames, home-directory prefixes, repository remotes, environment secrets, and full paths by default.
 - Network activity is attributable in the UI to app updates, trusted user-owned
-  language-server behavior, remote Markdown resources, or crash reports.
+  language-server behavior, or remote Markdown resources.
 
 ## 14. Accessibility and localization
 
@@ -648,7 +649,7 @@ Trust is recorded against canonical path and volume identity, is visible in the 
 - Kod Light and Kod Dark meet WCAG AA for normal text.
 - Reduce Motion, Increase Contrast, Differentiate Without Color, and system accent behavior are respected.
 - No status is communicated by color alone; the status bar uses monochrome foregrounds.
-- User-facing strings are localized through string catalogs from the first release, even if 1.0 initially ships in English.
+- User-facing strings are localized through string catalogs from the first release, even if v0.1.0 initially ships in English.
 
 ## 15. Reliability and error behavior
 
@@ -671,12 +672,14 @@ Trust is recorded against canonical path and volume identity, is visible in the 
 - Recorded LSP transcript tests for every launch language and every advertised capability.
 - Integration tests with pinned supported language-server versions.
 - UI tests for opening, splitting, navigation history, search, diagnostics, restoration, trust, and VoiceOver labels.
-- Performance tests for every budget in section 12, checked for regressions in CI on stable hardware.
+- Performance tests for every budget in section 12 run in protected release
+  qualification; shared pull-request runners enforce functional tests and
+  release-blocker audits.
 - Filesystem tests that snapshot a fixture repository before and after Kod workflows and require byte-for-byte repository equality.
 
-### 16.2 1.0 acceptance criteria
+### 16.2 v0.1.0 acceptance criteria
 
-Kod 1.0 is releasable only when all of the following are true:
+Kod v0.1.0 is releasable only when all of the following are true:
 
 1. A 100,000-file reference repository opens within the stated time and memory budgets.
 2. A 10 MB source file paints, scrolls, searches, selects, copies, and navigates without blocking the main thread or crashing.
@@ -691,8 +694,9 @@ Kod 1.0 is releasable only when all of the following are true:
 11. Markdown, HTML, image, JSON, and plist previews pass hostile-input and network-blocking tests.
 12. Untrusted workspaces start no language server or repository-discovered executable.
 13. VoiceOver and full keyboard navigation can complete the primary open-search-navigate-diagnose workflow.
-14. The signed and notarized Apple-silicon build passes Gatekeeper on a clean Mac; Intel behavior is documented and tested on available hardware.
-15. Opt-in crash reports contain none of the redacted source or identity fields in the privacy test suite.
+14. The signed and notarized Apple-silicon build passes Gatekeeper on a clean Mac.
+15. Explicitly exported support bundles contain none of the redacted source or
+    identity fields in the privacy test suite.
 
 ## 17. Delivery milestones
 
@@ -737,15 +741,15 @@ Milestones are gated by exit criteria rather than dates.
 ### M4: Scale and release hardening
 
 - Performance regression suite and optimization.
-- Hostile-input, fuzz, crash-recovery, migration, and privacy validation.
+- Hostile-input, fuzz, migration, and privacy validation.
 - Signed/notarized distribution, updater, diagnostics export, and release documentation.
-- Apple-silicon release qualification and Intel best-effort compatibility report.
+- Apple-silicon release qualification.
 
 **Exit:** Every acceptance criterion in section 16.2 passes.
 
 ## 18. Deferred opportunities
 
-The following require a separate post-1.0 product decision:
+The following require a separate future product decision:
 
 - Repository and commit history browsing beyond per-file blame.
 - Multi-root workspaces.
@@ -755,7 +759,8 @@ The following require a separate post-1.0 product decision:
 - A reduced Mac App Store edition.
 - Additional safe structured previews.
 
-None of these may weaken Kod's read-only contract or delay first content for the 1.0 scope.
+None of these may weaken Kod's read-only contract or delay first content for
+the v0.1.x scope.
 
 ## 19. Decision record
 
@@ -774,9 +779,9 @@ This specification incorporates these product decisions:
 - Automatic Kod Light/Dark appearance backed by the native theme format.
 - Installed monospaced fonts with typography controls and automatic system glyph fallback.
 - Code/text, Markdown, static HTML, image, JSON, and plist viewing.
-- macOS 14+, Apple silicon first, Intel best-effort.
-- Direct signed/notarized distribution with an optional Homebrew Cask.
+- macOS 14+, Apple silicon only.
+- Direct signed/notarized distribution with Sparkle automatic updates.
 - Workspace trust before language servers or repository-discovered tools.
 - LSP diagnostics only.
 - Native macOS keyboard conventions with non-conflicting VS Code navigation shortcuts.
-- No usage telemetry and opt-in, redacted crash reports.
+- No usage telemetry and no custom crash reporter.

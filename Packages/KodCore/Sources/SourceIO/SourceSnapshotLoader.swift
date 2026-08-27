@@ -25,12 +25,118 @@ public struct SourceSnapshotLoader: Sendable {
         self.renderingSafetyPolicy = renderingSafetyPolicy
     }
 
+    /// Loads `url`, refusing *before reading any content* when the file is
+    /// larger than the configured rendering policy's full-fidelity byte
+    /// limit.
+    ///
+    /// The refusal is a typed `SourceIOError.fileExceedsRenderingByteLimit`
+    /// carrying the URL, the real size, and the limit, so the host can ask
+    /// the user whether to load it anyway and then call
+    /// `loadIgnoringByteLimit(url:version:fallbackEncodingRawValue:)`.
+    /// Without this guard a 2 GB file was fully read and decoded first and
+    /// only *then* declared "safety mode", which is the expensive half of
+    /// the work the limit exists to avoid.
+    ///
+    /// `approval` is the user's previously-given answer to exactly that
+    /// question. It is honoured only while it still describes the file on
+    /// disk: a replaced, deleted-and-recreated, or grown file no longer
+    /// matches, and the refusal is raised again rather than silently
+    /// loading something nobody agreed to. The match is re-checked
+    /// against the open descriptor, not against a second `stat`, so the
+    /// file that is read is the file that was approved.
+    ///
+    /// A file system that cannot report a size without reading (see
+    /// `ReadOnlyFileSystem.metadata(at:)`) skips the guard, and the
+    /// post-read safety-mode reason applies as before.
     public func load(
+        url: URL,
+        version: Int = 1,
+        fallbackEncodingRawValue: UInt? = nil,
+        approval: OversizedReadApproval? = nil
+    ) throws -> SourceSnapshot {
+        guard let limit = renderingSafetyPolicy?.fullFidelityByteLimit else {
+            return try readAndLoad(
+                url: url,
+                version: version,
+                fallbackEncodingRawValue: fallbackEncodingRawValue,
+                validate: { _ in }
+            )
+        }
+        if let metadata = try fileSystem.metadata(at: url),
+           metadata.byteCount > limit,
+           approval?.covers(metadata) != true {
+            throw SourceIOError.fileExceedsRenderingByteLimit(
+                url: url,
+                byteCount: metadata.byteCount,
+                limit: limit
+            )
+        }
+        return try readAndLoad(
+            url: url,
+            version: version,
+            fallbackEncodingRawValue: fallbackEncodingRawValue,
+            validate: { metadata in
+                guard metadata.byteCount > limit else {
+                    return
+                }
+                guard approval?.covers(metadata) == true else {
+                    throw SourceIOError.fileExceedsRenderingByteLimit(
+                        url: url,
+                        byteCount: metadata.byteCount,
+                        limit: limit
+                    )
+                }
+            }
+        )
+    }
+
+    /// Size and on-disk identity of `url` without reading it, so a host
+    /// that is about to ask the user for oversized-file consent can pin
+    /// that consent to the file it is asking about.
+    public func metadata(at url: URL) throws -> ReadOnlyFileMetadata? {
+        try fileSystem.metadata(at: url)
+    }
+
+    /// `metadata(at:)` run off the caller's actor, with the caller's
+    /// cancellation chained onto it.
+    public func metadataDetached(at url: URL) async throws -> ReadOnlyFileMetadata? {
+        try await detachedRead { [self] in
+            try fileSystem.metadata(at: url)
+        }
+    }
+
+    /// The explicit retry for a file `load(url:…)` refused as oversized:
+    /// reads and decodes it in full regardless of the policy's byte limit.
+    /// The resulting snapshot still carries the policy's
+    /// `safetyModeReason`, so the renderer keeps degrading gracefully —
+    /// the only thing waived here is the refusal to read at all.
+    ///
+    /// Separate entry point rather than a `Bool` parameter so that
+    /// "load a file the user was warned about" can never be the result of
+    /// a defaulted argument. Hosts that keep consent across loads should
+    /// use `load(url:version:fallbackEncodingRawValue:approval:)`
+    /// instead, so the consent stays bound to one file at one size; this
+    /// entry point is for a host that has *just* asked about *this* read.
+    public func loadIgnoringByteLimit(
         url: URL,
         version: Int = 1,
         fallbackEncodingRawValue: UInt? = nil
     ) throws -> SourceSnapshot {
-        let payload = try fileSystem.readFile(at: url)
+        try readAndLoad(
+            url: url,
+            version: version,
+            fallbackEncodingRawValue: fallbackEncodingRawValue,
+            validate: { _ in }
+        )
+    }
+
+    private func readAndLoad(
+        url: URL,
+        version: Int,
+        fallbackEncodingRawValue: UInt?,
+        validate: @escaping @Sendable (ReadOnlyFileMetadata) throws -> Void
+    ) throws -> SourceSnapshot {
+        let payload = try fileSystem.readFile(at: url, validating: validate)
         return try load(
             data: payload.data,
             metadata: SourceFileMetadata(
@@ -40,6 +146,51 @@ public struct SourceSnapshotLoader: Sendable {
             ),
             fallbackEncodingRawValue: fallbackEncodingRawValue
         )
+    }
+
+    /// `load(url:version:fallbackEncodingRawValue:approval:)` run off the
+    /// caller's actor, with the caller's cancellation chained onto the
+    /// read.
+    ///
+    /// Hosts must not block the main actor on file I/O, but the obvious
+    /// `try await Task.detached { loader.load(url:) }.value` is a
+    /// cancellation hole: a detached task has no parent, so closing the
+    /// tab, superseding the reload, or shutting the window down leaves
+    /// the read running to completion. Chaining cancellation through
+    /// `withTaskCancellationHandler` hands it to the detached task, where
+    /// `LocalReadOnlyFileSystem`'s chunked read observes it.
+    public func loadDetached(
+        url: URL,
+        version: Int = 1,
+        fallbackEncodingRawValue: UInt? = nil,
+        approval: OversizedReadApproval? = nil
+    ) async throws -> SourceSnapshot {
+        try await detachedRead { [self] in
+            try load(
+                url: url,
+                version: version,
+                fallbackEncodingRawValue: fallbackEncodingRawValue,
+                approval: approval
+            )
+        }
+    }
+
+    /// The off-actor, cancellation-chained twin of
+    /// `loadIgnoringByteLimit(url:version:fallbackEncodingRawValue:)`.
+    /// The unrestricted retry is precisely the read most worth being able
+    /// to abandon: it is, by definition, the large one.
+    public func loadIgnoringByteLimitDetached(
+        url: URL,
+        version: Int = 1,
+        fallbackEncodingRawValue: UInt? = nil
+    ) async throws -> SourceSnapshot {
+        try await detachedRead { [self] in
+            try loadIgnoringByteLimit(
+                url: url,
+                version: version,
+                fallbackEncodingRawValue: fallbackEncodingRawValue
+            )
+        }
     }
 
     public func load(

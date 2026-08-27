@@ -1,0 +1,136 @@
+name: Publish qualified release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version without the v prefix
+        required: true
+        default: 0.1.0
+        type: string
+      clean_mac_completed:
+        description: Clean-Mac Gatekeeper and smoke test passed for this draft
+        required: true
+        default: false
+        type: boolean
+      voiceover_completed:
+        description: Manual VoiceOver checklist passed for this draft
+        required: true
+        default: false
+        type: boolean
+      release_notes_reviewed:
+        description: Draft assets, checksums, attestations, and notes were reviewed
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: kod-production-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      attestations: read
+    steps:
+      - name: Require human release checks
+        if: ${{ ! inputs.clean_mac_completed || ! inputs.voiceover_completed || ! inputs.release_notes_reviewed }}
+        run: |
+          echo "Clean-Mac, VoiceOver, and draft review confirmations are all required." >&2
+          exit 1
+
+      - name: Verify attested draft and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "friggeri/kod"
+          test "$GH_REPO" = "friggeri/kod"
+          printf '%s\n' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+
+          tag_ref_json=$(gh api "repos/$GH_REPO/git/ref/tags/v$VERSION")
+          test "$(printf '%s' "$tag_ref_json" | jq -r '.object.type')" = "tag"
+          tag_object_sha=$(printf '%s' "$tag_ref_json" | jq -r '.object.sha')
+          printf '%s\n' "$tag_object_sha" | grep -Eq '^[0-9a-f]{40}$'
+          tag_json=$(gh api "repos/$GH_REPO/git/tags/$tag_object_sha")
+          test "$(printf '%s' "$tag_json" | jq -r '.object.type')" = "commit"
+          expected_source_digest=$(printf '%s' "$tag_json" | jq -r '.object.sha')
+          printf '%s\n' "$expected_source_digest" | grep -Eq '^[0-9a-f]{40}$'
+          expected_source_ref="refs/tags/v$VERSION"
+
+          draft_json="$RUNNER_TEMP/release.json"
+          gh release view "v$VERSION" \
+            --json isDraft,tagName,assets \
+            > "$draft_json"
+          test "$(jq -r '.isDraft' "$draft_json")" = "true"
+          test "$(jq -r '.tagName' "$draft_json")" = "v$VERSION"
+          if jq -e '.assets | any(.name | test("x86_64|intel|homebrew|bottle"; "i"))' \
+            "$draft_json" >/dev/null; then
+            echo "BLOCKED: draft contains Intel or Homebrew assets." >&2
+            exit 1
+          fi
+          for asset in \
+            "Kod-$VERSION-arm64.dmg" \
+            "Kod-$VERSION-arm64.zip" \
+            "Kod-$VERSION-licenses.zip" \
+            appcast.xml \
+            SHA256SUMS.txt \
+            sbom.cdx.json \
+            install-lifecycle-report.json \
+            "Kod-$VERSION-arm64.dmg.provenance.json" \
+            "Kod-$VERSION-arm64.zip.provenance.json" \
+            appcast.xml.provenance.json \
+            sbom.cdx.json.provenance.json \
+            install-lifecycle-report.json.provenance.json
+          do
+            jq -e --arg asset "$asset" \
+              '.assets | any(.name == $asset)' \
+              "$draft_json" >/dev/null
+          done
+
+          download_dir="$RUNNER_TEMP/release-assets"
+          mkdir "$download_dir"
+          gh release download "v$VERSION" --dir "$download_dir"
+
+          # Do not promote a draft based solely on its mutable checksum file.
+          # Each distributable archive is independently bound to the exact
+          # annotated tag commit by GitHub's signed build provenance.
+          for archive in \
+            "Kod-$VERSION-arm64.dmg" \
+            "Kod-$VERSION-arm64.zip" \
+            "Kod-$VERSION-licenses.zip"
+          do
+            gh attestation verify "$download_dir/$archive" \
+              --repo friggeri/kod \
+              --signer-repo friggeri/kod \
+              --signer-workflow "friggeri/kod/.github/workflows/release.yml@refs/tags/v$VERSION" \
+              --cert-identity "https://github.com/friggeri/kod/.github/workflows/release.yml@refs/tags/v$VERSION" \
+              --source-ref "$expected_source_ref" \
+              --source-digest "$expected_source_digest" \
+              --deny-self-hosted-runners
+          done
+
+          python3 -c "
+          import json
+          from pathlib import Path
+          sbom = json.loads(Path('$download_dir/sbom.cdx.json').read_text())
+          assert sbom['bomFormat'] == 'CycloneDX'
+          assert sbom['specVersion'] == '1.5'
+          assert all('licenseFile' not in component for component in sbom['components'])
+          names = {component['name'] for component in sbom['components']}
+          assert {'Sparkle', 'ripgrep', 'cmark-gfm'} <= names
+          "
+          (cd "$download_dir" && sha256sum -c SHA256SUMS.txt)
+          grep -q \
+            "https://github.com/friggeri/kod/releases/download/v$VERSION/Kod-$VERSION-arm64.zip" \
+            "$download_dir/appcast.xml"
+          grep -q 'sparkle:edSignature=' "$download_dir/appcast.xml"
+
+          gh release edit "v$VERSION" --draft=false --latest

@@ -124,6 +124,10 @@ final class EditorGroupTabAccessibilityTests: XCTestCase {
 
         let titleButton = try XCTUnwrap(findView(identifier: "tab.title.src/b.txt", in: controller.view) as? NSButton)
         XCTAssertEqual(titleButton.accessibilityValue() as? String, "Selected, Preview tab")
+        XCTAssertEqual(
+            titleButton.accessibilityCustomActions()?.map(\.name),
+            ["Pin b.txt"]
+        )
 
         let pinButton = try XCTUnwrap(findView(identifier: "tab.pin.src/b.txt", in: controller.view) as? NSButton)
         XCTAssertEqual(pinButton.accessibilityLabel(), "Pin b.txt")

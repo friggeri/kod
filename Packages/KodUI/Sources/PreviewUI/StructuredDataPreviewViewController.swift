@@ -3,7 +3,7 @@ import PreviewCore
 
 /// A single expandable row in the JSON/plist tree view: a stable
 /// identity (its path from the document root) plus the node it displays.
-/// Row objects are rebuilt per-search, but their `path` is what
+/// Their `path` is what
 /// `NSOutlineView` item-identity and "copy key path" both key off, not
 /// object identity.
 final class StructuredTreeRow: NSObject {
@@ -23,7 +23,7 @@ final class StructuredTreeRow: NSObject {
 }
 
 /// The built-in JSON/property-list preview: an expandable tree view over
-/// a `StructuredNode`, search, and copy-value/copy-key-path (SPEC 10.3).
+/// a `StructuredNode` with copy-value/copy-key-path actions (SPEC 10.3).
 /// Falls back to a plain diagnostic label (never a blank/empty-looking
 /// success state) when the document failed to parse — the source view
 /// (handled by `EditorGroupViewController`'s existing `CodeDocumentViewController`
@@ -33,12 +33,10 @@ final class StructuredTreeRow: NSObject {
 final class StructuredDataPreviewViewController: NSViewController {
     private let outlineView = NSOutlineView()
     private let scrollView = NSScrollView()
-    private let searchField = NSSearchField()
     private let diagnosticLabel = NSTextField(wrappingLabelWithString: "")
 
     private(set) var document: StructuredDocument
     private var childrenCache: [StructuredPath: [StructuredTreeRow]] = [:]
-    private(set) var searchMatches: [StructuredSearchMatch] = []
 
     init(document: StructuredDocument) {
         self.document = document
@@ -52,12 +50,6 @@ final class StructuredDataPreviewViewController: NSViewController {
 
     override func loadView() {
         let container = NSView()
-
-        searchField.placeholderString = previewUIStrings.string("Search keys and values", comment: "Placeholder text for the structured-data preview's search field")
-        searchField.target = self
-        searchField.action = #selector(handleSearchChanged)
-        searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.setAccessibilityLabel(previewUIStrings.string("Search keys and values", comment: "Accessibility label for the structured-data preview's search field"))
 
         let keyColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("key"))
         keyColumn.title = previewUIStrings.string("Key", comment: "Column title for the structured-data preview's key column")
@@ -98,16 +90,11 @@ final class StructuredDataPreviewViewController: NSViewController {
         diagnosticLabel.stringValue = document.diagnostic?.message ?? ""
         diagnosticLabel.setAccessibilityLabel(previewUIStrings.string("Parse error", comment: "Accessibility label for the structured-data preview's parse-error diagnostic text"))
 
-        container.addSubview(searchField)
         container.addSubview(diagnosticLabel)
         container.addSubview(scrollView)
 
         NSLayoutConstraint.activate([
-            searchField.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
-            searchField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            searchField.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-
-            diagnosticLabel.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            diagnosticLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
             diagnosticLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
             diagnosticLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
 
@@ -189,15 +176,6 @@ final class StructuredDataPreviewViewController: NSViewController {
     }
 
     @objc
-    private func handleSearchChanged(_ sender: NSSearchField) {
-        guard let root = document.node else {
-            searchMatches = []
-            return
-        }
-        searchMatches = StructuredSearch.search(root, query: sender.stringValue)
-    }
-
-    @objc
     private func handleCopyValue(_ sender: Any?) {
         guard let row = selectedRow() else {
             return
@@ -237,7 +215,6 @@ final class StructuredDataPreviewViewController: NSViewController {
         return view?.accessibilityLabel()
     }
 
-    var searchFieldAccessibilityLabel: String? { searchField.accessibilityLabel() }
     var diagnosticAccessibilityLabel: String? { diagnosticLabel.accessibilityLabel() }
 }
 

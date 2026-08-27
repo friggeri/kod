@@ -10,10 +10,17 @@ import SwiftUI
 @MainActor
 final class SettingsModel: ObservableObject {
     private let fontSettingsStore: FontSettingsStore
+    private let softwareUpdater: any SoftwareUpdateControlling
     private var fontSettingsObservation: SettingsObservation?
     private var isReloadingFontSettings = false
 
     @Published private(set) var persistenceError: SettingsRepositoryError?
+    @Published var automaticallyChecksForUpdates: Bool {
+        didSet {
+            softwareUpdater.automaticallyChecksForUpdates =
+                automaticallyChecksForUpdates
+        }
+    }
 
     @Published var fontSettings: FontSettings {
         didSet {
@@ -30,9 +37,14 @@ final class SettingsModel: ObservableObject {
     }
 
     init(
-        fontSettingsStore: FontSettingsStore
+        fontSettingsStore: FontSettingsStore,
+        softwareUpdater: any SoftwareUpdateControlling =
+            DisabledSoftwareUpdateController()
     ) throws(SettingsRepositoryError) {
         self.fontSettingsStore = fontSettingsStore
+        self.softwareUpdater = softwareUpdater
+        self.automaticallyChecksForUpdates =
+            softwareUpdater.automaticallyChecksForUpdates
         self.fontSettings = try Self.loadFontSettings(from: fontSettingsStore)
         self.fontSettingsObservation = fontSettingsStore.observeChanges {
             [weak self] _ in
@@ -85,18 +97,28 @@ final class SettingsWindowController: NSWindowController {
     private let availableFamilies: [String]
     private var subscriptions: Set<AnyCancellable> = []
 
-    convenience init(environment: AppEnvironment) throws {
+    convenience init(
+        environment: AppEnvironment,
+        softwareUpdater: any SoftwareUpdateControlling =
+            DisabledSoftwareUpdateController()
+    ) throws {
         try self.init(
             fontSettingsStore: environment.fontSettingsStore,
-            languageSupportService: environment.languageSupportService
+            languageSupportService: environment.languageSupportService,
+            softwareUpdater: softwareUpdater
         )
     }
 
     init(
         fontSettingsStore: FontSettingsStore,
-        languageSupportService: LanguageSupportService
+        languageSupportService: LanguageSupportService,
+        softwareUpdater: any SoftwareUpdateControlling =
+            DisabledSoftwareUpdateController()
     ) throws {
-        let model = try SettingsModel(fontSettingsStore: fontSettingsStore)
+        let model = try SettingsModel(
+            fontSettingsStore: fontSettingsStore,
+            softwareUpdater: softwareUpdater
+        )
         self.model = model
         self.languageSupportService = languageSupportService
         self.availableFamilies = Self.availableFamilies(
@@ -219,7 +241,12 @@ final class SettingsWindowController: NSWindowController {
 
     private func updateWindowTitle(for destination: SettingsDestination?) {
         let title: String
-        switch destination ?? .font {
+        switch destination ?? .updates {
+        case .updates:
+            title = Localized.string(
+                "Updates",
+                comment: "Settings window title while Updates is selected"
+            )
         case .font:
             title = Localized.string(
                 "Font",

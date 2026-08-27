@@ -19,9 +19,8 @@ silently marked "passed": every criterion's status is one of
     credential_gated   - the criterion requires a production signing/
                          notarization credential that does not and must
                          not exist in this environment
-    hardware_gated     - the criterion requires physical hardware
-                         (a clean Mac, real Intel silicon) not available
-                         here
+    hardware_gated     - the criterion requires a clean physical Mac not
+                         available here
 
 This script is read-only with respect to the repository: it invokes
 `swift test` / `xcodebuild test`, reads their output and this
@@ -79,6 +78,7 @@ class RunContext:
         self.skip_xcodebuild = skip_xcodebuild
         self.reuse_logs = reuse_logs
         self._swift_test_log: Optional[str] = None
+        self._scale_test_log: Optional[str] = None
         self._kodui_test_log: Optional[str] = None
         self._xcodebuild_log: Optional[str] = None
         LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -92,8 +92,8 @@ class RunContext:
             self._swift_test_log = log_path.read_text()
             return self._swift_test_log
         env = dict(os.environ)
-        if self.run_scale_tests:
-            env["KOD_RUN_SCALE_TESTS"] = "1"
+        env["KOD_RUN_PERFORMANCE_SUITE"] = "0"
+        env["KOD_RUN_SCALE_TESTS"] = "0"
         result = subprocess.run(
             ["swift", "test", "-Xswiftc", "-warnings-as-errors"],
             cwd=str(KODCORE_PACKAGE),
@@ -104,6 +104,41 @@ class RunContext:
         log = result.stdout + "\n" + result.stderr
         log_path.write_text(log)
         self._swift_test_log = log
+        return log
+
+    def scale_test_log(self) -> str:
+        if self._scale_test_log is not None:
+            return self._scale_test_log
+        if not self.run_scale_tests:
+            self._scale_test_log = ""
+            return ""
+        architecture = subprocess.run(
+            ["uname", "-m"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        log_path = LOGS_DIR / f"swift-test-scale-{architecture}.log"
+        if self.reuse_logs and log_path.exists():
+            self._scale_test_log = log_path.read_text()
+            return self._scale_test_log
+        env = dict(os.environ)
+        env["KOD_RUN_PERFORMANCE_SUITE"] = "0"
+        env["KOD_RUN_SCALE_TESTS"] = "1"
+        result = subprocess.run(
+            [
+                "swift",
+                "test",
+                "--filter",
+                "WorkspaceCoreTests.testDiscoversOneHundredThousandFilesWithinBudget",
+                "-Xswiftc",
+                "-warnings-as-errors",
+            ],
+            cwd=str(KODCORE_PACKAGE),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        log = result.stdout + "\n" + result.stderr
+        log_path.write_text(log)
+        self._scale_test_log = log
         return log
 
     def kodui_test_log(self) -> str:
@@ -139,6 +174,8 @@ class RunContext:
             self._xcodebuild_log = log_path.read_text()
             return self._xcodebuild_log
         derived_data = REPO_ROOT / "DerivedData" / "AcceptanceEvidence"
+        environment = os.environ.copy()
+        environment["KOD_DISABLE_UPDATER"] = "1"
         result = subprocess.run(
             [
                 "xcodebuild",
@@ -148,11 +185,13 @@ class RunContext:
                 "-destination", f"platform=macOS,arch={architecture}",
                 "-derivedDataPath", str(derived_data),
                 "-only-testing:KodAppTests",
+                "SWIFT_ENABLE_EXPLICIT_MODULES=NO",
                 "test",
             ],
             cwd=str(REPO_ROOT),
             capture_output=True,
             text=True,
+            env=environment,
         )
         log = result.stdout + "\n" + result.stderr
         log_path.write_text(log)
@@ -214,11 +253,15 @@ def pinned_test_language_servers_present() -> bool:
         "node_modules/.bin/typescript-language-server",
         "node_modules/.bin/vscode-html-language-server",
         "node_modules/.bin/vscode-css-language-server",
+        "node_modules/.bin/vscode-json-language-server",
+        "node_modules/.bin/bash-language-server",
+        "node_modules/.bin/yaml-language-server",
+        "native/marksman",
+        "native/tombi",
         "pyright-venv/bin/pyright-langserver",
     ]
     if not all((test_servers_dir / relative).exists() for relative in required):
         return False
-    rustup = subprocess.run(["command", "-v", "rustup"], shell=False, capture_output=True)
     if subprocess.run(["which", "rustup"], capture_output=True).returncode != 0:
         return False
     return subprocess.run(["rustup", "which", "rust-analyzer"], capture_output=True).returncode == 0
@@ -229,22 +272,21 @@ def sourcekit_lsp_present() -> bool:
     return result.returncode == 0
 
 
-def load_performance_results() -> Optional[dict]:
-    if not PERFORMANCE_RESULTS.exists():
+def load_json_artifact(path: Path) -> Optional[dict]:
+    if not path.exists():
         return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def load_performance_results() -> Optional[dict]:
+    return load_json_artifact(PERFORMANCE_RESULTS)
 
 
 def load_memory_results() -> Optional[dict]:
-    if not MEMORY_RESULTS.exists():
-        return None
-    try:
-        return json.loads(MEMORY_RESULTS.read_text())
-    except (json.JSONDecodeError, OSError):
-        return None
-    try:
-        return json.loads(PERFORMANCE_RESULTS.read_text())
-    except (json.JSONDecodeError, OSError):
-        return None
+    return load_json_artifact(MEMORY_RESULTS)
 
 
 # MARK: - Criterion evaluators
@@ -257,7 +299,7 @@ def criterion_1(ctx: RunContext) -> Evidence:
             commands=["KOD_RUN_SCALE_TESTS=1 swift test --filter WorkspaceCoreTests.testDiscoversOneHundredThousandFilesWithinBudget"],
             notes="Re-run Scripts/acceptance-evidence --run-scale-tests (or Scripts/verify-phase 12 with KOD_RUN_SCALE_TESTS=1) to execute.",
         )
-    log = ctx.swift_test_log()
+    log = ctx.scale_test_log()
     evidence = suites_outcome(log, ["WorkspaceCoreTests"])
     memory = load_memory_results()
     if memory is None:
@@ -333,6 +375,7 @@ def criterion_4(ctx: RunContext) -> Evidence:
         "SourceKitLSPIntegrationTests", "TypeScriptLanguageAdapterIntegrationTests",
         "HTMLLanguageAdapterIntegrationTests", "CSSLanguageAdapterIntegrationTests",
         "PythonLanguageAdapterIntegrationTests", "RustLanguageAdapterIntegrationTests",
+        "FirstWaveLanguageAdapterIntegrationTests",
     ])
     evidence.commands.append("swift test --filter LanguageClientTests|LanguageAdaptersTests")
     return evidence
@@ -397,7 +440,6 @@ def criterion_10(ctx: RunContext) -> Evidence:
     suite_names = [
         "EditorGroupViewControllerReloadTests",
         "EditorTabRuntimeTests",
-        "EditorGroupTabRuntimeTests",
         "SplitContainerViewControllerTests",
     ]
     log = ctx.kodui_test_log()
@@ -429,6 +471,7 @@ def criterion_11(ctx: RunContext) -> Evidence:
         "MarkdownPreviewViewControllerTests",
         "StructuredDataPreviewViewControllerTests",
         "ImagePreviewViewControllerTests",
+        "HTMLPreviewViewControllerTests",
         "EditorGroupPreviewIntegrationTests",
     ])
     evidence.commands.extend([
@@ -450,14 +493,24 @@ def criterion_12(ctx: RunContext) -> Evidence:
 
 def criterion_13(ctx: RunContext) -> Evidence:
     log = ctx.swift_test_log() + "\n" + ctx.kodui_test_log()
-    keyboard_evidence = suites_outcome(
-        log,
-        ["CodeViewportAccessibilityTests", "EditorGroupTabAccessibilityTests"],
-    )
+    keyboard_suites = [
+        "CodeViewportAccessibilityTests",
+        "EditorGroupTabAccessibilityTests",
+    ]
+    if not ctx.skip_xcodebuild:
+        log += "\n" + ctx.xcodebuild_log()
+        keyboard_suites.append("KeyboardCommandRegistryTests")
+    keyboard_evidence = suites_outcome(log, keyboard_suites)
     manual_note = (
         "VoiceOver verification is manual-only and has never been run by any automated tool in this "
         f"repository; see {VOICEOVER_CHECKLIST.relative_to(REPO_ROOT)} for the checklist a human must complete."
     )
+    if keyboard_evidence.status == "failed":
+        return Evidence(
+            status="failed",
+            summary=keyboard_evidence.summary,
+            notes=manual_note,
+        )
     if not VOICEOVER_CHECKLIST.exists():
         return Evidence(
             status="failed",
@@ -474,7 +527,13 @@ def criterion_13(ctx: RunContext) -> Evidence:
         commands=[
             "swift test --package-path Packages/KodCore --filter CodeViewportAccessibilityTests",
             "swift test --package-path Packages/KodUI --filter EditorGroupTabAccessibilityTests",
-        ],
+        ] + (
+            [
+                "xcodebuild -only-testing:KodAppTests/KeyboardCommandRegistryTests test"
+            ]
+            if not ctx.skip_xcodebuild
+            else []
+        ),
         notes=manual_note,
     )
 
@@ -485,36 +544,48 @@ def criterion_14(ctx: RunContext) -> Evidence:
         os.environ.get("KOD_NOTARIZATION_API_KEY_PATH") or os.environ.get("KOD_NOTARIZATION_KEYCHAIN_PROFILE")
     )
     has_signing_identity = bool(os.environ.get("KOD_CODE_SIGN_IDENTITY"))
+    credentials_ready = has_notarization_credentials and has_signing_identity
     return Evidence(
-        status="credential_gated" if not (has_notarization_credentials and has_signing_identity) else "hardware_gated",
+        status="hardware_gated" if credentials_ready else "credential_gated",
         summary=(
-            f"Building/cross-building on this {architecture} machine is automatable (see Scripts/release/); "
-            "signing with a real Developer ID certificate, notarization submission, and a real clean-Mac "
-            "Gatekeeper launch test are not available in this environment."
+            f"Building the Apple Silicon release on this {architecture} machine is automatable (see Scripts/release/). "
+            + (
+                "Signing credentials are present; a clean-Mac Gatekeeper launch test is still required before publish."
+                if credentials_ready
+                else "Developer ID signing, notarization, and a clean-Mac Gatekeeper launch test remain gated."
+            )
         ),
         commands=[
-            "Scripts/release/build-archive.sh",
-            "Scripts/release/cross-build-x86_64.sh",
-            "Scripts/release/codesign-and-notarize.sh (blocked: no production credentials)",
+            "Scripts/release/package-release.sh <version> (blocked without protected production credentials)",
+            ".github/workflows/release.yml",
+            ".github/workflows/publish-release.yml",
         ],
-        artifacts=["docs/intel-compatibility-report.md"],
+        artifacts=[
+            "Scripts/release/README.md",
+            "docs/manual-voiceover-checklist.md",
+        ],
         notes=(
-            "Credential-gated: KOD_CODE_SIGN_IDENTITY / KOD_NOTARIZATION_API_KEY_PATH / "
-            "KOD_NOTARIZATION_KEYCHAIN_PROFILE are unset, matching this environment having no production "
-            "Apple Developer ID signing/notarization credentials, by design (see Scripts/release/README.md). "
-            "Hardware-gated regardless: a clean-Mac Gatekeeper launch test requires physical hardware this "
-            "environment does not provide. Intel compatibility is addressed via a cross-build and (where "
-            "Rosetta is available) a headless test run under Rosetta, documented in "
-            "docs/intel-compatibility-report.md, never a claim of real Intel-hardware testing."
+            "Scripts/release/package-release.sh is fail-closed and never produces unsigned or Intel artifacts. "
+            "A clean-Mac Gatekeeper launch test still has to be confirmed in the protected publish workflow."
         ),
     )
 
 
 def criterion_15(ctx: RunContext) -> Evidence:
     log = ctx.swift_test_log()
-    evidence = suites_outcome(log, ["RedactionEngineTests", "RedactionFuzzTests", "CrashReportingTests"])
+    evidence = suites_outcome(
+        log,
+        [
+            "RedactionEngineTests",
+            "RedactionFuzzTests",
+            "SupportBundleGeneratorTests",
+        ],
+    )
     evidence.commands.append("swift test --filter DiagnosticsCoreTests")
-    evidence.notes = "DiagnosticsCoreTests' own redaction/crash-report-opt-in tests plus RedactionFuzzTests' seeded fuzz coverage."
+    evidence.notes = (
+        "Kod ships no crash-report transport. DiagnosticsCore verifies that "
+        "explicitly exported support bundles contain only bounded, redacted metadata."
+    )
     return evidence
 
 
@@ -532,12 +603,16 @@ CRITERIA: list[Criterion] = [
     Criterion(11, "16.2.11", "Markdown, image, JSON, and plist previews pass hostile-input and network-blocking tests.", criterion_11),
     Criterion(12, "16.2.12", "Untrusted workspaces start no language server or repository-discovered executable.", criterion_12),
     Criterion(13, "16.2.13", "VoiceOver and full keyboard navigation can complete the primary open-search-navigate-diagnose workflow.", criterion_13),
-    Criterion(14, "16.2.14", "The signed and notarized Apple-silicon build passes Gatekeeper on a clean Mac; Intel behavior is documented and tested on available hardware.", criterion_14),
-    Criterion(15, "16.2.15", "Opt-in crash reports contain none of the redacted source or identity fields in the privacy test suite.", criterion_15),
+    Criterion(14, "16.2.14", "The signed and notarized Apple Silicon build passes Gatekeeper on a clean Mac.", criterion_14),
+    Criterion(15, "16.2.15", "Explicitly exported support bundles contain none of the redacted source or identity fields.", criterion_15),
 ]
 
 
 def main() -> int:
+    architecture = subprocess.run(["uname", "-m"], capture_output=True, text=True, check=True).stdout.strip()
+    if architecture != "arm64":
+        print(f"Kod v0.1.x acceptance evidence requires Apple Silicon; found {architecture}.", file=sys.stderr)
+        return 1
     run_scale_tests = "--run-scale-tests" in sys.argv or os.environ.get("KOD_RUN_SCALE_TESTS") == "1"
     skip_xcodebuild = "--run-xcodebuild" not in sys.argv
     reuse_logs = "--reuse-logs" in sys.argv

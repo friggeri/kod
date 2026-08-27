@@ -114,6 +114,17 @@ final class PerformanceSuiteTests: XCTestCase {
     nonisolated static let collector = BenchmarkResultsCollector()
     nonisolated static let defaultIterations = 30
 
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        guard ProcessInfo.processInfo.environment[
+            "KOD_RUN_PERFORMANCE_SUITE"
+        ] == "1" else {
+            throw XCTSkip(
+                "Set KOD_RUN_PERFORMANCE_SUITE=1 to run release performance budgets."
+            )
+        }
+    }
+
     /// `#filePath` at compile time gives an absolute path regardless of
     /// `swift test`'s current working directory (which varies depending
     /// on whether it is invoked from the repository root or the package

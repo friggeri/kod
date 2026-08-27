@@ -169,10 +169,19 @@ public final class CodeDocumentViewController: NSViewController {
                 }
                 self.viewport.applySyntaxTree(tree)
 
+                // The viewport now owns `tree` (folding, bracket
+                // matching, sticky scopes all read it on the main actor),
+                // so the engine gets its own `ts_tree_copy` to run query
+                // cursors against on its executor. Reading one tree from
+                // both domains at once is undefined behavior in
+                // tree-sitter, not merely a Swift concurrency warning.
+                guard let highlightingTree = tree.copy() else {
+                    return
+                }
                 let visibleRange = self.viewport.visibleUTF8Range
                 let fullRange = 0..<capturedSnapshot.utf8Count
                 let (viewportCaptures, fullCaptures) = try await engine.highlight(
-                    tree: tree,
+                    tree: highlightingTree,
                     viewportByteRange: visibleRange,
                     fullByteRange: fullRange
                 )

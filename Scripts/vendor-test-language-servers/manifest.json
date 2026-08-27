@@ -48,10 +48,6 @@
         "arm64": {
           "url": "https://github.com/tombi-toml/tombi/releases/download/v1.2.10/tombi-cli-1.2.10-aarch64-apple-darwin.tar.gz",
           "sha256": "153adcddaa70c53358c08287ffa20697926c149f8413d700b9961793891561a7"
-        },
-        "x86_64": {
-          "url": "https://github.com/tombi-toml/tombi/releases/download/v1.2.10/tombi-cli-1.2.10-x86_64-apple-darwin.tar.gz",
-          "sha256": "ef58f1ed7b6dc26cf6cb6dcaf82d79720d3527b082602d9e26605af1401642ff"
         }
       }
     },

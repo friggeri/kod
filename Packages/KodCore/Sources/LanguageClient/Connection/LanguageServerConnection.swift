@@ -45,6 +45,15 @@ public actor LanguageServerConnection {
         public var workspaceConfiguration: [String: JSONValue]
         public var maxHeaderByteCount: Int
         public var maxMessageByteCount: Int
+        /// The trust-before-launch gate (SPEC 6/13), evaluated
+        /// immediately before *every* process spawn this connection
+        /// performs — the initial `start()` and every automatic
+        /// crash-restart alike. Defaults to `.authorized` so callers that
+        /// already gate the launch themselves keep working unchanged;
+        /// `LanguageWorkspaceService` always passes its own workspace
+        /// gate through, so a revoked workspace can never be relaunched
+        /// behind the host's back by the restart path.
+        public var launchAuthorization: WorkspaceLaunchAuthorization
 
         public init(
             executableURL: URL,
@@ -61,7 +70,8 @@ public actor LanguageServerConnection {
             initializationOptions: JSONValue? = nil,
             workspaceConfiguration: [String: JSONValue] = [:],
             maxHeaderByteCount: Int = 8 * 1_024,
-            maxMessageByteCount: Int = 64 * 1_024 * 1_024
+            maxMessageByteCount: Int = 64 * 1_024 * 1_024,
+            launchAuthorization: WorkspaceLaunchAuthorization = .authorized
         ) {
             self.executableURL = executableURL
             self.arguments = arguments
@@ -78,6 +88,7 @@ public actor LanguageServerConnection {
             self.workspaceConfiguration = workspaceConfiguration
             self.maxHeaderByteCount = maxHeaderByteCount
             self.maxMessageByteCount = maxMessageByteCount
+            self.launchAuthorization = launchAuthorization
         }
     }
 
@@ -148,11 +159,18 @@ public actor LanguageServerConnection {
 
     /// Launches the process and performs the `initialize`/`initialized`
     /// handshake. Only read-only capabilities are advertised (SPEC 6.1).
+    /// Refuses to launch anything for a workspace whose launch
+    /// authorization says no, throwing `LanguageClientError.notTrusted`.
     public func start() async throws {
         state = .starting
         do {
             try await launchAndInitialize()
         } catch {
+            if case LanguageClientError.notTrusted = error {
+                await cleanUpFailedStart()
+                state = .disabled(reason: Self.notTrustedReason)
+                throw error
+            }
             let preservesMissingState: Bool
             if case .missing = state {
                 preservesMissingState = true
@@ -166,6 +184,11 @@ public actor LanguageServerConnection {
             throw error
         }
     }
+
+    /// The single reason string used wherever a launch was refused,
+    /// including after an automatic restart attempt.
+    static let notTrustedReason =
+        "Workspace is not trusted; no language server process was launched. Manual restart required after granting trust."
 
     private func cleanUpFailedStart() async {
         isShuttingDown = true
@@ -192,6 +215,14 @@ public actor LanguageServerConnection {
     }
 
     private func launchAndInitialize() async throws {
+        // The one and only place this connection creates a transport, so
+        // gating here gates every process spawn: the first `start()` and
+        // every automatic crash-restart. Evaluated fresh each time and
+        // never cached, so a workspace whose trust is revoked between a
+        // crash and its restart is refused rather than silently relaunched.
+        guard await configuration.launchAuthorization.isAuthorized() else {
+            throw LanguageClientError.notTrusted
+        }
         dynamicallyRegisteredMethods.removeAll()
         let transport = LanguageServerProcessTransport(
             executableURL: configuration.executableURL,
@@ -726,6 +757,14 @@ public actor LanguageServerConnection {
             try await launchAndInitialize()
         } catch {
             await cleanUpFailedStart()
+            if case LanguageClientError.notTrusted = error {
+                // Trust was revoked while the server was running. No
+                // replacement process is launched, and the connection
+                // stays `.disabled` rather than `.crashed`, so nothing
+                // retries this automatically.
+                state = .disabled(reason: "\(reason) \(Self.notTrustedReason)")
+                return
+            }
             state = .crashed(reason: "\(reason) Automatic restart failed: \(error)")
         }
     }

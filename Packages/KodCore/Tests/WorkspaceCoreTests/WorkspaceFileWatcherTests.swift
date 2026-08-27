@@ -47,7 +47,7 @@ final class WorkspaceFileWatcherTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    private final class BatchCollector: @unchecked Sendable {
+    fileprivate final class BatchCollector: @unchecked Sendable {
         private let lock = NSLock()
         private var batches: [WorkspaceChangeBatch] = []
 
@@ -309,6 +309,393 @@ final class WorkspaceFileWatcherTests: XCTestCase {
         capturedFlush.value?()
 
         XCTAssertTrue(collector.all.isEmpty, "Batch should not be delivered if watcher is stopped before coalescing timer fires.")
+    }
+
+    // MARK: - FSEvents control flags
+
+    func testMapsEveryControlFlagKodActsOn() {
+        func mapped(_ raw: Int) -> WorkspaceChangeFlags {
+            WorkspaceChangeFlags(fsEventFlags: FSEventStreamEventFlags(raw))
+        }
+
+        XCTAssertTrue(mapped(kFSEventStreamEventFlagMustScanSubDirs).contains(.mustScanSubDirectories))
+        XCTAssertTrue(mapped(kFSEventStreamEventFlagUserDropped).contains(.userDropped))
+        XCTAssertTrue(mapped(kFSEventStreamEventFlagKernelDropped).contains(.kernelDropped))
+        XCTAssertTrue(mapped(kFSEventStreamEventFlagRootChanged).contains(.rootChanged))
+
+        // Item-level flags stay exactly as they were.
+        XCTAssertTrue(mapped(kFSEventStreamEventFlagItemCreated).contains(.created))
+        XCTAssertTrue(mapped(kFSEventStreamEventFlagItemRemoved).contains(.removed))
+        XCTAssertTrue(mapped(kFSEventStreamEventFlagItemRenamed).contains(.renamed))
+        XCTAssertTrue(mapped(kFSEventStreamEventFlagItemModified).contains(.modified))
+        XCTAssertTrue(mapped(kFSEventStreamEventFlagItemIsDir).contains(.isDirectory))
+
+        // A dropped-events notice never masquerades as an ordinary change.
+        let dropped = mapped(
+            kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagMustScanSubDirs
+        )
+        XCTAssertFalse(dropped.contains(.created))
+        XCTAssertFalse(dropped.contains(.modified))
+    }
+
+    func testKernelDroppedEventsProduceARescanRequiredBatch() {
+        let harness = ControlledWatcher(root: root, coalescingWindow: 5)
+        XCTAssertNoThrow(try harness.start())
+        defer { harness.watcher.stop() }
+
+        harness.watcher.deliverRawEventForTesting(
+            paths: [root.path],
+            flags: [
+                FSEventStreamEventFlags(
+                    kFSEventStreamEventFlagKernelDropped | kFSEventStreamEventFlagMustScanSubDirs
+                )
+            ]
+        )
+        harness.fireTimer()
+
+        let batch = try? XCTUnwrap(harness.collector.all.first)
+        XCTAssertEqual(
+            batch?.scope,
+            .rescanRequired(reasons: [.kernelDropped, .mustScanSubDirectories])
+        )
+        XCTAssertEqual(batch?.requiresRescan, true)
+        XCTAssertEqual(batch?.isRootInvalidated, false)
+        XCTAssertEqual(batch?.subtreesRequiringScan, [root.path])
+    }
+
+    func testUserDroppedEventsProduceARescanRequiredBatch() {
+        let harness = ControlledWatcher(root: root, coalescingWindow: 5)
+        XCTAssertNoThrow(try harness.start())
+        defer { harness.watcher.stop() }
+
+        harness.watcher.deliverRawEventForTesting(
+            paths: [root.appendingPathComponent("sub").path],
+            flags: [
+                FSEventStreamEventFlags(
+                    kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagMustScanSubDirs
+                )
+            ]
+        )
+        harness.fireTimer()
+
+        XCTAssertEqual(harness.collector.all.first?.rescanReasons, [.userDropped, .mustScanSubDirectories])
+    }
+
+    func testOrdinaryChangesStayIncremental() {
+        let harness = ControlledWatcher(root: root, coalescingWindow: 5)
+        XCTAssertNoThrow(try harness.start())
+        defer { harness.watcher.stop() }
+
+        harness.watcher.deliverRawEventForTesting(
+            paths: [root.appendingPathComponent("a.txt").path],
+            flags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated)]
+        )
+        harness.fireTimer()
+
+        let batch = harness.collector.all.first
+        XCTAssertEqual(batch?.scope, .incremental)
+        XCTAssertEqual(batch?.requiresRescan, false)
+        XCTAssertEqual(batch?.subtreesRequiringScan, [])
+    }
+
+    // MARK: - Root invalidation
+
+    func testRootChangedFlagInvalidatesTheWholeRoot() {
+        let harness = ControlledWatcher(root: root, coalescingWindow: 5)
+        XCTAssertNoThrow(try harness.start())
+        defer { harness.watcher.stop() }
+
+        harness.watcher.deliverRawEventForTesting(
+            paths: [root.path],
+            flags: [FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged)]
+        )
+        harness.fireTimer()
+
+        let batch = harness.collector.all.first
+        XCTAssertEqual(batch?.scope, .rootInvalidated)
+        XCTAssertEqual(batch?.isRootInvalidated, true)
+        XCTAssertEqual(batch?.requiresRescan, true)
+    }
+
+    func testRemovingTheWatchedRootItselfInvalidatesTheRoot() {
+        let harness = ControlledWatcher(root: root, coalescingWindow: 5)
+        XCTAssertNoThrow(try harness.start())
+        defer { harness.watcher.stop() }
+
+        harness.watcher.deliverRawEventForTesting(
+            paths: [root.path],
+            flags: [
+                FSEventStreamEventFlags(
+                    kFSEventStreamEventFlagItemRemoved | kFSEventStreamEventFlagItemIsDir
+                )
+            ]
+        )
+        harness.fireTimer()
+
+        XCTAssertEqual(harness.collector.all.first?.isRootInvalidated, true)
+    }
+
+    func testRootInvalidationOutranksARescanNoticeInTheSameBurst() {        let harness = ControlledWatcher(root: root, coalescingWindow: 5)
+        XCTAssertNoThrow(try harness.start())
+        defer { harness.watcher.stop() }
+
+        harness.watcher.deliverRawEventForTesting(
+            paths: [root.appendingPathComponent("sub").path, root.path],
+            flags: [
+                FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs),
+                FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged)
+            ]
+        )
+        harness.fireTimer()
+
+        XCTAssertEqual(harness.collector.all.first?.scope, .rootInvalidated)
+    }
+
+    /// FSEvents reports `/private/var/…` for a root whose `URL` spells
+    /// itself `/var/…`, and the standard path APIs only reconcile the two
+    /// while the path still exists — which a just-deleted root does not.
+    func testDeletedRootMatchesEvenWhenFSEventsReportsThePrivatePrefix() {
+        let privateRoot = URL(
+            fileURLWithPath: "/var/folders/kod-test-root-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let harness = ControlledWatcher(root: privateRoot, coalescingWindow: 5)
+        XCTAssertNoThrow(try harness.start())
+        defer { harness.watcher.stop() }
+
+        harness.watcher.deliverRawEventForTesting(
+            paths: ["/private" + privateRoot.path],
+            flags: [
+                FSEventStreamEventFlags(
+                    kFSEventStreamEventFlagItemRemoved | kFSEventStreamEventFlagItemIsDir
+                )
+            ]
+        )
+        harness.fireTimer()
+
+        XCTAssertEqual(harness.collector.all.first?.isRootInvalidated, true)
+    }
+
+    func testAnUnrelatedPrivatePathIsNotMistakenForTheRoot() {
+        let harness = ControlledWatcher(root: root, coalescingWindow: 5)
+        XCTAssertNoThrow(try harness.start())
+        defer { harness.watcher.stop() }
+
+        harness.watcher.deliverRawEventForTesting(
+            paths: [root.appendingPathComponent("child").path],
+            flags: [
+                FSEventStreamEventFlags(
+                    kFSEventStreamEventFlagItemRemoved | kFSEventStreamEventFlagItemIsDir
+                )
+            ]
+        )
+        harness.fireTimer()
+
+        XCTAssertEqual(harness.collector.all.first?.isRootInvalidated, false)
+        XCTAssertEqual(harness.collector.all.first?.scope, .incremental)
+    }
+
+    // MARK: - Bounded pending paths
+    func testPendingPathsAreBoundedAndDegradeToARescanBatch() {
+        let limit = 8
+        let harness = ControlledWatcher(
+            root: root,
+            coalescingWindow: 5,
+            maximumPendingPaths: limit
+        )
+        XCTAssertNoThrow(try harness.start())
+        defer { harness.watcher.stop() }
+
+        let paths = (0..<200).map { root.appendingPathComponent("f\($0).txt").path }
+        harness.watcher.deliverRawEventForTesting(
+            paths: paths,
+            flags: Array(
+                repeating: FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated),
+                count: paths.count
+            )
+        )
+        harness.fireTimer()
+
+        let batch = try? XCTUnwrap(harness.collector.all.first)
+        XCTAssertEqual(batch?.paths.count, limit, "pending paths must stay bounded")
+        XCTAssertEqual(batch?.requiresRescan, true)
+        XCTAssertEqual(
+            batch?.rescanReasons,
+            [.pendingPathLimitExceeded(limit: limit)]
+        )
+    }
+
+    func testRepeatedEventsForAlreadyPendingPathsDoNotCountTowardTheBound() {
+        let limit = 4
+        let harness = ControlledWatcher(
+            root: root,
+            coalescingWindow: 5,
+            maximumPendingPaths: limit
+        )
+        XCTAssertNoThrow(try harness.start())
+        defer { harness.watcher.stop() }
+
+        let paths = (0..<limit).map { root.appendingPathComponent("f\($0).txt").path }
+        for _ in 0..<50 {
+            harness.watcher.deliverRawEventForTesting(
+                paths: paths,
+                flags: Array(
+                    repeating: FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified),
+                    count: paths.count
+                )
+            )
+        }
+        harness.fireTimer()
+
+        let batch = harness.collector.all.first
+        XCTAssertEqual(batch?.paths.count, limit)
+        XCTAssertEqual(batch?.scope, .incremental, "re-touching known paths is not an overflow")
+    }
+
+    // MARK: - Maximum delivery deadline
+
+    func testSustainedEventStreamCannotStarveDelivery() {
+        let harness = ControlledWatcher(
+            root: root,
+            coalescingWindow: 0.3,
+            maximumCoalescingDelay: 1
+        )
+        XCTAssertNoThrow(try harness.start())
+        defer { harness.watcher.stop() }
+
+        // An event every 0.1s: the 0.3s quiet window never elapses, so
+        // without a hard deadline nothing would ever be delivered.
+        for step in 0..<12 {
+            harness.now.value = Double(step) * 0.1
+            harness.watcher.deliverRawEventForTesting(
+                paths: [root.appendingPathComponent("busy.txt").path],
+                flags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified)]
+            )
+        }
+
+        let intervals = harness.scheduledIntervals.value
+        XCTAssertEqual(intervals.count, 12)
+        XCTAssertEqual(intervals.first ?? -1, 0.3, accuracy: 1e-9)
+        XCTAssertTrue(
+            intervals.allSatisfy { $0 <= 0.3 + 1e-9 },
+            "a rescheduled flush may never be pushed past the quiet window"
+        )
+        XCTAssertEqual(
+            intervals.last ?? -1,
+            0,
+            accuracy: 1e-9,
+            "once the burst deadline is reached the flush must be scheduled immediately"
+        )
+
+        harness.fireTimer()
+        XCTAssertEqual(harness.collector.all.count, 1)
+        XCTAssertEqual(harness.collector.all.first?.paths.count, 1)
+    }
+
+    func testANewBurstGetsAFreshDeadlineAfterDelivery() {
+        let harness = ControlledWatcher(
+            root: root,
+            coalescingWindow: 0.3,
+            maximumCoalescingDelay: 1
+        )
+        XCTAssertNoThrow(try harness.start())
+        defer { harness.watcher.stop() }
+
+        harness.now.value = 0
+        harness.watcher.deliverRawEventForTesting(
+            paths: [root.appendingPathComponent("a.txt").path],
+            flags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated)]
+        )
+        harness.now.value = 1.2
+        harness.fireTimer()
+
+        harness.watcher.deliverRawEventForTesting(
+            paths: [root.appendingPathComponent("b.txt").path],
+            flags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated)]
+        )
+
+        XCTAssertEqual(harness.collector.all.count, 1)
+        XCTAssertEqual(
+            harness.scheduledIntervals.value.last ?? -1,
+            0.3,
+            accuracy: 1e-9,
+            "a burst that starts after a delivery gets the full quiet window again"
+        )
+    }
+
+    /// End-to-end with the real dispatch timer: a stream of events that
+    /// never goes quiet still produces a batch.
+    func testSustainedEventStreamDeliversWithLiveTimers() async throws {
+        let collector = BatchCollector()
+        let watcher = WorkspaceFileWatcher(
+            root: root,
+            coalescingWindow: 0.25,
+            maximumCoalescingDelay: 0.5
+        ) { batch in
+            collector.append(batch)
+        }
+        try watcher.start()
+        defer { watcher.stop() }
+
+        let deadline = Date().addingTimeInterval(3)
+        while collector.all.isEmpty, Date() < deadline {
+            watcher.deliverRawEventForTesting(
+                paths: [root.appendingPathComponent("busy.txt").path],
+                flags: [FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified)]
+            )
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        XCTAssertFalse(
+            collector.all.isEmpty,
+            "a sustained event stream must still deliver within the maximum coalescing delay"
+        )
+    }
+}
+
+/// A watcher wired to a controllable clock and timer so coalescing,
+/// bounding, and deadline behavior can be asserted without sleeping.
+private final class ControlledWatcher {
+    let watcher: WorkspaceFileWatcher
+    let collector: WorkspaceFileWatcherTests.BatchCollector
+    let now = Locked<TimeInterval>(0)
+    let scheduledIntervals = Locked<[TimeInterval]>([])
+    private let pendingHandler = Locked<(@Sendable () -> Void)?>(nil)
+
+    init(
+        root: URL,
+        coalescingWindow: TimeInterval,
+        maximumCoalescingDelay: TimeInterval = 60,
+        maximumPendingPaths: Int = 8_192
+    ) {
+        let collector = WorkspaceFileWatcherTests.BatchCollector()
+        self.collector = collector
+        watcher = WorkspaceFileWatcher(
+            root: root,
+            coalescingWindow: coalescingWindow,
+            maximumCoalescingDelay: maximumCoalescingDelay,
+            maximumPendingPaths: maximumPendingPaths
+        ) { batch in
+            collector.append(batch)
+        }
+        let now = self.now
+        let scheduledIntervals = self.scheduledIntervals
+        let pendingHandler = self.pendingHandler
+        watcher.clockOps = ClockOperations { now.value }
+        watcher.timerOps = TimerOperations { interval, _, handler in
+            scheduledIntervals.value.append(interval)
+            pendingHandler.value = handler
+            return TimerToken {}
+        }
+    }
+
+    func start() throws {
+        try watcher.start()
+    }
+
+    /// Runs the most recently scheduled flush, as the dispatch timer would.
+    func fireTimer() {
+        pendingHandler.value?()
     }
 }
 

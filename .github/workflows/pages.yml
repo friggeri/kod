@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - ".github/workflows/pages.yml"
+      - "App/KodApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-32@2x.png"
+      - "App/KodApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-256.png"
       - "App/KodApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-512.png"
       - "Scripts/build-website"
       - "Scripts/verify-website"
@@ -31,7 +33,7 @@ jobs:
       deploy_ready: ${{ steps.release.outputs.deploy_ready }}
     steps:
       - name: Check out the default branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.repository.default_branch }}
 
@@ -51,21 +53,18 @@ jobs:
           fi
 
           arm64_count=$(jq '[.assets[] | select(.name | test("^Kod-.+-arm64\\.dmg$"))] | length' "$release_json")
-          x86_64_count=$(jq '[.assets[] | select(.name | test("^Kod-.+-x86_64\\.dmg$"))] | length' "$release_json")
 
-          if [ "$arm64_count" -ne 1 ] || [ "$x86_64_count" -ne 1 ]; then
-            echo "::error::The latest release must contain exactly one Kod-*-arm64.dmg and one Kod-*-x86_64.dmg asset."
+          if [ "$arm64_count" -ne 1 ]; then
+            echo "::error::The latest release must contain exactly one Kod-*-arm64.dmg asset."
             exit 1
           fi
 
           arm64_url=$(jq -r '.assets[] | select(.name | test("^Kod-.+-arm64\\.dmg$")) | .browser_download_url' "$release_json")
-          x86_64_url=$(jq -r '.assets[] | select(.name | test("^Kod-.+-x86_64\\.dmg$")) | .browser_download_url' "$release_json")
           release_tag=$(jq -r '.tag_name' "$release_json")
 
           {
             echo "deploy_ready=true"
             echo "arm64_url=$arm64_url"
-            echo "x86_64_url=$x86_64_url"
             echo "release_tag=$release_tag"
           } >> "$GITHUB_OUTPUT"
 
@@ -73,7 +72,6 @@ jobs:
         env:
           DEPLOY_READY: ${{ steps.release.outputs.deploy_ready }}
           RELEASE_ARM64_URL: ${{ steps.release.outputs.arm64_url }}
-          RELEASE_X86_64_URL: ${{ steps.release.outputs.x86_64_url }}
           RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
         shell: bash
         run: |
@@ -81,12 +79,10 @@ jobs:
 
           if [ "$DEPLOY_READY" = "true" ]; then
             export KOD_ARM64_DOWNLOAD_URL="$RELEASE_ARM64_URL"
-            export KOD_X86_64_DOWNLOAD_URL="$RELEASE_X86_64_URL"
             export KOD_RELEASE_TAG="$RELEASE_TAG"
           else
-            export KOD_ARM64_DOWNLOAD_URL="https://github.com/friggeri/kod/releases/download/v0.0.0/Kod-v0.0.0-arm64.dmg"
-            export KOD_X86_64_DOWNLOAD_URL="https://github.com/friggeri/kod/releases/download/v0.0.0/Kod-v0.0.0-x86_64.dmg"
-            export KOD_RELEASE_TAG="v0.0.0"
+            export KOD_ARM64_DOWNLOAD_URL="https://github.com/friggeri/kod/releases/download/v0.1.0/Kod-0.1.0-arm64.dmg"
+            export KOD_RELEASE_TAG="v0.1.0"
           fi
 
           Scripts/build-website
@@ -96,11 +92,11 @@ jobs:
 
       - name: Configure GitHub Pages
         if: steps.release.outputs.deploy_ready == 'true'
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
       - name: Upload the Pages artifact
         if: steps.release.outputs.deploy_ready == 'true'
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
           path: Artifacts/website
 
@@ -114,4 +110,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

@@ -1,80 +1,104 @@
 #!/bin/sh
-# Codesigns a built Kod.app with hardened runtime and Kod's entitlements,
-# then submits it for Apple notarization, waits for the result, and
-# staples the notarization ticket.
+# Verifies an already Developer-ID-signed artifact, submits it to Apple's
+# notarization service, and staples and validates the resulting ticket.
 #
-# This is the one release stage that genuinely requires a real Apple
-# Developer ID Application signing certificate and App Store Connect
-# API credentials — neither of which exist in this (or any) automated
-# environment by design. This script therefore:
-#
-#   - Reads credentials *only* from environment variables or the
-#     keychain (never from a file this repository ships, never
-#     hard-coded) — KOD_CODE_SIGN_IDENTITY (a certificate common name
-#     already present in the running Mac's keychain) and either
-#     KOD_NOTARIZATION_KEYCHAIN_PROFILE (a profile name previously
-#     stored via `xcrun notarytool store-credentials`) or
-#     KOD_NOTARIZATION_API_KEY_PATH/KOD_NOTARIZATION_API_KEY_ID/
-#     KOD_NOTARIZATION_API_ISSUER_ID (an App Store Connect API key).
-#   - If none of those are set, prints exactly what is missing and
-#     exits non-zero — it never signs with an ad hoc identity and
-#     calls that "notarized," and it never fabricates a success.
-#
-# Usage: Scripts/release/codesign-and-notarize.sh <path-to-Kod.app>
+# Usage: Scripts/release/codesign-and-notarize.sh <Kod.app|Kod.dmg>
 
 set -eu
+set -o pipefail
 
-repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-app_path=${1:-}
-
-if [ -z "$app_path" ] || [ ! -d "$app_path" ]; then
-    printf '%s\n' "Usage: $0 <path-to-Kod.app>" >&2
+artifact=${1:-}
+if [ -z "$artifact" ] || [ ! -e "$artifact" ]; then
+    printf '%s\n' "Usage: $0 <Kod.app|Kod.dmg>" >&2
     exit 64
 fi
 
 if [ -z "${KOD_CODE_SIGN_IDENTITY:-}" ]; then
-    printf '%s\n' "BLOCKED: KOD_CODE_SIGN_IDENTITY is not set." >&2
-    printf '%s\n' "This environment has no production Apple Developer ID Application signing certificate (by design — see this script's own header comment and Scripts/release/README.md)." >&2
-    printf '%s\n' "Set KOD_CODE_SIGN_IDENTITY to a certificate common name already in the release machine's keychain to proceed." >&2
+    printf '%s\n' "BLOCKED: KOD_CODE_SIGN_IDENTITY is required to notarize." >&2
     exit 78
 fi
-
-if [ -z "${KOD_NOTARIZATION_KEYCHAIN_PROFILE:-}" ] && [ -z "${KOD_NOTARIZATION_API_KEY_PATH:-}" ]; then
-    printf '%s\n' "BLOCKED: neither KOD_NOTARIZATION_KEYCHAIN_PROFILE nor KOD_NOTARIZATION_API_KEY_PATH is set." >&2
-    printf '%s\n' "This environment has no production App Store Connect API notarization credential (by design)." >&2
-    printf '%s\n' "Run 'xcrun notarytool store-credentials' on a release machine and set KOD_NOTARIZATION_KEYCHAIN_PROFILE, or set the three KOD_NOTARIZATION_API_KEY_* variables, to proceed." >&2
-    exit 78
+if [ -z "${KOD_NOTARIZATION_KEYCHAIN_PROFILE:-}" ]; then
+    if [ -z "${KOD_NOTARIZATION_API_KEY_PATH:-}" ] \
+        || [ -z "${KOD_NOTARIZATION_API_KEY_ID:-}" ] \
+        || [ -z "${KOD_NOTARIZATION_API_ISSUER_ID:-}" ]; then
+        printf '%s\n' "BLOCKED: complete KOD_NOTARIZATION_API_KEY_* credentials are required when no keychain profile is provided." >&2
+        exit 78
+    fi
 fi
 
-printf '%s\n' "==> Codesigning $app_path with hardened runtime (identity: $KOD_CODE_SIGN_IDENTITY)"
-codesign \
-    --force \
-    --deep \
-    --options runtime \
-    --timestamp \
-    --entitlements "$repository_root/App/KodApp/Configuration/Kod.entitlements" \
-    --sign "$KOD_CODE_SIGN_IDENTITY" \
-    "$app_path"
+require_developer_id() {
+    target=$1
+    signature_info=$(codesign -dvv "$target" 2>&1)
+    if printf '%s\n' "$signature_info" | grep -q 'Signature=adhoc'; then
+        printf '%s\n' "BLOCKED: refusing to notarize an ad-hoc-signed artifact: $target" >&2
+        exit 65
+    fi
+    if ! printf '%s\n' "$signature_info" | grep -q 'Authority=Developer ID Application:'; then
+        printf '%s\n' "BLOCKED: artifact is not signed by Developer ID Application: $target" >&2
+        exit 65
+    fi
+}
 
-codesign --verify --deep --strict --verbose=2 "$app_path"
-printf '%s\n' "==> Codesign verification passed"
+submit_notarization() {
+    submission=$1
+    if [ -n "${KOD_NOTARIZATION_KEYCHAIN_PROFILE:-}" ]; then
+        xcrun notarytool submit "$submission" \
+            --keychain-profile "$KOD_NOTARIZATION_KEYCHAIN_PROFILE" \
+            --wait \
+            --output-format json
+    else
+        xcrun notarytool submit "$submission" \
+            --key "$KOD_NOTARIZATION_API_KEY_PATH" \
+            --key-id "$KOD_NOTARIZATION_API_KEY_ID" \
+            --issuer "$KOD_NOTARIZATION_API_ISSUER_ID" \
+            --wait \
+            --output-format json
+    fi
+}
 
-zip_path="${app_path%.app}-for-notarization.zip"
-printf '%s\n' "==> Zipping $app_path for notarization submission"
-/usr/bin/ditto -c -k --keepParent "$app_path" "$zip_path"
+submission_path=$artifact
+temporary_dir=
+case "$artifact" in
+    *.app)
+        if [ ! -d "$artifact" ]; then
+            printf '%s\n' "Expected an app bundle: $artifact" >&2
+            exit 64
+        fi
+        codesign --verify --deep --strict --verbose=2 "$artifact"
+        require_developer_id "$artifact"
+        temporary_dir="${artifact%/}.notary-$$"
+        mkdir -m 700 "$temporary_dir"
+        trap 'rm -rf -- "$temporary_dir"' EXIT HUP INT TERM
+        submission_path="$temporary_dir/Kod.zip"
+        /usr/bin/ditto -c -k --keepParent "$artifact" "$submission_path"
+        ;;
+    *.dmg)
+        printf '%s\n' "==> Signing DMG with Developer ID before notarization"
+        codesign \
+            --force \
+            --timestamp \
+            --sign "$KOD_CODE_SIGN_IDENTITY" \
+            "$artifact"
+        require_developer_id "$artifact"
+        ;;
+    *)
+        printf '%s\n' "Unsupported notarization artifact: $artifact" >&2
+        exit 64
+        ;;
+esac
 
-printf '%s\n' "==> Submitting to Apple notarization service"
-if [ -n "${KOD_NOTARIZATION_KEYCHAIN_PROFILE:-}" ]; then
-    xcrun notarytool submit "$zip_path" --keychain-profile "$KOD_NOTARIZATION_KEYCHAIN_PROFILE" --wait
-else
-    xcrun notarytool submit "$zip_path" \
-        --key "$KOD_NOTARIZATION_API_KEY_PATH" \
-        --key-id "$KOD_NOTARIZATION_API_KEY_ID" \
-        --issuer "$KOD_NOTARIZATION_API_ISSUER_ID" \
-        --wait
+printf '%s\n' "==> Submitting $(basename "$artifact") for notarization"
+notarization_json=$(submit_notarization "$submission_path")
+notarization_status=$(
+    printf '%s\n' "$notarization_json" | python3 -c \
+        'import json, sys; print(json.load(sys.stdin).get("status", ""))'
+)
+if [ "$notarization_status" != "Accepted" ]; then
+    printf '%s\n' "BLOCKED: notarization did not accept $(basename "$artifact") (status: ${notarization_status:-unknown})." >&2
+    printf '%s\n' "$notarization_json" >&2
+    exit 65
 fi
 
-printf '%s\n' "==> Stapling notarization ticket"
-xcrun stapler staple "$app_path"
-
-printf '%s\n' "==> Notarization complete for $app_path"
+xcrun stapler staple "$artifact"
+xcrun stapler validate "$artifact"
+printf '%s\n' "==> Notarization and stapling complete: $artifact"

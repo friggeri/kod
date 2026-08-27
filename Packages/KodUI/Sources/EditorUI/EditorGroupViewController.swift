@@ -554,7 +554,7 @@ public final class EditorGroupViewController: NSViewController {
         notifyStateChange()
     }
 
-    func pinTab(_ tabID: EditorTabID) {
+    public func pinTab(_ tabID: EditorTabID) {
         state.pin(tabID)
         refreshTabBar()
         notifyStateChange()

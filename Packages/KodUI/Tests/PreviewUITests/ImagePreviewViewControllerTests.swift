@@ -152,6 +152,95 @@ final class ImagePreviewViewControllerTests: XCTestCase {
         XCTAssertEqual(controller.playPauseAccessibilityValue, "Paused")
     }
 
+    func testReduceMotionPausesAnimatedPreviewsUntilTheSettingChanges() throws {
+        let notificationCenter = NotificationCenter()
+        let notification = Notification.Name("ImagePreviewDisplayOptionsDidChange")
+        let reduceMotion = MotionPreference(isEnabled: true)
+        let controller = ImagePreviewViewController(
+            decodeResult: try animatedImageResult(),
+            accessibilityDisplayShouldReduceMotion: {
+                reduceMotion.isEnabled
+            },
+            notificationCenter: notificationCenter,
+            accessibilityDisplayOptionsDidChangeNotification: notification
+        )
+        controller.loadView()
+
+        XCTAssertFalse(controller.isAnimationPlaying)
+        XCTAssertEqual(controller.playPauseAccessibilityLabel, "Play Animation")
+
+        reduceMotion.isEnabled = false
+        notificationCenter.post(name: notification, object: nil)
+
+        XCTAssertTrue(controller.isAnimationPlaying)
+        XCTAssertEqual(controller.playPauseAccessibilityLabel, "Pause Animation")
+    }
+
+    func testExplicitPlayPauseChoiceSurvivesDisplayOptionChanges() throws {
+        let notificationCenter = NotificationCenter()
+        let notification = Notification.Name("ImagePreviewDisplayOptionsDidChange")
+        let reduceMotion = MotionPreference(isEnabled: true)
+        let controller = ImagePreviewViewController(
+            decodeResult: try animatedImageResult(),
+            accessibilityDisplayShouldReduceMotion: {
+                reduceMotion.isEnabled
+            },
+            notificationCenter: notificationCenter,
+            accessibilityDisplayOptionsDidChangeNotification: notification
+        )
+        controller.loadView()
+
+        controller.togglePlayPauseForTesting()
+        XCTAssertTrue(controller.isAnimationPlaying)
+
+        reduceMotion.isEnabled = false
+        notificationCenter.post(name: notification, object: nil)
+        XCTAssertTrue(controller.isAnimationPlaying)
+
+        controller.togglePlayPauseForTesting()
+        XCTAssertFalse(controller.isAnimationPlaying)
+        reduceMotion.isEnabled = true
+        notificationCenter.post(name: notification, object: nil)
+        XCTAssertFalse(controller.isAnimationPlaying)
+    }
+
+    @MainActor
+    private final class MotionPreference {
+        var isEnabled: Bool
+
+        init(isEnabled: Bool) {
+            self.isEnabled = isEnabled
+        }
+    }
+
+    private func animatedImageResult() throws -> ImageDecodeResult {
+        let data = try PreviewTestImageFixture.makePNG(width: 4, height: 4)
+        guard case .decoded(let metadata, let frames) = ImageDecoder.decode(data),
+              let frame = frames.first else {
+            XCTFail("expected test PNG to decode")
+            throw PreviewTestImageFixture.FixtureError.creationFailed
+        }
+        return .decoded(
+            metadata: ImageMetadata(
+                format: .gif,
+                pixelWidth: metadata.pixelWidth,
+                pixelHeight: metadata.pixelHeight,
+                frameCount: 2,
+                hasAlpha: metadata.hasAlpha,
+                colorModel: metadata.colorModel,
+                bitsPerComponent: metadata.bitsPerComponent,
+                dpiWidth: metadata.dpiWidth,
+                dpiHeight: metadata.dpiHeight,
+                loopCount: 0,
+                fileByteCount: metadata.fileByteCount
+            ),
+            frames: [
+                ImageFrame(image: frame.image.value, durationSeconds: 1),
+                ImageFrame(image: frame.image.value, durationSeconds: 1)
+            ]
+        )
+    }
+
     private func luminance(_ color: NSColor) throws -> CGFloat {
         let color = try XCTUnwrap(color.usingColorSpace(.sRGB))
         return 0.2126 * color.redComponent

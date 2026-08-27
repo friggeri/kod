@@ -342,6 +342,21 @@ final class EditorTabCollectionItem: NSCollectionViewItem {
         titleButton.setAccessibilityValue(
             editorTabAccessibilityValue(tab: tab, isSelected: isSelected)
         )
+        let pinLabel = editorUIStrings.string(
+            "Pin \(displayName)",
+            comment: "Accessibility action for pinning a specific preview tab"
+        )
+        titleButton.setAccessibilityCustomActions(
+            tab.isPinned
+                ? []
+                : [
+                    NSAccessibilityCustomAction(
+                        name: pinLabel,
+                        target: self,
+                        selector: #selector(handlePin)
+                    )
+                ]
+        )
         fileIconView.fileName = tab.relativePath
         fileIconView.identifier = NSUserInterfaceItemIdentifier("tab.icon.\(tab.relativePath)")
         contentView.identifier = NSUserInterfaceItemIdentifier("tab.content.\(tab.relativePath)")
@@ -352,12 +367,7 @@ final class EditorTabCollectionItem: NSCollectionViewItem {
         trailingSeparator.identifier = NSUserInterfaceItemIdentifier("tab.separator.\(tab.relativePath)")
         pinButton.isHidden = tab.isPinned || !isHovered
         pinButton.identifier = NSUserInterfaceItemIdentifier("tab.pin.\(tab.relativePath)")
-        pinButton.setAccessibilityLabel(
-            editorUIStrings.string(
-                "Pin \(displayName)",
-                comment: "Accessibility label for a tab chip's pin button, naming the specific file it pins"
-            )
-        )
+        pinButton.setAccessibilityLabel(pinLabel)
         pinButton.toolTip = pinButton.accessibilityLabel()
         closeButton.identifier = NSUserInterfaceItemIdentifier("tab.close.\(tab.relativePath)")
         closeButton.setAccessibilityLabel(

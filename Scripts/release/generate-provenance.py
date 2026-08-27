@@ -4,14 +4,8 @@ a SLSA-inspired (but not a certified SLSA attestation) record of what
 was built, from what source, on what machine/toolchain, and how,
 alongside its SHA-256 digest.
 
-This is a *record*, not a cryptographic attestation: it is not signed
-by this script, because no production signing key exists in this
-environment (the same constraint documented in Scripts/release/README.md).
-A real release process would sign this JSON document (e.g. with the
-same Ed25519 release key used for the update feed, or via Apple's own
-notarization ticket, which already attests the binary was submitted by
-a specific Developer ID account) before publishing it; this script
-only produces the plaintext statement that process would sign.
+This local record is accompanied by GitHub's signed build-provenance
+attestation in the protected release workflow.
 
 Usage: Scripts/release/generate-provenance.py <artifact-path> [output-path.json]
 """
@@ -45,10 +39,14 @@ def git_info() -> dict:
         except subprocess.CalledProcessError:
             return "unknown"
 
+    commit = run("rev-parse", "HEAD")
+    if commit == "unknown" or len(commit) != 40:
+        raise SystemExit("BLOCKED: unable to resolve a full git commit for provenance.")
     return {
-        "commit": run("rev-parse", "HEAD"),
+        "commit": commit,
         "branch": run("rev-parse", "--abbrev-ref", "HEAD"),
         "isDirty": run("status", "--porcelain") != "",
+        "repository": "friggeri/kod",
     }
 
 
@@ -76,17 +74,22 @@ def main() -> int:
         return 66
     output_path = Path(sys.argv[2]) if len(sys.argv) > 2 else artifact_path.with_suffix(artifact_path.suffix + ".provenance.json")
 
+    source = git_info()
+    digest = sha256_of(artifact_path)
+    if platform.machine() != "arm64":
+        print("BLOCKED: provenance must be generated on Apple Silicon.", file=sys.stderr)
+        return 65
     provenance = {
-        "_type": "https://in-toto.io/Statement/v1 (unsigned; see this script's module docstring)",
-        "subject": [{"name": artifact_path.name, "digest": {"sha256": sha256_of(artifact_path)}}],
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [{"name": artifact_path.name, "digest": {"sha256": digest}}],
         "predicateType": "https://slsa.dev/provenance/v1 (best-effort shape, not a certified SLSA attestation)",
         "predicate": {
             "buildDefinition": {
-                "buildType": "https://github.com/actions/kod-release (manual/Scripts/release invocation)",
-                "resolvedDependencies": {"git": git_info()},
+                "buildType": "https://github.com/friggeri/kod/.github/workflows/release.yml",
+                "resolvedDependencies": {"git": source},
             },
             "runDetails": {
-                "builder": {"id": "Scripts/release (local/CI invocation, unattested)"},
+                "builder": {"id": "https://github.com/friggeri/kod/.github/workflows/release.yml"},
                 "metadata": {
                     "invocationId": datetime.now(timezone.utc).isoformat(),
                     "startedOn": datetime.now(timezone.utc).isoformat(),
@@ -100,16 +103,16 @@ def main() -> int:
                 },
             },
         },
-        "signed": False,
-        "signingNote": (
-            "This provenance statement is not signed: no production signing key exists in this environment. "
-            "A real release process signs this JSON (e.g. with the Ed25519 update-feed release key, "
-            "or by relying on Apple notarization's own "
-            "attestation of the submitting Developer ID account) before publishing it."
+        "attestation": (
+            "Published artifacts receive a GitHub build-provenance "
+            "attestation in .github/workflows/release.yml."
         ),
     }
+    if not digest or provenance["subject"][0]["name"] != artifact_path.name:
+        print("BLOCKED: provenance subject is incomplete.", file=sys.stderr)
+        return 65
     output_path.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n")
-    print(f"==> Wrote unsigned provenance statement to {output_path}")
+    print(f"==> Wrote provenance statement to {output_path}")
     return 0
 
 

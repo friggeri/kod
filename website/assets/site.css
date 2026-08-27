@@ -98,6 +98,10 @@ summary:focus-visible {
   transform: translateY(0);
 }
 
+#main-content:focus {
+  outline: none;
+}
+
 .site-shell {
   width: min(1240px, calc(100% - (2 * var(--page-gutter))));
   margin-inline: auto;

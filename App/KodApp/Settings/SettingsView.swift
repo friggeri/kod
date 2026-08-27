@@ -4,6 +4,7 @@ import KodUIComponents
 import SwiftUI
 
 enum SettingsDestination: Hashable {
+    case updates
     case font
     case language(String)
 }
@@ -12,7 +13,7 @@ enum SettingsDestination: Hashable {
 final class SettingsNavigationModel: ObservableObject {
     @Published var selectedDestination: SettingsDestination?
 
-    init(selectedDestination: SettingsDestination = .font) {
+    init(selectedDestination: SettingsDestination = .updates) {
         self.selectedDestination = selectedDestination
     }
 
@@ -26,14 +27,14 @@ final class SettingsNavigationModel: ObservableObject {
     func reconcileSelection(in items: [LanguageSupportItem]) {
         guard case .language(let identifier) = selectedDestination else {
             if selectedDestination == nil {
-                selectedDestination = .font
+                selectedDestination = .updates
             }
             return
         }
         guard !items.contains(where: { $0.id == identifier }) else {
             return
         }
-        selectedDestination = .font
+        selectedDestination = .updates
     }
 }
 
@@ -43,6 +44,12 @@ struct SettingsSidebarView: View {
 
     var body: some View {
         List(selection: deferredSelection) {
+            Section("Application") {
+                Label("Updates", systemImage: "arrow.triangle.2.circlepath")
+                    .tag(SettingsDestination.updates)
+                    .accessibilityIdentifier("settings.updates.row")
+            }
+
             Section("Editor") {
                 Label("Font", systemImage: "textformat")
                     .tag(SettingsDestination.font)
@@ -108,7 +115,7 @@ struct SettingsSidebarView: View {
             Task { @MainActor in
                 await Task.yield()
                 if navigationModel.selectedDestination == nil {
-                    navigationModel.selectedDestination = .font
+                    navigationModel.selectedDestination = .updates
                 }
             }
         }
@@ -153,7 +160,13 @@ struct SettingsDetailView: View {
 
     @ViewBuilder
     var body: some View {
-        switch navigationModel.selectedDestination ?? .font {
+        switch navigationModel.selectedDestination ?? .updates {
+        case .updates:
+            UpdatesSettingsView(
+                automaticallyChecksForUpdates:
+                    $model.automaticallyChecksForUpdates
+            )
+            .padding(24)
         case .font:
             FontSettingsView(
                 fontSettings: $model.fontSettings,
@@ -179,6 +192,28 @@ struct SettingsDetailView: View {
                 )
             }
         }
+
+    }
+}
+
+struct UpdatesSettingsView: View {
+    @Binding var automaticallyChecksForUpdates: Bool
+
+    var body: some View {
+        Form {
+            Toggle(
+                "Automatically check for updates",
+                isOn: $automaticallyChecksForUpdates
+            )
+            Text(
+                "Kod checks the signed release feed on GitHub. Updates are never downloaded or installed without confirmation."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .formStyle(.grouped)
+        .accessibilityIdentifier("settings.updates.detail")
     }
 }
 

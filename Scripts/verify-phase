@@ -1,6 +1,7 @@
 #!/bin/sh
 
 set -eu
+set -o pipefail
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 phase=${1:-}
@@ -16,18 +17,11 @@ case "$phase" in
         ;;
 esac
 
-case "$architecture" in
-    arm64)
-        engine_triple=aarch64-apple-darwin
-        ;;
-    x86_64)
-        engine_triple=x86_64-apple-darwin
-        ;;
-    *)
-        printf '%s\n' "Unsupported architecture for the bundled search engine: $architecture" >&2
-        exit 1
-        ;;
-esac
+if [ "$architecture" != "arm64" ]; then
+    printf '%s\n' "Kod v0.1.x verification requires Apple Silicon; found $architecture." >&2
+    exit 1
+fi
+engine_triple=aarch64-apple-darwin
 bundled_engine="$repository_root/Packages/KodCore/Sources/SearchCore/Resources/ripgrep/$engine_triple/rg"
 if [ ! -x "$bundled_engine" ]; then
     printf '%s\n' "Missing or non-executable bundled search engine for $engine_triple: $bundled_engine" >&2
@@ -147,23 +141,22 @@ fi
 # fuzz/property suites for renderer/range math, Unicode/encoding
 # positions, LSP framing, themes/catalogs/archives, Git parsers,
 # preview parsers, persistence migrations, and support-bundle
-# redaction; a static release-blocker audit; the new `UpdaterCore`
-# signed-update-feed package; and the `Scripts/release` packaging/
-# signing/notarization/DMG/SBOM/provenance/Homebrew-Cask pipeline) is
-# also fully offline and self-contained for everything this script
-# runs by default — nothing to vendor or provision beyond what earlier
-# phases already require. The `Scripts/release` codesign/notarization
-# and update-feed-signing scripts require production credentials that
+# redaction; a static release-blocker audit; and the `Scripts/release`
+# signing/notarization/DMG/Sparkle/SBOM/provenance pipeline) is
+# uses only the pinned Sparkle 2.9.6 package beyond the dependencies earlier
+# phases require. A fresh Xcode checkout may resolve that package over HTTPS.
+# The `Scripts/release` codesign/notarization
+# and Sparkle appcast signing require production credentials that
 # do not and must not exist in this environment (see
 # `Scripts/release/README.md`); this script never runs them and never
 # needs to, since they are independently invocable and self-report
 # their own credential-gated status rather than silently passing.
 if [ "$phase" = "12" ]; then
-    printf '%s\n' "==> Phase 12 release-qualification tooling runs fully offline (no third-party dependencies added; Scripts/release's signing/notarization steps are independently invocable, credential-gated, and never run by this script)"
+    printf '%s\n' "==> Phase 12 uses pinned Sparkle 2.9.6; production signing/notarization remains independently credential-gated"
 fi
 
 printf '%s\n' "==> Testing KodCore"
-swift test \
+KOD_RUN_PERFORMANCE_SUITE=0 KOD_RUN_SCALE_TESTS=0 swift test \
     --package-path "$repository_root/Packages/KodCore" \
     -Xswiftc -warnings-as-errors
 
@@ -178,7 +171,7 @@ swift test \
 # own bundled resources without ever making a window key, ordering one
 # front, or driving UI automation.
 printf '%s\n' "==> Testing KodUI"
-swift test \
+KOD_RUN_PERFORMANCE_SUITE="${KOD_RUN_PERFORMANCE_SUITE:-0}" swift test \
     --package-path "$repository_root/Packages/KodUI" \
     -Xswiftc -warnings-as-errors
 
@@ -212,13 +205,14 @@ swift test \
 # see `docs/manual-voiceover-checklist.md` for the manual release check
 # that covers what only a human running VoiceOver can verify.
 printf '%s\n' "==> Testing Kod app logic (headless; UI automation is never launched)"
-xcodebuild \
+KOD_DISABLE_UPDATER=1 xcodebuild \
     -project "$repository_root/Kod.xcodeproj" \
     -scheme Kod \
     -configuration Debug \
     -destination "platform=macOS,arch=$architecture" \
     -derivedDataPath "$repository_root/DerivedData/Phase$phase" \
     -only-testing:KodAppTests \
+    SWIFT_ENABLE_EXPLICIT_MODULES=NO \
     clean \
     test
 
@@ -229,6 +223,7 @@ xcodebuild \
     -configuration Release \
     -destination "platform=macOS,arch=$architecture" \
     -derivedDataPath "$repository_root/DerivedData/Phase${phase}Release" \
+    SWIFT_ENABLE_EXPLICIT_MODULES=NO \
     clean \
     build
 
@@ -237,7 +232,8 @@ if { [ "$phase" = "2" ] || [ "$phase" = "3" ] || [ "$phase" = "4" ] || [ "$phase
     printf '%s\n' "==> Running 100,000-file workspace scale gate"
     KOD_RUN_SCALE_TESTS=1 swift test \
         --package-path "$repository_root/Packages/KodCore" \
-        --filter WorkspaceCoreTests.testDiscoversOneHundredThousandFilesWithinBudget
+        --filter WorkspaceCoreTests.testDiscoversOneHundredThousandFilesWithinBudget \
+        -Xswiftc -warnings-as-errors
 fi
 
 if [ "$phase" = "12" ]; then
@@ -249,11 +245,12 @@ if [ "$phase" = "12" ]; then
 
     if [ "${KOD_RUN_PERFORMANCE_SUITE:-0}" = "1" ]; then
         printf '%s\n' "==> Running Phase 12 consolidated 30-iteration performance suite (KOD_RUN_PERFORMANCE_SUITE=1)"
-        swift test \
+        KOD_RUN_PERFORMANCE_SUITE=1 KOD_RUN_SCALE_TESTS=0 swift test \
             --package-path "$repository_root/Packages/KodCore" \
-            --filter PerformanceSuiteTests
+            --filter PerformanceSuiteTests \
+            -Xswiftc -warnings-as-errors
     else
-        printf '%s\n' "==> Skipping the consolidated performance suite (set KOD_RUN_PERFORMANCE_SUITE=1, optionally with KOD_RUN_SCALE_TESTS=1, to run it)"
+        printf '%s\n' "==> Skipping the consolidated performance suite (set KOD_RUN_PERFORMANCE_SUITE=1; the 100k scale gate is controlled separately)"
     fi
 
     printf '%s\n' "==> Running Phase 12 acceptance-evidence generation (headless KodAppTests included; KOD_RUN_SCALE_TESTS controls the 100k gate)"

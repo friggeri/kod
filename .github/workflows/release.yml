@@ -1,0 +1,270 @@
+name: Build release draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version without the v prefix
+        required: true
+        default: 0.1.0
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: kod-production-release
+  cancel-in-progress: false
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+  SPARKLE_VERSION: 2.9.6
+  SPARKLE_ARCHIVE_SHA256: 52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192
+  CYCLONEDX_CLI_VERSION: 0.33.1
+  CYCLONEDX_CLI_OSX_ARM64_SHA256: 750c148780154833f6401f9067d08c5a4c31567b6ee3c26c062c3a95c62d741c
+
+jobs:
+  release:
+    runs-on: macos-26
+    environment: release
+    timeout-minutes: 240
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Check out and validate the exact annotated tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "friggeri/kod"
+          printf '%s\n' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          test "$(xcodebuild -version | sed -n '1p')" = "Xcode 26.5"
+          test "$GITHUB_REF" = "refs/tags/v$VERSION"
+          test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
+          git fetch --no-tags --force origin "refs/tags/v$VERSION:refs/tags/v$VERSION"
+          test "$(git cat-file -t "refs/tags/v$VERSION")" = "tag"
+          git checkout -f "v$VERSION"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git describe --exact-match --tags HEAD)" = "v$VERSION"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor HEAD origin/main
+          test -z "$(git status --porcelain)"
+
+      - name: Allow SwiftPM bare repositories
+        run: git config --global safe.bareRepository all
+
+      - name: Install rust-analyzer via rustup
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 --fail --silent --show-error https://sh.rustup.rs \
+              | sh -s -- -y --default-toolchain stable --profile minimal --component rust-analyzer
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup component add rust-analyzer
+          test -x "$(rustup which rust-analyzer)"
+
+      - name: Provision pinned integration dependencies
+        run: Scripts/vendor-test-language-servers/setup.sh
+
+      - name: Resolve pinned Swift package dependencies
+        run: |
+          set -euo pipefail
+          packages_dir="$RUNNER_TEMP/kod-source-packages"
+          rm -rf -- "$packages_dir"
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project Kod.xcodeproj \
+            -scheme Kod \
+            -clonedSourcePackagesDirPath "$packages_dir"
+          test -d "$packages_dir/checkouts/Sparkle"
+          echo "KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR=$packages_dir" >> "$GITHUB_ENV"
+
+      - name: Run complete release qualification
+        env:
+          KOD_RUN_PERFORMANCE_SUITE: "1"
+          KOD_RUN_SCALE_TESTS: "1"
+        run: Scripts/verify
+
+      - name: Run pre-release UI automation
+        env:
+          KOD_DISABLE_UPDATER: "1"
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Kod.xcodeproj \
+            -scheme Kod \
+            -configuration Debug \
+            -destination "platform=macOS,arch=arm64" \
+            -derivedDataPath DerivedData/ReleaseUI \
+            -clonedSourcePackagesDirPath "$KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -only-testing:KodAppUITests \
+            SWIFT_ENABLE_EXPLICIT_MODULES=NO \
+            clean test
+
+      - name: Download pinned Sparkle release tools
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/Sparkle-$SPARKLE_VERSION.tar.xz"
+          tools="$RUNNER_TEMP/Sparkle-$SPARKLE_VERSION"
+          curl --fail --location --retry 3 \
+            "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz" \
+            --output "$archive"
+          echo "$SPARKLE_ARCHIVE_SHA256  $archive" | shasum -a 256 -c -
+          mkdir "$tools"
+          tar -xJf "$archive" -C "$tools"
+          test -x "$tools/bin/generate_appcast"
+          test -x "$tools/bin/sign_update"
+          {
+            echo "KOD_SPARKLE_GENERATE_APPCAST=$tools/bin/generate_appcast"
+            echo "KOD_SPARKLE_SIGN_UPDATE=$tools/bin/sign_update"
+          } >> "$GITHUB_ENV"
+
+      - name: Download pinned CycloneDX schema validator
+        run: |
+          set -euo pipefail
+          validator="$RUNNER_TEMP/cyclonedx-$CYCLONEDX_CLI_VERSION-osx-arm64"
+          curl --fail --location --retry 3 \
+            "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v$CYCLONEDX_CLI_VERSION/cyclonedx-osx-arm64" \
+            --output "$validator"
+          echo "$CYCLONEDX_CLI_OSX_ARM64_SHA256  $validator" | shasum -a 256 -c -
+          chmod 700 "$validator"
+          "$validator" --version | grep -Eq "^$CYCLONEDX_CLI_VERSION\\+"
+          echo "KOD_CYCLONEDX_CLI=$validator" >> "$GITHUB_ENV"
+
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${CERTIFICATE_P12_BASE64:?DEVELOPER_ID_P12_BASE64 is empty}"
+          : "${CERTIFICATE_PASSWORD:?DEVELOPER_ID_P12_PASSWORD is empty}"
+          keychain_path="$RUNNER_TEMP/kod-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          certificate_path="$RUNNER_TEMP/developer-id.p12"
+          cleanup_import() {
+            security delete-keychain "$keychain_path" >/dev/null 2>&1 || true
+            rm -f -- "$certificate_path"
+          }
+          trap cleanup_import EXIT HUP INT TERM
+          rm -f -- "$keychain_path" "$certificate_path"
+          printf '%s' "$CERTIFICATE_P12_BASE64" | /usr/bin/base64 -D > "$certificate_path"
+          test -s "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -k "$keychain_path" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security \
+            -f pkcs12
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain_path"
+          existing_keychains=$(security list-keychains -d user | tr -d '"')
+          # shellcheck disable=SC2086
+          security list-keychains -d user -s "$keychain_path" $existing_keychains
+          {
+            echo "KOD_RELEASE_KEYCHAIN=$keychain_path"
+            echo "KOD_RELEASE_CERTIFICATE=$certificate_path"
+          } >> "$GITHUB_ENV"
+          trap - EXIT HUP INT TERM
+
+      - name: Write notarization API key
+        env:
+          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${PRIVATE_KEY:?APP_STORE_CONNECT_PRIVATE_KEY is empty}"
+          key_path="$RUNNER_TEMP/AuthKey.p8"
+          trap 'rm -f -- "$key_path"' EXIT HUP INT TERM
+          rm -f -- "$key_path"
+          printf '%s' "$PRIVATE_KEY" > "$key_path"
+          chmod 600 "$key_path"
+          test -s "$key_path"
+          echo "KOD_NOTARIZATION_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+          trap - EXIT HUP INT TERM
+
+      - name: Build signed and notarized binaries
+        env:
+          KOD_CODE_SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_IDENTITY }}
+          KOD_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          KOD_NOTARIZATION_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          KOD_NOTARIZATION_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+        run: |
+          set -euo pipefail
+          : "${KOD_CODE_SIGN_IDENTITY:?DEVELOPER_ID_APPLICATION_IDENTITY is empty}"
+          : "${KOD_DEVELOPMENT_TEAM:?APPLE_TEAM_ID is empty}"
+          : "${KOD_NOTARIZATION_API_KEY_ID:?APP_STORE_CONNECT_KEY_ID is empty}"
+          : "${KOD_NOTARIZATION_API_ISSUER_ID:?APP_STORE_CONNECT_ISSUER_ID is empty}"
+          : "${SPARKLE_PUBLIC_ED_KEY:?SPARKLE_PUBLIC_ED_KEY is empty}"
+          Scripts/release/package-release.sh "${{ inputs.version }}"
+
+      - name: Remove Developer ID and notarization credentials
+        if: always()
+        run: |
+          security delete-keychain "${KOD_RELEASE_KEYCHAIN:-$RUNNER_TEMP/missing-keychain}" || true
+          rm -f -- \
+            "${KOD_RELEASE_CERTIFICATE:-$RUNNER_TEMP/missing-certificate}" \
+            "${KOD_NOTARIZATION_API_KEY_PATH:-$RUNNER_TEMP/missing-notary-key}"
+
+      - name: Generate and verify signed Sparkle appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${SPARKLE_PRIVATE_KEY:?SPARKLE_PRIVATE_KEY is empty}"
+          Scripts/release/sign-appcast.sh "${{ inputs.version }}"
+
+      - name: Finalize and validate release metadata
+        run: Scripts/release/finalize-release.sh "${{ inputs.version }}"
+
+      - name: Attest every release archive
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            Artifacts/release/Kod-${{ inputs.version }}-arm64.dmg
+            Artifacts/release/Kod-${{ inputs.version }}-arm64.zip
+            Artifacts/release/Kod-${{ inputs.version }}-licenses.zip
+
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" \
+            Artifacts/release/*.dmg \
+            Artifacts/release/*.zip \
+            Artifacts/release/appcast.xml \
+            Artifacts/release/SHA256SUMS.txt \
+            Artifacts/release/sbom.cdx.json \
+            Artifacts/release/install-lifecycle-report.json \
+            Artifacts/release/*.provenance.json \
+            --draft \
+            --verify-tag \
+            --title "Kod v$VERSION" \
+            --generate-notes
+
+      - name: Remove ephemeral credentials
+        if: always()
+        run: |
+          security delete-keychain "${KOD_RELEASE_KEYCHAIN:-$RUNNER_TEMP/missing-keychain}" || true
+          rm -f -- \
+            "${KOD_RELEASE_CERTIFICATE:-$RUNNER_TEMP/missing-certificate}" \
+            "${KOD_NOTARIZATION_API_KEY_PATH:-$RUNNER_TEMP/missing-notary-key}"

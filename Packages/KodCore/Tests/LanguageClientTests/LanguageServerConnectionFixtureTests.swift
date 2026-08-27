@@ -724,6 +724,119 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         XCTAssertEqual(hover.range?.start.line, 999_999)
     }
 
+    // MARK: - Trust before launch
+
+    /// A denied workspace must never reach `posix_spawn`: the launch
+    /// ledger's shim is the executable, so an empty ledger is direct
+    /// proof no process was created.
+    func testDeniedAuthorizationLaunchesNoProcessAtAll() async throws {
+        let ledger = try ProcessLaunchLedger.make()
+        addTeardownBlock { ledger.cleanUp() }
+
+        var configuration = try makeConfiguration(scenario: "normal")
+        configuration.executableURL = ledger.executableURL
+        configuration.launchAuthorization = .denied
+
+        let connection = LanguageServerConnection(configuration: configuration)
+        do {
+            try await connection.start()
+            XCTFail("start() must not succeed for an unauthorized workspace")
+        } catch let error as LanguageClientError {
+            XCTAssertEqual(error, .notTrusted)
+        }
+
+        XCTAssertEqual(ledger.launchCount, 0)
+        let state = await connection.state
+        guard case .disabled(let reason) = state else {
+            return XCTFail("expected .disabled, got \(state)")
+        }
+        XCTAssertTrue(reason.contains("not trusted"))
+    }
+
+    /// The regression this gate exists for: a server that has already
+    /// been launched for a trusted workspace crashes *after* trust is
+    /// revoked. The automatic-restart path must re-consult the gate and
+    /// refuse, so exactly one process is ever launched.
+    func testTrustRevokedBeforeACrashPreventsTheAutomaticRestartLaunch() async throws {
+        let ledger = try ProcessLaunchLedger.make()
+        addTeardownBlock { ledger.cleanUp() }
+
+        // Authorized for the first launch only — trust is revoked while
+        // that first server is running, which is exactly what the crash
+        // restart later re-evaluates.
+        let evaluationCount = LockedBox(0)
+        let authorization = WorkspaceLaunchAuthorization {
+            let previous = evaluationCount.get()
+            evaluationCount.set(previous + 1)
+            return previous == 0
+        }
+
+        var configuration = try makeConfiguration(
+            scenario: "crash-immediately",
+            restartBudget: RestartBudget(maxRestarts: 3, window: 60)
+        )
+        configuration.executableURL = ledger.executableURL
+        configuration.launchAuthorization = authorization
+
+        let connection = LanguageServerConnection(configuration: configuration)
+        try await connection.start()
+        addTeardownBlock { await connection.shutdown() }
+        XCTAssertEqual(ledger.launchCount, 1)
+
+        let deadline = Date().addingTimeInterval(5)
+        var state = await connection.state
+        while true {
+            if case .disabled = state {
+                break
+            }
+            guard Date() < deadline else {
+                XCTFail("Expected the connection to become disabled, last state: \(state)")
+                return
+            }
+            try await Task.sleep(nanoseconds: 30_000_000)
+            state = await connection.state
+        }
+
+        guard case .disabled(let reason) = state else {
+            return XCTFail("expected .disabled, got \(state)")
+        }
+        XCTAssertTrue(reason.contains("not trusted"), "unexpected reason: \(reason)")
+        XCTAssertGreaterThanOrEqual(
+            evaluationCount.get(),
+            2,
+            "the restart path must consult the launch gate again, never a cached decision"
+        )
+
+        // The decisive assertion: no second process was ever spawned, and
+        // none appears afterwards either.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(ledger.launchCount, 1)
+    }
+
+    /// A still-trusted workspace keeps its automatic restart: the gate
+    /// only removes launches it refuses.
+    func testStillTrustedWorkspaceStillAutoRestartsAfterACrash() async throws {
+        let ledger = try ProcessLaunchLedger.make()
+        addTeardownBlock { ledger.cleanUp() }
+
+        var configuration = try makeConfiguration(
+            scenario: "crash-immediately",
+            restartBudget: RestartBudget(maxRestarts: 1, window: 60)
+        )
+        configuration.executableURL = ledger.executableURL
+        configuration.launchAuthorization = .authorized
+
+        let connection = LanguageServerConnection(configuration: configuration)
+        try await connection.start()
+        addTeardownBlock { await connection.shutdown() }
+
+        let deadline = Date().addingTimeInterval(5)
+        while ledger.launchCount < 2, Date() < deadline {
+            try await Task.sleep(nanoseconds: 30_000_000)
+        }
+        XCTAssertGreaterThanOrEqual(ledger.launchCount, 2)
+    }
+
     // MARK: - Graceful shutdown
 
     func testShutdownSendsShutdownThenExitAndReachesStopped() async throws {

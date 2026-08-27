@@ -55,18 +55,12 @@
 
         <div class="nav-actions">
           <a class="header-link" href="https://github.com/friggeri/kod">GitHub</a>
-          <a class="button button-compact button-light" href="__KOD_ARM64_DOWNLOAD_URL__">
-            Download
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M8 2v8m0 0 3-3m-3 3L5 7M3 13h10"/>
-            </svg>
-          </a>
         </div>
       </nav>
     </div>
   </header>
 
-  <main id="main-content">
+  <main id="main-content" tabindex="-1">
     <section class="hero section" id="top" aria-labelledby="hero-title">
       <div class="site-shell hero-grid">
         <div class="hero-copy">
@@ -79,31 +73,8 @@
               <svg viewBox="0 0 20 20" aria-hidden="true">
                 <path d="M10 2.5v10m0 0 3.75-3.75M10 12.5 6.25 8.75M4 16h12"/>
               </svg>
-              Download for Apple silicon
+              Download for Apple Silicon
             </a>
-            <details class="download-menu">
-              <summary>Other downloads</summary>
-              <div class="download-popover">
-                <a href="__KOD_X86_64_DOWNLOAD_URL__">
-                  <span>
-                    <strong>Intel Mac</strong>
-                    <small>macOS 14 or later</small>
-                  </span>
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M8 2v8m0 0 3-3m-3 3L5 7M3 13h10"/>
-                  </svg>
-                </a>
-                <a href="https://github.com/friggeri/kod/releases">
-                  <span>
-                    <strong>All releases</strong>
-                    <small>Checksums and release notes</small>
-                  </span>
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M6 3h7v7M13 3 5 11M3 6v7h7"/>
-                  </svg>
-                </a>
-              </div>
-            </details>
           </div>
 
           <p class="system-note">
@@ -111,7 +82,7 @@
               <rect x="2.25" y="3" width="11.5" height="8" rx="1.25"/>
               <path d="M5 13h6M8 11v2"/>
             </svg>
-            Requires macOS 14 or later
+            Apple Silicon · Requires macOS 14 or later
           </p>
         </div>
 
@@ -119,7 +90,7 @@
           <div class="visual-accent" aria-hidden="true"></div>
           <img class="hero-icon" src="assets/app-icon.png" width="512" height="512" alt="">
           <div class="product-window">
-            <img src="assets/images/workspace.png" srcset="assets/images/workspace.png 2x" width="1888" height="1186" alt="Kod showing Swift source from its own repository with language-server documentation for a symbol">
+            <img src="assets/images/workspace.png" srcset="assets/images/workspace@2x.png 2x" width="1888" height="1186" fetchpriority="high" alt="Kod showing Swift source from its own repository with language-server documentation for a symbol">
           </div>
         </div>
       </div>
@@ -264,13 +235,12 @@
           <p>Kod gives you the navigation, context, and inspection tools you need to understand a repository without turning every question into an IDE session.</p>
         </div>
         <div class="cta-actions">
-          <a class="button button-primary" href="__KOD_ARM64_DOWNLOAD_URL__">
+          <a class="button button-primary" href="#top">
             <svg viewBox="0 0 20 20" aria-hidden="true">
               <path d="M10 2.5v10m0 0 3.75-3.75M10 12.5 6.25 8.75M4 16h12"/>
             </svg>
-            Download for Apple silicon
+            Back to Top
           </a>
-          <a class="button button-secondary" href="__KOD_X86_64_DOWNLOAD_URL__">Download for Intel</a>
           <small>Latest release: __KOD_RELEASE_TAG__</small>
         </div>
       </div>
@@ -285,6 +255,9 @@
       </div>
       <p>A native macOS codebase viewer for agentic development.</p>
       <nav aria-label="Footer navigation">
+        <a href="support.html">Support</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="license.html">License</a>
         <a href="https://github.com/friggeri/kod">GitHub</a>
         <a href="https://github.com/friggeri/kod/releases">Releases</a>
       </nav>

@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      run_performance_suite:
+        description: Run the optional 30-iteration performance suite
+        required: false
+        default: false
+        type: boolean
+      run_scale_tests:
+        description: Run the optional 100k-file scale gate
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+
+jobs:
+  verify:
+    name: Functional verification
+    runs-on: macos-26
+    permissions:
+      contents: read
+    env:
+      KOD_RUN_PERFORMANCE_SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.run_performance_suite && '1' || '0' }}
+      KOD_RUN_SCALE_TESTS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_tests && '1' || '0' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Verify pinned toolchain
+        run: |
+          set -euo pipefail
+          test "$(xcodebuild -version | sed -n '1p')" = "Xcode 26.5"
+          swift --version
+
+      - name: Validate owned automation syntax
+        run: |
+          set -euo pipefail
+          bash -n Scripts/verify Scripts/verify-phase \
+            Scripts/acceptance-evidence/run.sh \
+            Scripts/vendor-ripgrep/vendor.sh \
+            Scripts/vendor-test-language-servers/setup.sh \
+            Scripts/release/*.sh
+          python3 -m py_compile \
+            Scripts/acceptance-evidence/generate.py \
+            Scripts/release/*.py
+          python3 -c "
+          import json
+          from pathlib import Path
+          for path in (
+              Path('Scripts/vendor-ripgrep/manifest.json'),
+              Path('Scripts/vendor-test-language-servers/manifest.json'),
+          ):
+              json.loads(path.read_text())
+          "
+
+      - name: Allow SwiftPM bare repositories
+        run: git config --global safe.bareRepository all
+
+      - name: Install rust-analyzer via rustup
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 --fail --silent --show-error https://sh.rustup.rs \
+              | sh -s -- -y --default-toolchain stable --profile minimal --component rust-analyzer
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup component add rust-analyzer
+          test -x "$(rustup which rust-analyzer)"
+
+      - name: Provision pinned integration dependencies
+        run: Scripts/vendor-test-language-servers/setup.sh
+
+      - name: Run the same headless verification command
+        run: Scripts/verify
+
+  ui:
+    name: UI qualification
+    runs-on: macos-26
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Verify pinned toolchain
+        run: |
+          set -euo pipefail
+          test "$(xcodebuild -version | sed -n '1p')" = "Xcode 26.5"
+
+      - name: Allow SwiftPM bare repositories
+        run: git config --global safe.bareRepository all
+
+      - name: Run UI tests with the updater disabled
+        env:
+          KOD_DISABLE_UPDATER: "1"
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Kod.xcodeproj \
+            -scheme Kod \
+            -configuration Debug \
+            -destination "platform=macOS,arch=arm64" \
+            -derivedDataPath DerivedData/CIUI \
+            -only-testing:KodAppUITests \
+            SWIFT_ENABLE_EXPLICIT_MODULES=NO \
+            clean test

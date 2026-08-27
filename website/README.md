@@ -14,9 +14,8 @@ copies the app icon from the Xcode asset catalog, and injects direct download
 links from a published release:
 
 ```sh
-KOD_ARM64_DOWNLOAD_URL='https://github.com/friggeri/kod/releases/download/v1.0.0/Kod-1.0.0-arm64.dmg' \
-KOD_X86_64_DOWNLOAD_URL='https://github.com/friggeri/kod/releases/download/v1.0.0/Kod-1.0.0-x86_64.dmg' \
-KOD_RELEASE_TAG='v1.0.0' \
+KOD_ARM64_DOWNLOAD_URL='https://github.com/friggeri/kod/releases/download/v0.1.0/Kod-0.1.0-arm64.dmg' \
+KOD_RELEASE_TAG='v0.1.0' \
 Scripts/build-website
 ```
 
@@ -31,10 +30,9 @@ Scripts/verify-website
 ## Release contract
 
 The latest published GitHub release must contain exactly one asset matching
-`Kod-*-arm64.dmg` and exactly one matching `Kod-*-x86_64.dmg`. The Pages
-workflow resolves their `browser_download_url` values and injects them into the
-generated HTML. Before the first matching release exists, pushes validate the
-site but deliberately skip deployment.
+`Kod-*-arm64.dmg`. The Pages workflow resolves its `browser_download_url` and
+injects it into the generated HTML. Before the first matching release exists,
+pushes validate the site but deliberately skip deployment.
 
 ## GitHub Pages and domain setup
 

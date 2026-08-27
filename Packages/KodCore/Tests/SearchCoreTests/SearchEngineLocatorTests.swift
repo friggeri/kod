@@ -4,10 +4,8 @@ import XCTest
 
 final class SearchEngineLocatorTests: XCTestCase {
     func testCurrentArchitectureIsSupportedOnThisTestHost() {
-        // The CI/dev host for Kod is Apple silicon or Intel; both are
-        // bundled. Any other architecture is an explicit, surfaced error
-        // rather than a silent fallback (see testUnsupportedArchitectureThrows
-        // — this test documents that *this* host resolves to a real case).
+        // Kod v0.1.x supports Apple Silicon. Any other architecture is an
+        // explicit, surfaced error rather than a silent fallback.
         XCTAssertNotNil(SearchEngineArchitecture.current)
     }
 

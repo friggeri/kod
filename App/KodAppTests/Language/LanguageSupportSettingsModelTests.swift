@@ -21,7 +21,7 @@ final class SettingsNavigationModelTests: XCTestCase {
 
         model.selectedDestination = .language("retired")
         model.reconcileSelection(in: items)
-        XCTAssertEqual(model.selectedDestination, .font)
+        XCTAssertEqual(model.selectedDestination, .updates)
     }
 
     func testExternalLanguageSelectionUpdatesDestination() {

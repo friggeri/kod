@@ -13,6 +13,7 @@
 # Scripts/verify-phase's own.
 
 set -eu
+set -o pipefail
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 exec python3 "$repository_root/Scripts/acceptance-evidence/generate.py" "$@"

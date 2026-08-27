@@ -11,9 +11,6 @@
     "targets": {
       "aarch64-apple-darwin": {
         "vendoredAt": "Packages/KodCore/Sources/SearchCore/Resources/ripgrep/aarch64-apple-darwin/rg"
-      },
-      "x86_64-apple-darwin": {
-        "vendoredAt": "Packages/KodCore/Sources/SearchCore/Resources/ripgrep/x86_64-apple-darwin/rg"
       }
     }
   }

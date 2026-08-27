@@ -5,6 +5,7 @@ import LanguageAdapters
 import LanguageClient
 import SearchCore
 import SettingsCore
+import SourceIO
 import WorkspaceCore
 
 /// The non-view subsystems one open workspace owns. Health is reported
@@ -381,10 +382,19 @@ final class WorkspaceSession {
     private var directoryLoadTasks: [
         String: Task<[WorkspaceFileEntry], any Error>
     ] = [:]
-    private var externalReloadTask: Task<Void, Never>?
+    private var externalReloadTasks: [
+        String: (id: UInt64, task: Task<Void, Never>)
+    ] = [:]
+    private var nextExternalReloadValue: UInt64 = 0
     private var trackedTasks: [UInt64: Task<Void, Never>] = [:]
     private var nextTrackedTaskValue: UInt64 = 0
     private var fileWatcher: (any WorkspaceFileWatching)?
+    /// The on-disk identity of the directory the live `fileWatcher` was
+    /// created for. An FSEvents stream is bound to the directory it was
+    /// started on, not to the path spelling, so this is what tells a root
+    /// that merely came back from a `git stash`/rebuild apart from a root
+    /// that was replaced by a different directory.
+    private var watchedRootIdentity: FileIdentity?
     private var cachedTextSearcher: WorkspaceTextSearcher?
     private var searchFailureRequiresSuccessfulQuery = false
     private var replayFailureProfileIDs: Set<String> = []
@@ -490,7 +500,7 @@ final class WorkspaceSession {
             await startGitCoordinator()
         }
         if targets.contains(.watcher) {
-            startFileWatcherIfNeeded()
+            restartFileWatcher()
         }
         if targets.contains(.search) {
             cachedTextSearcher = nil
@@ -539,7 +549,7 @@ final class WorkspaceSession {
         case .subsystem(.discovery):
             startDiscovery()
         case .subsystem(.watcher):
-            startFileWatcherIfNeeded()
+            restartFileWatcher()
         case .subsystem(.search):
             cachedTextSearcher = nil
             _ = try? textSearcher()
@@ -610,7 +620,7 @@ final class WorkspaceSession {
             _ = try? await task.value
         }
 
-        externalReloadTask = nil
+        externalReloadTasks.removeAll()
         while !trackedTasks.isEmpty {
             let inFlight = trackedTasks
             trackedTasks.removeAll()
@@ -624,6 +634,7 @@ final class WorkspaceSession {
 
         fileWatcher?.stop()
         fileWatcher = nil
+        watchedRootIdentity = nil
         let textSearcher = cachedTextSearcher
         cachedTextSearcher = nil
         await textSearcher?.cancelActiveSearch()
@@ -708,17 +719,58 @@ final class WorkspaceSession {
         return task
     }
 
-    /// The single in-flight reload of externally modified open files.
-    /// Starting a new one supersedes its predecessor, exactly as the
-    /// view controller's own task handle used to.
+    /// The in-flight reload of an externally modified open file, tracked
+    /// *per path*.
+    ///
+    /// A single FSEvents batch routinely reports several changed open
+    /// files (a branch checkout, a formatter, a code generator). One
+    /// shared task handle made those siblings fight: each path's reload
+    /// cancelled the previous one, so only the last path in the batch
+    /// survived and every earlier tab silently kept stale contents.
+    /// Keyed by path, a new reload supersedes only the one for the *same*
+    /// path — where superseding is exactly right, because the newer read
+    /// sees the newer bytes — and paths reload independently. Every task
+    /// is still session-tracked, so shutdown cancels and awaits all of
+    /// them.
     @discardableResult
     func beginExternalReload(
+        forPath path: String,
         _ operation: @escaping @MainActor @Sendable () async -> Void
     ) -> Task<Void, Never> {
-        externalReloadTask?.cancel()
-        let task = runTracked(.discovery, operation)
-        externalReloadTask = task
+        guard isAcceptingWork else {
+            return Task {}
+        }
+        externalReloadTasks.removeValue(forKey: path)?.task.cancel()
+        let id = nextExternalReloadValue
+        nextExternalReloadValue &+= 1
+        let task = runTracked(.discovery) { [weak self] in
+            await operation()
+            self?.finishExternalReload(forPath: path, id: id)
+        }
+        externalReloadTasks[path] = (id: id, task: task)
         return task
+    }
+
+    /// Abandons the reload in flight for `path`, for when the file it
+    /// would have reloaded is gone: a tombstone must not be undone
+    /// moments later by a read that started before the deletion.
+    func cancelExternalReload(forPath path: String) {
+        externalReloadTasks.removeValue(forKey: path)?.task.cancel()
+    }
+
+    /// Headless seam: which paths currently have a reload in flight.
+    var pathsWithExternalReloadInFlight: Set<String> {
+        Set(externalReloadTasks.keys)
+    }
+
+    /// Clears the entry only if it still describes *this* reload: a
+    /// superseded or cancelled predecessor finishing late must not
+    /// deregister the reload that replaced it.
+    private func finishExternalReload(forPath path: String, id: UInt64) {
+        guard externalReloadTasks[path]?.id == id else {
+            return
+        }
+        externalReloadTasks.removeValue(forKey: path)
     }
 
     // MARK: - Discovery
@@ -944,12 +996,40 @@ final class WorkspaceSession {
 
     // MARK: - Live filesystem updates (FSEvents)
 
+    /// What `handleRootInvalidation()` found when it re-resolved the
+    /// watched root.
+    enum WorkspaceRootResolution: Equatable, Sendable {
+        /// A directory is still there and it is the same one: the stream
+        /// was rebuilt over it and live updates continue.
+        case restored
+        /// A directory is there but it is a *different* one (deleted and
+        /// recreated, moved aside, replaced by a fresh clone). Nothing
+        /// cached about the old root's contents is meaningful.
+        case replaced
+        /// Nothing is at the root path. There is nothing to watch, so the
+        /// watcher stays stopped until discovery finds the root again.
+        case missing
+    }
+
     /// The workspace stays fully usable when the watcher cannot start —
     /// discovery, search, Git, and language services do not depend on it
     /// — so a failure enters health and diagnostics instead of failing
     /// the workspace, leaving only live external-change updates off.
+    ///
+    /// A missing root is refused explicitly rather than handed to
+    /// FSEvents: a stream created for a path that does not exist reports
+    /// nothing and would sit there looking healthy.
     func startFileWatcherIfNeeded() {
         guard isAcceptingWork, fileWatcher == nil else {
+            return
+        }
+        guard let rootIdentity = existingRootDirectoryIdentity() else {
+            recordFileWatcherFailure(
+                reason: Localized.string(
+                    "The workspace folder does not exist",
+                    comment: "Diagnostics log reason recorded when the workspace file watcher has no root to watch"
+                )
+            )
             return
         }
         let watcher = services.makeFileWatcher(identity.root) { [weak self] batch in
@@ -960,6 +1040,7 @@ final class WorkspaceSession {
         do {
             try watcher.start()
             fileWatcher = watcher
+            watchedRootIdentity = rootIdentity
             clearHealthIssue(.watcher)
         } catch let error as WorkspaceFileWatcherError {
             recordFileWatcherFailure(reason: Self.diagnosticReason(for: error))
@@ -968,12 +1049,77 @@ final class WorkspaceSession {
         }
     }
 
+    /// Stops the live stream and forgets it, so the next
+    /// `startFileWatcherIfNeeded()` builds a new one instead of
+    /// short-circuiting on a non-`nil` handle.
+    func stopFileWatcher() {
+        fileWatcher?.stop()
+        fileWatcher = nil
+        watchedRootIdentity = nil
+    }
+
+    /// Discards the current stream and starts a fresh one. Used wherever
+    /// "watch again" is the intent — an explicit health retry, or a root
+    /// that changed underneath the stream — because a stream that is
+    /// still *registered* is not necessarily still *delivering*.
+    func restartFileWatcher() {
+        guard isAcceptingWork else {
+            return
+        }
+        stopFileWatcher()
+        startFileWatcherIfNeeded()
+    }
+
+    /// FSEvents reported that the watched root itself was renamed,
+    /// deleted, or replaced.
+    ///
+    /// The existing stream cannot be reused in any of those cases: it is
+    /// attached to the directory that was there when it was created, so
+    /// after a delete-and-recreate it silently watches an unlinked inode
+    /// forever. Leaving `fileWatcher` non-`nil` is precisely what turned
+    /// one root change into permanently dead live updates, so the stream
+    /// is torn down unconditionally here and rebuilt only once there is
+    /// something to rebuild it over.
+    @discardableResult
+    func handleRootInvalidation() -> WorkspaceRootResolution {
+        let previousIdentity = watchedRootIdentity
+        stopFileWatcher()
+        guard let currentIdentity = existingRootDirectoryIdentity() else {
+            recordFileWatcherFailure(
+                reason: Localized.string(
+                    "The workspace folder was moved or removed",
+                    comment: "Diagnostics log reason recorded when the watched workspace root disappears"
+                )
+            )
+            return .missing
+        }
+        startFileWatcherIfNeeded()
+        guard let previousIdentity, previousIdentity == currentIdentity else {
+            return .replaced
+        }
+        return .restored
+    }
+
     var isWatchingFileSystem: Bool {
         fileWatcher != nil
     }
 
+    /// The identity of the root *directory*, or `nil` when the root path
+    /// holds nothing (or something that is not a directory).
+    private func existingRootDirectoryIdentity() -> FileIdentity? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(
+            atPath: identity.root.path,
+            isDirectory: &isDirectory
+        ), isDirectory.boolValue else {
+            return nil
+        }
+        return FileIdentity.current(for: identity.root)
+    }
+
     private func recordFileWatcherFailure(reason: String) {
         fileWatcher = nil
+        watchedRootIdentity = nil
         recordHealthIssue(
             .watcher,
             severity: .unavailable,

@@ -2,6 +2,10 @@ import Foundation
 
 public enum GitBlameServiceError: Error, Equatable, Sendable {
     case processFailed(exitCode: Int32, message: String)
+    /// The caller-supplied revision could not be passed to Git as a
+    /// revision without risking a change in how the invocation itself is
+    /// parsed (see `GitRevisionArgument`). No process is launched.
+    case invalidRevision(GitRevisionArgumentError)
 }
 
 /// Runs `git blame --porcelain` for one path and parses the result.
@@ -31,8 +35,14 @@ public struct GitBlameService: Sendable {
     public func blame(path: String, revision: String? = nil) async throws -> GitBlameResult {
         var subcommandArguments = ["--porcelain"]
         if let revision {
-            subcommandArguments.append(revision)
+            do {
+                subcommandArguments.append(try GitRevisionArgument.validated(revision))
+            } catch let error as GitRevisionArgumentError {
+                throw GitBlameServiceError.invalidRevision(error)
+            }
         }
+        // The `--` separator stays unconditionally, so a path that looks
+        // like an option or a revision is still unambiguously a path.
         subcommandArguments.append(contentsOf: ["--", path])
 
         let arguments = GitInvocationHardening.arguments(for: .blame, arguments: subcommandArguments)

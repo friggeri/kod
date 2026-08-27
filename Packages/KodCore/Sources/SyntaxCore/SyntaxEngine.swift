@@ -17,7 +17,24 @@ public actor SyntaxEngine {
     /// arrives as a brand-new immutable `SourceSnapshot`, never as an
     /// incremental edit Tree-sitter could apply to a previous tree, so
     /// there is no meaningful "incremental reparse" to perform here.
-    public func parse(snapshot: SourceSnapshot, language: SyntaxLanguage) throws -> SyntaxTree {
+    ///
+    /// The tree is `sending`: this actor keeps no reference to it, so
+    /// ownership moves wholesale to the caller's isolation domain rather
+    /// than being shared with this one (trees are not thread safe — see
+    /// `TSTreeBox`).
+    public func parse(snapshot: SourceSnapshot, language: SyntaxLanguage) throws -> sending SyntaxTree {
+        try Self.parseTree(snapshot: snapshot, language: language)
+    }
+
+    /// The parse itself, which touches no actor state and takes only
+    /// `Sendable` inputs. Exposed for callers that are already off the
+    /// main thread and want to own the resulting tree in their own
+    /// isolation domain directly, without an actor hop and without
+    /// transferring a tree between domains at all.
+    public nonisolated static func parseTree(
+        snapshot: SourceSnapshot,
+        language: SyntaxLanguage
+    ) throws -> SyntaxTree {
         let treeBox = try TreeSitterParser.parse(utf8: snapshot.utf8Data, language: language)
         let additionalLayers = try Self.additionalLayers(
             primaryTree: treeBox,
@@ -233,8 +250,14 @@ public actor SyntaxEngine {
     /// waiting for the whole file. Throws `CancellationError` (propagated
     /// from the enclosing `Task`) if superseded before either pass
     /// completes.
+    ///
+    /// `tree` is `sending`: this actor reads it on its own executor while
+    /// the caller keeps running, so the caller must hand over a tree it
+    /// will not touch again — typically `tree.copy()` of the one it
+    /// retains for folding and scope headers. A shared tree read from two
+    /// isolation domains at once is exactly what tree-sitter forbids.
     public func highlight(
-        tree: SyntaxTree,
+        tree: sending SyntaxTree,
         viewportByteRange: Range<Int>,
         fullByteRange: Range<Int>
     ) async throws -> (viewport: [SyntaxCapture], full: [SyntaxCapture]) {

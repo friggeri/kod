@@ -267,3 +267,182 @@ final class SyntaxEngineTests: XCTestCase {
         try? snapshot.text(inUTF8Range: capture.utf8Range)
     }
 }
+
+/// Tree lifetime and cross-isolation copying. Tree-sitter's own API
+/// documents that "syntax trees are not thread safe" and that a tree must
+/// be copied before being used on more than one thread, so a `SyntaxTree`
+/// is a uniquely-owned handle: transferred out of `SyntaxEngine`, and
+/// duplicated with `copy()` whenever a second isolation domain needs one
+/// at the same time.
+final class SyntaxTreeCopyTests: XCTestCase {
+    private func swiftSnapshot() -> SourceSnapshot {
+        SourceSnapshot(
+            text: "func greet() {\n    let name = \"world\"\n    print(name)\n}\n"
+        )
+    }
+
+    func testCopyProducesAnIndependentTreeWithIdenticalResults() async throws {
+        let snapshot = swiftSnapshot()
+        let engine = SyntaxEngine()
+        let tree = try await engine.parse(snapshot: snapshot, language: .swift)
+
+        let copy = try XCTUnwrap(tree.copy())
+
+        XCTAssertEqual(copy.language, tree.language)
+        XCTAssertEqual(copy.snapshotVersion, tree.snapshotVersion)
+        XCTAssertEqual(
+            copy.captures(inByteRange: 0..<snapshot.utf8Count),
+            tree.captures(inByteRange: 0..<snapshot.utf8Count)
+        )
+        XCTAssertEqual(copy.foldRanges(), tree.foldRanges())
+        XCTAssertEqual(copy.enclosingScopes(atByteOffset: 20), tree.enclosingScopes(atByteOffset: 20))
+    }
+
+    /// The original must stay fully usable after copies have been handed
+    /// to another isolation domain and released there.
+    func testOriginalOutlivesCopiesSentToAnotherIsolationDomain() async throws {
+        let snapshot = swiftSnapshot()
+        let engine = SyntaxEngine()
+        let tree = try await engine.parse(snapshot: snapshot, language: .swift)
+        let expected = tree.captures(inByteRange: 0..<snapshot.utf8Count)
+
+        for _ in 0..<8 {
+            let full = try await highlightOnACopy(of: tree, engine: engine, snapshot: snapshot)
+            XCTAssertEqual(full, expected)
+        }
+
+        XCTAssertEqual(tree.captures(inByteRange: 0..<snapshot.utf8Count), expected)
+        XCTAssertFalse(tree.foldRanges().isEmpty)
+    }
+
+    private func highlightOnACopy(
+        of tree: SyntaxTree,
+        engine: SyntaxEngine,
+        snapshot: SourceSnapshot
+    ) async throws -> [SyntaxCapture] {
+        guard let copy = tree.copy() else {
+            throw TreeCopyFailure()
+        }
+        let (viewport, full) = try await engine.highlight(
+            tree: copy,
+            viewportByteRange: 0..<min(16, snapshot.utf8Count),
+            fullByteRange: 0..<snapshot.utf8Count
+        )
+        XCTAssertFalse(viewport.isEmpty)
+        return full
+    }
+
+    /// A copy stays valid after the tree it was copied from is gone: the
+    /// copy owns its own `TSTree*`, and the shared subtree storage is
+    /// refcounted.
+    func testCopyOutlivesTheTreeItWasCopiedFrom() async throws {
+        let snapshot = swiftSnapshot()
+        let expectedCount: Int
+        var survivor: SyntaxTree
+
+        do {
+            let engine = SyntaxEngine()
+            let original = try await engine.parse(snapshot: snapshot, language: .swift)
+            expectedCount = original.captures(inByteRange: 0..<snapshot.utf8Count).count
+            survivor = try XCTUnwrap(original.copy())
+        }
+
+        XCTAssertEqual(
+            survivor.captures(inByteRange: 0..<snapshot.utf8Count).count,
+            expectedCount
+        )
+        XCTAssertFalse(survivor.foldRanges().isEmpty)
+    }
+
+    func testCopyIncludesEveryInjectedLayer() async throws {
+        let snapshot = SourceSnapshot(
+            text: """
+            # Title
+
+            Some **strong** text.
+
+            ```swift
+            func f() -> Int { 1 }
+            ```
+
+            """
+        )
+        let engine = SyntaxEngine()
+        let tree = try await engine.parse(snapshot: snapshot, language: .markdown)
+        let original = tree.captures(inByteRange: 0..<snapshot.utf8Count)
+        XCTAssertTrue(
+            original.contains { $0.name.hasPrefix("keyword") },
+            "fixture must produce an injected Swift layer"
+        )
+
+        let copy = try XCTUnwrap(tree.copy())
+
+        XCTAssertEqual(copy.captures(inByteRange: 0..<snapshot.utf8Count), original)
+    }
+
+    /// Parsing off-actor and parsing through the actor must produce the
+    /// same tree; the nonisolated entry point exists so a caller already
+    /// off the main thread never has to transfer a tree at all.
+    func testNonisolatedParseMatchesTheActorParse() async throws {
+        let snapshot = swiftSnapshot()
+        let direct = try SyntaxEngine.parseTree(snapshot: snapshot, language: .swift)
+        let viaActor = try await SyntaxEngine().parse(snapshot: snapshot, language: .swift)
+
+        XCTAssertEqual(
+            direct.captures(inByteRange: 0..<snapshot.utf8Count),
+            viaActor.captures(inByteRange: 0..<snapshot.utf8Count)
+        )
+    }
+
+    /// Many concurrent highlight passes, each on its own copy, must all
+    /// agree — and must not corrupt the tree they were copied from.
+    func testConcurrentHighlightingOnPerDomainCopiesIsStable() async throws {
+        let snapshot = SourceSnapshot(text: String(repeating: "let x = 1\n", count: 400))
+        let engine = SyntaxEngine()
+        let tree = try await engine.parse(snapshot: snapshot, language: .swift)
+        let expected = tree.captures(inByteRange: 0..<snapshot.utf8Count).count
+
+        // Every copy is made here, in the domain that owns `tree`, and
+        // then handed to exactly one actor that owns it from then on.
+        var workers: [CaptureWorker] = []
+        for _ in 0..<16 {
+            workers.append(try makeWorker(copying: tree))
+        }
+
+        let fullRange = 0..<snapshot.utf8Count
+        try await withThrowingTaskGroup(of: Int.self) { group in
+            for worker in workers {
+                group.addTask {
+                    await worker.captureCount(in: fullRange)
+                }
+            }
+            for try await count in group {
+                XCTAssertEqual(count, expected)
+            }
+        }
+
+        XCTAssertEqual(tree.captures(inByteRange: fullRange).count, expected)
+    }
+
+    private func makeWorker(copying tree: SyntaxTree) throws -> CaptureWorker {
+        guard let copy = tree.copy() else {
+            throw TreeCopyFailure()
+        }
+        return CaptureWorker(tree: copy)
+    }
+}
+
+private struct TreeCopyFailure: Error {}
+
+/// One isolation domain that exclusively owns one tree copy.
+private actor CaptureWorker {
+    private let tree: SyntaxTree
+
+    init(tree: sending SyntaxTree) {
+        self.tree = tree
+    }
+
+    func captureCount(in range: Range<Int>) -> Int {
+        tree.captures(inByteRange: range).count
+    }
+}

@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var welcomeWindowController: NSWindowController?
     private var settingsWindowController: SettingsWindowController?
     private let environment: AppEnvironment
+    private let softwareUpdater: any SoftwareUpdateControlling
     let sessionRegistry: AppSessionRegistry
     private(set) var languageStatusRefreshTask: Task<Void, Never>?
     private var terminationTask: Task<Void, Never>?
@@ -20,15 +21,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(
         environment: AppEnvironment,
-        sessionRegistry: AppSessionRegistry? = nil
+        sessionRegistry: AppSessionRegistry? = nil,
+        softwareUpdater: any SoftwareUpdateControlling =
+            DisabledSoftwareUpdateController()
     ) {
         self.environment = environment
+        self.softwareUpdater = softwareUpdater
         self.sessionRegistry =
             sessionRegistry ?? AppSessionRegistry(environment: environment)
         super.init()
         self.sessionRegistry.onFirstSessionOpened = { [weak self] in
             self?.closeWelcomeWindow()
         }
+
         self.sessionRegistry.onSessionSetChanged = { [weak self] in
             self?.configureMainMenu()
         }
@@ -55,7 +60,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.runModal()
             return
         }
-        let delegate = AppDelegate(environment: environment)
+        let delegate = AppDelegate(
+            environment: environment,
+            softwareUpdater: SoftwareUpdateControllerFactory.production()
+        )
         application.delegate = delegate
         application.run()
     }
@@ -335,6 +343,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc
+    func checkForUpdates(_ sender: Any? = nil) {
+        softwareUpdater.checkForUpdates()
+    }
+
+    @objc
+    func showSupport(_ sender: Any? = nil) {
+        openProjectURL("https://kod.dev/support.html")
+    }
+
+    @objc
+    func showPrivacy(_ sender: Any? = nil) {
+        openProjectURL("https://kod.dev/privacy.html")
+    }
+
+    @objc
+    func reportIssue(_ sender: Any? = nil) {
+        openProjectURL("https://github.com/friggeri/kod/issues/new")
+    }
+
+    @objc
+    func exportSupportBundle(_ sender: Any? = nil) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Kod-Support-Bundle.json"
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.begin { [weak self] response in
+            guard response == .OK, let destination = panel.url else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                await self?.writeSupportBundle(to: destination)
+            }
+        }
+    }
+
+    @objc
     func showLanguageSupportSettings(_ sender: Any? = nil) {
         presentLanguageSupportSettings(profileIdentifier: nil)
     }
@@ -358,7 +402,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 controller = settingsWindowController
             } else {
                 controller = try SettingsWindowController(
-                    environment: environment
+                    environment: environment,
+                    softwareUpdater: softwareUpdater
                 )
                 settingsWindowController = controller
             }
@@ -429,6 +474,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    private func openProjectURL(_ string: String) {
+        guard let url = URL(string: string) else {
+            recordSettingsFailure(
+                message: "A Kod help link is invalid",
+                reason: string
+            )
+            return
+        }
+        guard NSWorkspace.shared.open(url) else {
+            recordSettingsFailure(
+                message: "A Kod help link could not be opened",
+                reason: string
+            )
+            return
+        }
+    }
+
+    private func writeSupportBundle(to destination: URL) async {
+        do {
+            let quarantine = try environment.settingsRepository.quarantine
+                .records()
+            let version =
+                Bundle.main.object(
+                    forInfoDictionaryKey: "CFBundleShortVersionString"
+                ) as? String ?? "unknown"
+            let contents = try await SupportBundleGenerator.generate(
+                from: environment.diagnosticsLog,
+                quarantine: quarantine,
+                appVersion: version,
+                osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+                architecture: Self.releaseArchitecture
+            )
+            try SupportBundleGenerator.write(contents, to: destination)
+        } catch {
+            present(error)
+        }
+    }
+
+    private static var releaseArchitecture: String {
+#if arch(arm64)
+        "arm64"
+#elseif arch(x86_64)
+        "x86_64"
+#else
+        "unknown"
+#endif
+    }
+
     private func recordSettingsFailure(
         message: String,
         reason: String
@@ -479,5 +572,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return nil
         }
         return URL(fileURLWithPath: arguments[pathIndex])
+    }
+}
+
+extension AppDelegate: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(checkForUpdates(_:)) {
+            return softwareUpdater.canCheckForUpdates
+        }
+        return true
     }
 }

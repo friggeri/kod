@@ -85,6 +85,98 @@ final class GitProcessInvocationSpyTests: XCTestCase {
         try assertHardened(records[0], expectedSubcommand: "blame")
     }
 
+    func testBlameWithARevisionPlacesItBeforeTheDoubleDashSeparator() async throws {
+        let harness = try GitProcessSpyHarness.make()
+        defer { harness.cleanup() }
+        let fixture = try GitFixtureBuilder.makeEmptyRepository()
+        defer { try? fixture.removeAll() }
+        try fixture.write("a.txt", text: "hi\n")
+        try fixture.addAll()
+        _ = try fixture.commit(message: "c1", date: "2024-01-01T10:00:00 -0500")
+
+        let service = GitBlameService(
+            executableURL: harness.spyExecutableURL,
+            repositoryRoot: fixture.rootURL,
+            environment: harness.environment(home: ProcessInfo.processInfo.environment["HOME"])
+        )
+        _ = try await service.blame(path: "a.txt", revision: "HEAD")
+
+        let record = try XCTUnwrap(harness.records().first)
+        let separatorIndex = try XCTUnwrap(record.arguments.firstIndex(of: "--"))
+        let revisionIndex = try XCTUnwrap(record.arguments.firstIndex(of: "HEAD"))
+        XCTAssertLessThan(revisionIndex, separatorIndex)
+        XCTAssertEqual(record.arguments.last, "a.txt")
+        try assertHardened(record, expectedSubcommand: "blame")
+    }
+
+    /// A revision that begins with `-` would be re-read by Git itself as
+    /// an option even though `Process.arguments` passes it as one element
+    /// — so it is refused before any process is launched, and the spy log
+    /// stays empty.
+    func testBlameRefusesOptionShapedRevisionsWithoutLaunchingGit() async throws {
+        let harness = try GitProcessSpyHarness.make()
+        defer { harness.cleanup() }
+        let fixture = try GitFixtureBuilder.makeEmptyRepository()
+        defer { try? fixture.removeAll() }
+        try fixture.write("a.txt", text: "hi\n")
+        try fixture.addAll()
+        _ = try fixture.commit(message: "c1", date: "2024-01-01T10:00:00 -0500")
+
+        let service = GitBlameService(
+            executableURL: harness.spyExecutableURL,
+            repositoryRoot: fixture.rootURL,
+            environment: harness.environment(home: ProcessInfo.processInfo.environment["HOME"])
+        )
+
+        for hostileRevision in ["--reverse", "-L1,1", "--", "--contents=/etc/passwd"] {
+            do {
+                _ = try await service.blame(path: "a.txt", revision: hostileRevision)
+                XCTFail("expected \(hostileRevision) to be refused")
+            } catch let error as GitBlameServiceError {
+                XCTAssertEqual(
+                    error,
+                    .invalidRevision(.leadingOption(hostileRevision))
+                )
+            }
+        }
+
+        XCTAssertTrue(try harness.records().isEmpty, "no Git process may be launched for a refused revision")
+    }
+
+    func testBlameRefusesRevisionsContainingWhitespaceOrControlCharacters() async throws {
+        let harness = try GitProcessSpyHarness.make()
+        defer { harness.cleanup() }
+        let fixture = try GitFixtureBuilder.makeEmptyRepository()
+        defer { try? fixture.removeAll() }
+        try fixture.write("a.txt", text: "hi\n")
+        try fixture.addAll()
+        _ = try fixture.commit(message: "c1", date: "2024-01-01T10:00:00 -0500")
+
+        let service = GitBlameService(
+            executableURL: harness.spyExecutableURL,
+            repositoryRoot: fixture.rootURL,
+            environment: harness.environment(home: ProcessInfo.processInfo.environment["HOME"])
+        )
+
+        for hostileRevision in ["HEAD --reverse", "HEAD\n--reverse", "HEAD\u{0}"] {
+            do {
+                _ = try await service.blame(path: "a.txt", revision: hostileRevision)
+                XCTFail("expected \(hostileRevision) to be refused")
+            } catch let error as GitBlameServiceError {
+                XCTAssertEqual(error, .invalidRevision(.invalidCharacter(hostileRevision)))
+            }
+        }
+
+        do {
+            _ = try await service.blame(path: "a.txt", revision: "   ")
+            XCTFail("expected a whitespace-only revision to be refused")
+        } catch let error as GitBlameServiceError {
+            XCTAssertEqual(error, .invalidRevision(.empty))
+        }
+
+        XCTAssertTrue(try harness.records().isEmpty, "no Git process may be launched for a refused revision")
+    }
+
     func testRepositoryLocatorInvocationsUseOnlyRevParseAndSymbolicRef() async throws {
         let harness = try GitProcessSpyHarness.make()
         defer { harness.cleanup() }

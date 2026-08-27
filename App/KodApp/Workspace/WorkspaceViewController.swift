@@ -484,6 +484,26 @@ final class WorkspaceViewController: NSViewController {
     /// stale in-flight syntax/navigation work for a superseded snapshot is
     /// rejected rather than shown (SPEC 5.6).
     private var nextSnapshotVersion = 1
+    /// The user's answers to "load this oversized file anyway?", keyed by
+    /// canonical URL but *pinned* to the file that was actually approved.
+    ///
+    /// A bare set of URLs made consent outlive its subject: the approved
+    /// path could be deleted and recreated, replaced by a symlink swap or
+    /// a `git checkout`, or grown from the 11 MB the user agreed to into
+    /// something far larger, and Kod would still load it without asking.
+    /// `OversizedReadApproval` carries the file's on-disk identity and the
+    /// approved byte count, and the loader re-checks both against the
+    /// descriptor it is about to read, so any of those events makes the
+    /// approval stop matching.
+    private var approvedOversizedFiles: [URL: OversizedReadApproval] = [:]
+    var oversizedFileLoadConfirmation: ((URL, Int, Int) -> Bool)?
+    /// Test seam: the file system every workspace read goes through.
+    ///
+    /// Production is `LocalReadOnlyFileSystem()`. Tests substitute one
+    /// that parks inside `readFile` so "closing the window stops the
+    /// read" is an assertion about an observed cancellation rather than a
+    /// race against a file large enough to still be loading.
+    var readOnlyFileSystem: any ReadOnlyFileSystem = LocalReadOnlyFileSystem()
     var languageSupportService: LanguageSupportService {
         session.dependencies.languageSupportService
     }
@@ -575,7 +595,8 @@ final class WorkspaceViewController: NSViewController {
                 }
                 return try await self.loadSnapshot(
                     relativePath: relativePath,
-                    bumpingVersion: true
+                    bumpingVersion: true,
+                    origin: .userInitiated
                 )
             },
             nextSnapshotVersion: { [weak self] in
@@ -1411,8 +1432,7 @@ final class WorkspaceViewController: NSViewController {
         guard let relativePath = relativePath(of: url) else {
             return
         }
-        sourceLoadTask?.cancel()
-        sourceLoadTask = Task { [weak self] in
+        beginSourceLoad { [weak self] in
             guard let self else {
                 return
             }
@@ -1620,6 +1640,15 @@ final class WorkspaceViewController: NSViewController {
             return
         }
         groupController.closeTab(tabID)
+    }
+
+    @objc
+    func pinActiveTab(_ sender: Any?) {
+        guard let groupController = activeGroupController,
+              let tabID = groupController.state.selectedTabID else {
+            return
+        }
+        groupController.pinTab(tabID)
     }
 
     @objc
@@ -1854,8 +1883,7 @@ final class WorkspaceViewController: NSViewController {
             ) else {
                 return
             }
-            self.sourceLoadTask?.cancel()
-            self.sourceLoadTask = Task { [weak self, weak controller] in
+            self.beginSourceLoad { [weak self, weak controller] in
                 guard let self, let controller else {
                     return
                 }
@@ -1999,10 +2027,33 @@ final class WorkspaceViewController: NSViewController {
         definitionNavigationTask = nil
         explorerRevealTask?.cancel()
         explorerRevealTask = nil
+        // The open/navigate read is the one most likely to still be
+        // pulling bytes when the window goes away. Cancelling it here
+        // reaches the file handle (every source and raw preview read is
+        // cancellation-chained), and because the task is session-owned,
+        // `WorkspaceSession.shutdown()` also *awaits* it — so the read is
+        // finished, not merely orphaned, and its continuation can no
+        // longer open a tab in a workspace that is closing.
+        sourceLoadTask?.cancel()
+        sourceLoadTask = nil
         if isViewLoaded {
             quickDiff.cancelAll()
         }
         persistRestorableState()
+    }
+
+    /// Starts the workspace's single "open something in the editor" read,
+    /// superseding whatever was in flight.
+    ///
+    /// Session-owned rather than free-floating: `runTracked` refuses new
+    /// work once the session is stopping and makes shutdown cancel *and*
+    /// await this read, which is what keeps a multi-second load of a large
+    /// file from outliving the workspace that asked for it.
+    private func beginSourceLoad(
+        _ operation: @escaping @MainActor @Sendable () async -> Void
+    ) {
+        sourceLoadTask?.cancel()
+        sourceLoadTask = session.runTracked(.discovery, operation)
     }
 
     /// Layout persistence is best effort from the UI's point of view: a
@@ -2015,18 +2066,33 @@ final class WorkspaceViewController: NSViewController {
 
     /// Reads a workspace-relative path's raw bytes independently of
     /// `SourceSnapshot` text decoding, for image and binary-plist previews.
+    ///
+    /// `RawFileLoader` rather than a bare `Task.detached`: a detached task
+    /// has no parent, so closing the tab or the window left this read
+    /// running to completion, and nothing bounded how much of an
+    /// arbitrarily large file it pulled into memory first. The loader
+    /// chains this task's cancellation onto the read and refuses anything
+    /// above `RawFileReadPolicy.previewDefault` with a typed error —
+    /// a limit deliberately far above the text limit so ordinary large
+    /// images and property lists still preview.
     private func loadRawFileData(relativePath: String) async throws -> Data {
         let url = identity.root.appendingPathComponent(relativePath)
-        return try await Task.detached(priority: .userInitiated) {
-            try LocalReadOnlyFileSystem().readFile(at: url).data
-        }.value
+        return try await RawFileLoader(
+            fileSystem: readOnlyFileSystem
+        ).loadDetached(url: url)
     }
 
     /// Attempts to build a preview directly from raw bytes after source
     /// decoding failed. Only formats with a meaningful preview-only mode
     /// (images and structured data such as binary plists) are admitted.
+    ///
+    /// Returns `nil` for anything that cannot be previewed *and* for a
+    /// read that was abandoned — the caller re-checks cancellation before
+    /// putting anything on screen, so a window closing mid-read cannot
+    /// resurrect a tab for it.
     private func tryMakePreviewOnly(forRelativePath relativePath: String) async -> PreviewViewController? {
-        guard let data = try? await loadRawFileData(relativePath: relativePath) else {
+        guard let data = try? await loadRawFileData(relativePath: relativePath),
+              !Task.isCancelled else {
             return nil
         }
         let kind = PreviewContentDetector.detect(
@@ -2055,11 +2121,7 @@ final class WorkspaceViewController: NSViewController {
 
     private func loadSnapshot(relativePath: String) async throws -> SourceSnapshot {
         let url = identity.root.appendingPathComponent(relativePath)
-        return try await Task.detached(priority: .userInitiated) {
-            try SourceSnapshotLoader(
-                renderingSafetyPolicy: .codeViewportDefault
-            ).load(url: url)
-        }.value
+        return try await loadSnapshot(url: url, version: 1)
     }
 
     // MARK: - Sidebar / Explorer
@@ -2348,8 +2410,7 @@ final class WorkspaceViewController: NSViewController {
         guard let groupController = splitContainer.controller(for: layoutState.activeGroupID) else {
             return
         }
-        sourceLoadTask?.cancel()
-        sourceLoadTask = Task { [weak self, weak groupController] in
+        beginSourceLoad { [weak self, weak groupController] in
             guard let self else {
                 return
             }
@@ -2367,7 +2428,7 @@ final class WorkspaceViewController: NSViewController {
             } catch is CancellationError {
                 return
             } catch {
-                guard let window = self.view.window else {
+                guard !Task.isCancelled, let window = self.view.window else {
                     return
                 }
                 let alert = NSAlert(error: error)
@@ -2496,6 +2557,40 @@ final class WorkspaceViewController: NSViewController {
     func handleWorkspaceChangeBatch(_ batch: WorkspaceChangeBatch) {
         session.handleFileSystemChanges(batch)
 
+        if batch.isRootInvalidated {
+            // The FSEvents stream is bound to the directory it was
+            // created over, so a renamed/deleted/replaced root leaves it
+            // registered but permanently silent. The session tears it
+            // down and rebuilds it here — before anything else — so live
+            // updates survive a root that comes back.
+            let resolution = session.handleRootInvalidation()
+            revalidateOpenTabsAfterRescan()
+            guard resolution != .missing else {
+                session.recordHealthIssue(
+                    .discovery,
+                    severity: .unavailable,
+                    message: Localized.string(
+                        "The workspace folder was moved or removed",
+                        comment: "Workspace health message after FSEvents invalidates the watched root"
+                    ),
+                    reason: identity.root.path
+                )
+                return
+            }
+            // A restored root may only have changed underneath; a
+            // replaced one shares nothing with the old one but its path.
+            // Both need the tree, the filename index, and Git re-derived
+            // from scratch.
+            startDiscovery()
+            return
+        }
+
+        if batch.requiresRescan {
+            startDiscovery()
+            revalidateOpenTabsAfterRescan()
+            return
+        }
+
         if batch.mayHaveChangedIgnoreRules {
             for changed in batch.paths {
                 let url = URL(fileURLWithPath: changed.path)
@@ -2512,6 +2607,19 @@ final class WorkspaceViewController: NSViewController {
 
         for changed in batch.paths {
             handleChangedPath(changed.path)
+        }
+    }
+
+    private func revalidateOpenTabsAfterRescan() {
+        let relativePaths = Set(
+            layoutState.groups.values.flatMap { group in
+                group.tabs.map(\.relativePath)
+            }
+        )
+        for relativePath in relativePaths {
+            handleChangedPath(
+                identity.root.appendingPathComponent(relativePath).path
+            )
         }
     }
 
@@ -2625,12 +2733,16 @@ final class WorkspaceViewController: NSViewController {
             return
         }
 
-        session.beginExternalReload { [weak self] in
+        session.beginExternalReload(forPath: relativePath) { [weak self] in
             guard let self else {
                 return
             }
             do {
-                let snapshot = try await self.loadSnapshot(relativePath: relativePath, bumpingVersion: true)
+                let snapshot = try await self.loadSnapshot(
+                    relativePath: relativePath,
+                    bumpingVersion: true,
+                    origin: .externalReload
+                )
                 guard !Task.isCancelled else {
                     return
                 }
@@ -2651,6 +2763,17 @@ final class WorkspaceViewController: NSViewController {
     }
 
     private func tombstoneOpenTabsIfNeeded(relativePath: String) {
+        // A reload started before the file disappeared would otherwise
+        // land after this tombstone and clear it.
+        session.cancelExternalReload(forPath: relativePath)
+        // Consent was given for a file that no longer exists. Anything
+        // later created at this path is a different file and has to be
+        // approved on its own terms.
+        approvedOversizedFiles.removeValue(
+            forKey: identity.root
+                .appendingPathComponent(relativePath)
+                .standardizedFileURL
+        )
         let hasOpenTab = layoutState.groups.values.contains { group in
             group.tabs.contains { $0.relativePath == relativePath }
         }
@@ -2664,14 +2787,180 @@ final class WorkspaceViewController: NSViewController {
         persistLayout()
     }
 
-    private func loadSnapshot(relativePath: String, bumpingVersion: Bool) async throws -> SourceSnapshot {
+    private func loadSnapshot(
+        relativePath: String,
+        bumpingVersion: Bool,
+        origin: WorkspaceSourceLoadOrigin = .userInitiated
+    ) async throws -> SourceSnapshot {
         let url = identity.root.appendingPathComponent(relativePath)
         let version = bumpingVersion ? nextVersion() : 1
-        return try await Task.detached(priority: .userInitiated) {
-            try SourceSnapshotLoader(
-                renderingSafetyPolicy: .codeViewportDefault
-            ).load(url: url, version: version)
-        }.value
+        return try await loadSnapshot(
+            url: url,
+            version: version,
+            origin: origin
+        )
+    }
+
+    private func loadSnapshot(
+        url: URL,
+        version: Int,
+        origin: WorkspaceSourceLoadOrigin = .userInitiated
+    ) async throws -> SourceSnapshot {
+        let canonicalURL = url.standardizedFileURL
+        let loader = SourceSnapshotLoader(
+            fileSystem: readOnlyFileSystem,
+            renderingSafetyPolicy: .codeViewportDefault
+        )
+        do {
+            // `loadDetached` keeps the read off the main actor *and*
+            // chains this task's cancellation onto it, so closing the tab
+            // or superseding the reload stops the read instead of paying
+            // for every remaining byte. Any consent already given for
+            // this path travels with the read and is verified against the
+            // file that is actually opened.
+            return try await loader.loadDetached(
+                url: canonicalURL,
+                version: version,
+                approval: approvedOversizedFiles[canonicalURL]
+            )
+        } catch SourceIOError.fileExceedsRenderingByteLimit(
+            _,
+            let refusedByteCount,
+            let limit
+        ) {
+            // Reaching here means either nothing was ever approved for
+            // this path, or what was approved no longer describes the
+            // file on disk (replaced, recreated, or grown past the size
+            // the user agreed to). Either way the stale record must go:
+            // consent is not transferable between files.
+            let staleApproval = approvedOversizedFiles.removeValue(
+                forKey: canonicalURL
+            )
+            guard origin == .userInitiated else {
+                recordOversizedReloadRefusal(
+                    url: canonicalURL,
+                    byteCount: refusedByteCount,
+                    revoked: staleApproval
+                )
+                throw CancellationError()
+            }
+            // Never put a modal question in front of the user for a
+            // load that has already been superseded (another file
+            // opened, the tab closed, the workspace switched).
+            try Task.checkCancellation()
+            // Ask about the file as it is *now*, and pin the approval to
+            // exactly what was asked about, so the number in the sheet
+            // and the number the approval permits are the same number.
+            let metadata = try await loader.metadataDetached(at: canonicalURL)
+            try Task.checkCancellation()
+            let byteCount = metadata?.byteCount ?? refusedByteCount
+            guard await confirmLoadingOversizedFile(
+                url: canonicalURL,
+                byteCount: byteCount,
+                limit: limit
+            ) else {
+                throw CancellationError()
+            }
+            // The user's answer stands even if this particular load
+            // was superseded while the sheet was up, so reopening the
+            // same file — the same file, at no more than the same size —
+            // does not ask again.
+            let approval = OversizedReadApproval(
+                identity: metadata?.identity,
+                byteCount: byteCount
+            )
+            approvedOversizedFiles[canonicalURL] = approval
+            try Task.checkCancellation()
+            return try await loader.loadDetached(
+                url: canonicalURL,
+                version: version,
+                approval: approval
+            )
+        }
+    }
+
+    /// An external change made an open file oversized (or invalidated the
+    /// consent it previously had). Nothing modal may appear for a change
+    /// the user did not initiate, so the tab keeps the snapshot it
+    /// already has and the reason it is now stale is stated explicitly in
+    /// workspace health.
+    private func recordOversizedReloadRefusal(
+        url: URL,
+        byteCount: Int,
+        revoked: OversizedReadApproval?
+    ) {
+        let name = url.lastPathComponent
+        let reason: String
+        if let revoked {
+            reason = Localized.string(
+                "\(name) is no longer the \(Self.formattedByteCount(revoked.byteCount)) file you approved — it is now \(Self.formattedByteCount(byteCount)) or a different file. The tab still shows the previously loaded contents; reopen it to approve the new one.",
+                comment: "Workspace health recovery detail when a previously approved oversized file was replaced or grew"
+            )
+        } else {
+            reason = Localized.string(
+                "Reopen \(name) to approve loading its \(Self.formattedByteCount(byteCount)) contents.",
+                comment: "Workspace health recovery detail for an oversized externally changed file"
+            )
+        }
+        session.recordHealthIssue(
+            .discovery,
+            severity: .degraded,
+            message: Localized.string(
+                "A large open file changed and was not reloaded",
+                comment: "Workspace health message when an external reload would require large-file consent"
+            ),
+            reason: reason
+        )
+    }
+
+    private func confirmLoadingOversizedFile(
+        url: URL,
+        byteCount: Int,
+        limit: Int
+    ) async -> Bool {
+        if let oversizedFileLoadConfirmation {
+            return oversizedFileLoadConfirmation(url, byteCount, limit)
+        }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = Localized.string(
+            "Open Large File?",
+            comment: "Confirmation title before loading an oversized workspace source file"
+        )
+        alert.informativeText = Localized.string(
+            "\(url.lastPathComponent) is \(Self.formattedByteCount(byteCount)), above Kod's \(Self.formattedByteCount(limit)) safety limit. Loading it may use substantial memory.",
+            comment: "Confirmation detail before loading an oversized workspace source file"
+        )
+        alert.addButton(
+            withTitle: Localized.string(
+                "Load Anyway",
+                comment: "Confirmation button that loads an oversized workspace source file"
+            )
+        )
+        alert.addButton(
+            withTitle: Localized.string(
+                "Cancel",
+                comment: "Button that cancels loading an oversized workspace source file"
+            )
+        )
+        guard let window = view.window else {
+            return alert.runModal() == .alertFirstButtonReturn
+        }
+        let response = CancellableAlertResponse(alert: alert)
+        return await withTaskCancellationHandler {
+            await response.present(in: window)
+        } onCancel: {
+            Task { @MainActor in
+                response.cancel()
+            }
+        }
+    }
+
+    private static func formattedByteCount(_ count: Int) -> String {
+        ByteCountFormatter.string(
+            fromByteCount: Int64(count),
+            countStyle: .file
+        )
     }
 
     private func nextVersion() -> Int {
@@ -2692,8 +2981,7 @@ final class WorkspaceViewController: NSViewController {
             return
         }
 
-        sourceLoadTask?.cancel()
-        sourceLoadTask = Task { [weak self, weak groupController] in
+        beginSourceLoad { [weak self, weak groupController] in
             guard let self else {
                 return
             }
@@ -2714,6 +3002,9 @@ final class WorkspaceViewController: NSViewController {
                 // its raw bytes and showing a supported preview-only format
                 // instead of an error alert.
                 if let preview = await self.tryMakePreviewOnly(forRelativePath: entry.relativePath) {
+                    guard !Task.isCancelled else {
+                        return
+                    }
                     groupController.openPreviewOnlyTab(
                         relativePath: entry.relativePath,
                         pinned: true,
@@ -2722,7 +3013,7 @@ final class WorkspaceViewController: NSViewController {
                     )
                     return
                 }
-                guard let window = self.view.window else {
+                guard !Task.isCancelled, let window = self.view.window else {
                     return
                 }
                 let alert = NSAlert(error: error)
@@ -2836,10 +3127,69 @@ extension WorkspaceViewController: NSMenuItemValidation {
             return activeGroupController?.canGoForward ?? false
         case .requiresActiveGitQuickDiffController:
             return activeGitQuickDiffController != nil
+        case .requiresUnpinnedSelectedTab:
+            guard let groupController = activeGroupController,
+                  let selectedID = groupController.state.selectedTabID,
+                  let tab = groupController.state.tabs.first(where: {
+                      $0.id == selectedID
+                  }) else {
+                return false
+            }
+            return !tab.isPinned
         case .requiresActiveGroupCountGreaterThanOne:
             return layoutState.groups.count > 1
         case .alwaysEnabled, .systemStandard:
             return true
+        }
+    }
+
+    private enum WorkspaceSourceLoadOrigin: Equatable {
+        case userInitiated
+        case externalReload
+    }
+
+    @MainActor
+    private final class CancellableAlertResponse {
+        private let alert: NSAlert
+        private var continuation: CheckedContinuation<Bool, Never>?
+        private var isCancelled = false
+
+        init(alert: NSAlert) {
+            self.alert = alert
+        }
+
+        func present(in window: NSWindow) async -> Bool {
+            if isCancelled {
+                return false
+            }
+            return await withCheckedContinuation { continuation in
+                if isCancelled {
+                    continuation.resume(returning: false)
+                    return
+                }
+                self.continuation = continuation
+                alert.beginSheetModal(for: window) { [weak self] response in
+                    self?.finish(
+                        response == .alertFirstButtonReturn
+                    )
+                }
+            }
+        }
+
+        func cancel() {
+            isCancelled = true
+            if let parent = alert.window.sheetParent {
+                parent.endSheet(alert.window, returnCode: .cancel)
+            }
+            finish(false)
+        }
+
+        private func finish(_ result: Bool) {
+            guard let continuation else {
+                return
+            }
+            self.continuation = nil
+            continuation.resume(returning: result)
         }
     }
 }

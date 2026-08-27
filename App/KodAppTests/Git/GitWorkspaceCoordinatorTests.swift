@@ -281,4 +281,19 @@ final class GitWorkspaceCoordinatorTests: XCTestCase {
         XCTAssertEqual(invalidation.changedPaths, Set([firstPath, secondPath]))
     }
 
+    func testRescanBatchInvalidatesTheWorkspaceRoot() {
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let batch = WorkspaceChangeBatch(
+            paths: [],
+            scope: .rescanRequired(reasons: [.kernelDropped])
+        )
+
+        let invalidation = GitWorkspaceCoordinator.gitInvalidation(
+            for: batch,
+            rescanRoot: root
+        )
+
+        XCTAssertEqual(invalidation.changedPaths, [root.path])
+    }
+
 }

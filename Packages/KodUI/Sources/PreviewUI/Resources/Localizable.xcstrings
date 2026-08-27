@@ -373,18 +373,6 @@
         }
       }
     },
-    "Search keys and values": {
-      "comment": "Placeholder text for the structured-data preview's search field\nAccessibility label for the structured-data preview's search field",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search keys and values"
-          }
-        }
-      }
-    },
     "This workspace is not trusted. Open %@ in your default browser?": {
       "comment": "Alert body explaining the untrusted-workspace external-link confirmation, naming the destination URL",
       "extractionState": "manual",

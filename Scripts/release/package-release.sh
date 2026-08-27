@@ -1,58 +1,58 @@
 #!/bin/sh
-# Orchestrates Kod's full release-qualification pipeline end to end,
-# running every stage this environment can safely and headlessly
-# perform, and reporting — never fabricating — the outcome of every
-# stage it cannot (missing production signing/notarization
-# credentials, missing physical hardware). See Scripts/release/README.md
-# for the full stage-by-stage explanation and exactly what each
-# credential-gated stage still requires from a real release engineer.
+# Produces Kod's complete, signed, notarized v0.1.x release artifact set.
+# This is a production-only pipeline: every credential and gate is required,
+# and any failure aborts before a draft GitHub Release can be created.
 #
-# Usage: Scripts/release/package-release.sh [version]
+# Usage: Scripts/release/package-release.sh <version>
 
 set -eu
+set -o pipefail
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 release_scripts_dir="$repository_root/Scripts/release"
-version=${1:-$(date +%Y.%m.%d)}
+version=${1:-}
 output_dir="$repository_root/Artifacts/release"
 
-mkdir -p "$output_dir"
-
-printf '%s\n' "==> [1/9] Building Apple-silicon (arm64) archive"
-"$release_scripts_dir/build-archive.sh" arm64 "$output_dir/arm64"
-arm64_app="$output_dir/arm64/Kod.xcarchive/Products/Applications/Kod.app"
-
-printf '%s\n' "==> [2/9] Cross-building x86_64 (Intel best-effort) archive"
-"$release_scripts_dir/cross-build-x86_64.sh"
-x86_64_app="$output_dir/x86_64/Kod.xcarchive/Products/Applications/Kod.app"
-
-printf '%s\n' "==> [3/9] Verifying clean-install/upgrade/rollback/offline/uninstall lifecycle (static, isolated temp roots)"
-python3 "$release_scripts_dir/verify-install-lifecycle.py" "$arm64_app"
-
-printf '%s\n' "==> [4/9] Generating SBOM"
-python3 "$release_scripts_dir/generate-sbom.py" "$output_dir/sbom.json"
-
-printf '%s\n' "==> [5/9] Attempting codesign + notarization (credential-gated; expected to report BLOCKED without production credentials)"
-if ! "$release_scripts_dir/codesign-and-notarize.sh" "$arm64_app"; then
-    printf '%s\n' "==> Notarization step reported blocked/failed — see message above. Continuing with the remaining, non-credential-gated stages using the ad-hoc-signed build." >&2
+if [ -z "$version" ]; then
+    printf '%s\n' "Usage: $0 <version>" >&2
+    exit 64
 fi
 
-printf '%s\n' "==> [6/9] Static Gatekeeper assessment (spctl; not a real clean-Mac test)"
-"$release_scripts_dir/verify-gatekeeper.sh" "$arm64_app" || printf '%s\n' "==> spctl did not accept the (likely still ad-hoc-signed) build — expected until real notarization succeeds." >&2
+"$release_scripts_dir/preflight.sh" "$version"
 
-printf '%s\n' "==> [7/9] Packaging DMG/ZIP for both architectures"
-"$release_scripts_dir/make-dmg.sh" "$arm64_app" "$output_dir" "$version"
-"$release_scripts_dir/make-dmg.sh" "$x86_64_app" "$output_dir" "$version"
+rm -rf -- "$output_dir"
+mkdir -p "$output_dir/archive"
 
-printf '%s\n' "==> [8/9] Writing checksums and provenance"
-"$release_scripts_dir/checksums.sh" "$output_dir"
-for artifact in "$output_dir"/*.dmg; do
-    [ -e "$artifact" ] || continue
-    python3 "$release_scripts_dir/generate-provenance.py" "$artifact"
+printf '%s\n' "==> [1/5] Building signed Apple Silicon archive"
+"$release_scripts_dir/build-archive.sh" "$output_dir/archive" "$version"
+app_path="$output_dir/archive/Kod.xcarchive/Products/Applications/Kod.app"
+
+printf '%s\n' "==> [2/5] Verifying app lifecycle metadata"
+python3 "$release_scripts_dir/verify-install-lifecycle.py" "$app_path"
+
+printf '%s\n' "==> [3/5] Notarizing and stapling app"
+"$release_scripts_dir/codesign-and-notarize.sh" "$app_path"
+"$release_scripts_dir/verify-gatekeeper.sh" "$app_path"
+
+printf '%s\n' "==> [4/5] Packaging DMG and Sparkle ZIP"
+"$release_scripts_dir/make-dmg.sh" "$app_path" "$output_dir" "$version"
+dmg_path="$output_dir/Kod-$version-arm64.dmg"
+zip_path="$output_dir/Kod-$version-arm64.zip"
+
+printf '%s\n' "==> [5/5] Notarizing and stapling DMG"
+"$release_scripts_dir/codesign-and-notarize.sh" "$dmg_path"
+"$release_scripts_dir/verify-gatekeeper.sh" "$dmg_path"
+
+for required in \
+    "Kod-$version-arm64.dmg" \
+    "Kod-$version-arm64.zip" \
+    "Kod-$version-licenses.zip" \
+    install-lifecycle-report.json
+do
+    if [ ! -f "$output_dir/$required" ]; then
+        printf '%s\n' "BLOCKED: missing required release artifact: $required" >&2
+        exit 65
+    fi
 done
 
-printf '%s\n' "==> [9/9] Generating Homebrew Cask template"
-python3 "$release_scripts_dir/generate-homebrew-cask.py" "$version" "REPLACE_WITH_REAL_DMG_SHA256" "$output_dir/kod.rb"
-
-printf '%s\n' "==> Release packaging pipeline complete. Artifacts in $output_dir."
-printf '%s\n' "==> Remaining, credential-/hardware-gated steps for a real release: production Developer ID signing, real notarization, a real clean-Mac Gatekeeper launch test, and the manual VoiceOver checklist (docs/manual-voiceover-checklist.md)."
+printf '%s\n' "==> Signed release binaries are ready in $output_dir"

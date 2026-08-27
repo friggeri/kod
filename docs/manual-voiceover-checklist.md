@@ -1,4 +1,12 @@
-# Manual VoiceOver and accessibility verification checklist (Phase 11)
+# Manual VoiceOver and accessibility verification checklist
+
+**Release Record:**
+- **Tag:** [e.g. v0.1.0]
+- **Commit:** [SHA]
+- **Checksum:** [DMG SHA-256]
+- **macOS:** [e.g. 14.5 Apple Silicon]
+- **Tester:** [Name]
+- **Result:** [Pass/Fail]
 
 This checklist covers the parts of Kod's accessibility, keyboard, and
 appearance support that **cannot be verified by an automated agent** in

@@ -373,8 +373,7 @@ extension PerformanceSuiteTests {
     func testMainThreadWorkProxy() throws {
         let source = syntheticSource(approximateByteCount: 1 * 1_024 * 1_024)
         let snapshot = SourceSnapshot(text: source, url: URL(fileURLWithPath: "/main-thread.swift"))
-        let engine = SyntaxEngine()
-        let tree = try runBlocking { try await engine.parse(snapshot: snapshot, language: .swift) }
+        let tree = try SyntaxEngine.parseTree(snapshot: snapshot, language: .swift)
         let size = NSSize(width: 1_200, height: 800)
         let (viewport, window) = hostedViewport(snapshot: snapshot, size: size)
         viewport.applySyntaxTree(tree)
@@ -478,8 +477,7 @@ extension PerformanceSuiteTests {
 
         let source = syntheticSource(approximateByteCount: 10 * 1_024 * 1_024)
         let snapshot = SourceSnapshot(text: source, url: URL(fileURLWithPath: "/ten-megabytes.swift"))
-        let engine = SyntaxEngine()
-        let tree = try runBlocking { try await engine.parse(snapshot: snapshot, language: .swift) }
+        let tree = try SyntaxEngine.parseTree(snapshot: snapshot, language: .swift)
 
         let residentBytes = Self.currentResidentMemoryBytes()
         let residentMB = Double(residentBytes) / (1_024 * 1_024)
