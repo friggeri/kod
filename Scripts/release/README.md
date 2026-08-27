@@ -6,9 +6,12 @@ the same GitHub Release.
 
 Pushing an annotated `v*` tag automatically starts the protected draft-build
 workflow; `workflow_dispatch` remains available for retries against that exact
-tag. The workflow resolves dependencies, runs every qualification test, and
-downloads/checksums Sparkle and CycloneDX tools before importing Developer ID
-credentials or writing any notarization key. `package-release.sh` is
+tag. The workflow resolves dependencies, runs deterministic functional, scale,
+memory, packaging, and security qualification, and downloads/checksums Sparkle
+and CycloneDX tools before importing Developer ID credentials or writing any
+notarization key. Wall-clock performance budgets are intentionally excluded
+from GitHub-hosted runners; run `Scripts/check large-file` on the reference Mac
+when performance-sensitive code changes. `package-release.sh` is
 intentionally fail-closed: `preflight.sh` requires the exact annotated
 `v<MARKETING_VERSION>` tag, a clean `friggeri/kod` tree, Apple Silicon, and
 real signing and notarization credentials. It never packages an ad-hoc or

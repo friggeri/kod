@@ -326,6 +326,12 @@ final class WorkspaceTextSearcherTests: XCTestCase {
     /// scheduling noise on shared/loaded hardware) rather than asserting on
     /// a single sample.
     func testWorkspaceSearchFirstResultOnWarmFixtureStaysWithinBudget() async throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment[
+                "KOD_RUN_LARGE_FILE_BENCHMARKS"
+            ] == "1",
+            "Performance benchmark runs through release qualification."
+        )
         for directory in 0..<20 {
             var contents = ""
             for file in 0..<10 {

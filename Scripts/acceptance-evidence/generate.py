@@ -73,8 +73,15 @@ class RunContext:
     `evaluate` function needs, so each expensive command runs at most
     once no matter how many criteria reference it."""
 
-    def __init__(self, run_scale_tests: bool, skip_xcodebuild: bool, reuse_logs: bool = False):
+    def __init__(
+        self,
+        run_scale_tests: bool,
+        run_performance_tests: bool,
+        skip_xcodebuild: bool,
+        reuse_logs: bool = False,
+    ):
         self.run_scale_tests = run_scale_tests
+        self.run_performance_tests = run_performance_tests
         self.skip_xcodebuild = skip_xcodebuild
         self.reuse_logs = reuse_logs
         self._swift_test_log: Optional[str] = None
@@ -146,6 +153,9 @@ class RunContext:
     def large_file_test_log(self) -> str:
         if self._large_file_test_log is not None:
             return self._large_file_test_log
+        if not self.run_performance_tests:
+            self._large_file_test_log = ""
+            return ""
         architecture = subprocess.run(
             ["uname", "-m"], capture_output=True, text=True, check=True
         ).stdout.strip()
@@ -162,7 +172,14 @@ class RunContext:
                 "swift",
                 "test",
                 "--filter",
-                "TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests|PreviewCoreLatencyTests",
+                "TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests|"
+                "PreviewCoreLatencyTests|"
+                "testFindWithinLargeFileStaysWellUnderPerformanceBudget|"
+                "testFindWithinTenMegabyteFileStaysWithinPerformanceBudget|"
+                "testTenMegabyteSnapshotPerformance|"
+                "testWorkspaceSearchFirstResultOnWarmFixtureStaysWithinBudget|"
+                "testStatusDiffAndBlameCompleteWithinABoundedLatencyBudget|"
+                "testFilenameIndexSearchesOneHundredThousandPaths",
                 "-Xswiftc",
                 "-warnings-as-errors",
             ],
@@ -371,6 +388,16 @@ def criterion_1(ctx: RunContext) -> Evidence:
 
 
 def criterion_2(ctx: RunContext) -> Evidence:
+    viewport_evidence = suites_outcome(
+        ctx.swift_test_log(),
+        ["CodeDocumentViewControllerTests"],
+    )
+    if not ctx.run_performance_tests:
+        viewport_evidence.notes += (
+            " Strict wall-clock budgets were not run on shared hardware; "
+            "run `Scripts/check large-file` on the reference Mac."
+        )
+        return viewport_evidence
     benchmark_evidence = suites_outcome(
         ctx.large_file_test_log(),
         [
@@ -378,10 +405,6 @@ def criterion_2(ctx: RunContext) -> Evidence:
             "TenMegabyteRepaintBenchmarkTests",
             "PreviewCoreLatencyTests",
         ],
-    )
-    viewport_evidence = suites_outcome(
-        ctx.swift_test_log(),
-        ["CodeDocumentViewControllerTests"],
     )
     if benchmark_evidence.status == "passed" and viewport_evidence.status == "passed":
         evidence = Evidence(
@@ -679,9 +702,15 @@ def main() -> int:
         print(f"Kod v0.1.x acceptance evidence requires Apple Silicon; found {architecture}.", file=sys.stderr)
         return 1
     run_scale_tests = "--run-scale-tests" in sys.argv or os.environ.get("KOD_RUN_SCALE_TESTS") == "1"
+    run_performance_tests = os.environ.get("KOD_RUN_PERFORMANCE_SUITE") == "1"
     skip_xcodebuild = "--run-xcodebuild" not in sys.argv
     reuse_logs = "--reuse-logs" in sys.argv
-    ctx = RunContext(run_scale_tests=run_scale_tests, skip_xcodebuild=skip_xcodebuild, reuse_logs=reuse_logs)
+    ctx = RunContext(
+        run_scale_tests=run_scale_tests,
+        run_performance_tests=run_performance_tests,
+        skip_xcodebuild=skip_xcodebuild,
+        reuse_logs=reuse_logs,
+    )
 
     entries = []
     any_failed = False

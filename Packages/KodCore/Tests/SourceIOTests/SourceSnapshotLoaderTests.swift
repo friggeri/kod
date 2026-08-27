@@ -160,7 +160,13 @@ final class SourceSnapshotLoaderTests: XCTestCase {
         )
     }
 
-    func testTenMegabyteSnapshotPerformance() {
+    func testTenMegabyteSnapshotPerformance() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment[
+                "KOD_RUN_LARGE_FILE_BENCHMARKS"
+            ] == "1",
+            "Performance benchmark runs through release qualification."
+        )
         let line = Data("let value = 42\n".utf8)
         var data = Data()
         data.reserveCapacity(10 * 1_024 * 1_024)

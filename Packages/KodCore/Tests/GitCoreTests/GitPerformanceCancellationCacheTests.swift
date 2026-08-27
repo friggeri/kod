@@ -6,6 +6,12 @@ final class GitPerformanceCancellationCacheTests: XCTestCase {
     // MARK: Latency
 
     func testStatusDiffAndBlameCompleteWithinABoundedLatencyBudget() async throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment[
+                "KOD_RUN_LARGE_FILE_BENCHMARKS"
+            ] == "1",
+            "Performance benchmark runs through release qualification."
+        )
         let fixture = try GitFixtureBuilder.makeEmptyRepository()
         defer { try? fixture.removeAll() }
 

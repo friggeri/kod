@@ -102,7 +102,7 @@ RUBY
             KOD_RUN_SCALE_TESTS=0 \
             swift test \
             --package-path "$repository_root/Packages/KodCore" \
-            --filter 'TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests|PreviewCoreLatencyTests' \
+            --filter 'TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests|PreviewCoreLatencyTests|testFindWithinLargeFileStaysWellUnderPerformanceBudget|testFindWithinTenMegabyteFileStaysWithinPerformanceBudget|testTenMegabyteSnapshotPerformance|testWorkspaceSearchFirstResultOnWarmFixtureStaysWithinBudget|testStatusDiffAndBlameCompleteWithinABoundedLatencyBudget|testFilenameIndexSearchesOneHundredThousandPaths' \
             -Xswiftc -warnings-as-errors \
             --quiet
         ;;

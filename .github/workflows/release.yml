@@ -109,7 +109,9 @@ jobs:
 
       - name: Run complete release qualification
         env:
-          KOD_RUN_PERFORMANCE_SUITE: "1"
+          # GitHub-hosted runners are not reference hardware. Strict wall-clock
+          # budgets run explicitly via Scripts/check large-file on a baseline Mac.
+          KOD_RUN_PERFORMANCE_SUITE: "0"
           KOD_RUN_SCALE_TESTS: "1"
         run: Scripts/verify
 

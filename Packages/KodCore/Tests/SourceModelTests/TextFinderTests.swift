@@ -88,6 +88,12 @@ final class TextFinderTests: XCTestCase {
     }
 
     func testFindWithinLargeFileStaysWellUnderPerformanceBudget() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment[
+                "KOD_RUN_LARGE_FILE_BENCHMARKS"
+            ] == "1",
+            "Performance benchmark runs through release qualification."
+        )
         var text = ""
         text.reserveCapacity(2_000_000)
         for line in 0..<50_000 {
@@ -114,6 +120,12 @@ final class TextFinderTests: XCTestCase {
     /// cursor regresses back to a full precomputed table (which measured
     /// over 1 second on the same input before this optimization).
     func testFindWithinTenMegabyteFileStaysWithinPerformanceBudget() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment[
+                "KOD_RUN_LARGE_FILE_BENCHMARKS"
+            ] == "1",
+            "Performance benchmark runs through release qualification."
+        )
         var text = ""
         text.reserveCapacity(10 * 1_024 * 1_024 + 1_024)
         var lineCount = 0

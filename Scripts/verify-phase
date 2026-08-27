@@ -164,13 +164,15 @@ KOD_RUN_PERFORMANCE_SUITE=0 KOD_RUN_SCALE_TESTS=0 \
     -Xswiftc -warnings-as-errors \
     2>&1 | tee "$acceptance_logs_dir/swift-test-$architecture.log"
 
-printf '%s\n' "==> Running isolated 10 MB source benchmarks"
-KOD_RUN_LARGE_FILE_BENCHMARKS=1 KOD_RUN_PERFORMANCE_SUITE=0 \
-    KOD_RUN_SCALE_TESTS=0 swift test \
-    --package-path "$repository_root/Packages/KodCore" \
-    --filter 'TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests|PreviewCoreLatencyTests' \
-    -Xswiftc -warnings-as-errors \
-    2>&1 | tee "$acceptance_logs_dir/swift-test-large-file-$architecture.log"
+if [ "${KOD_RUN_PERFORMANCE_SUITE:-0}" = "1" ]; then
+    printf '%s\n' "==> Running reference-hardware performance benchmarks"
+    KOD_RUN_LARGE_FILE_BENCHMARKS=1 KOD_RUN_PERFORMANCE_SUITE=0 \
+        KOD_RUN_SCALE_TESTS=0 swift test \
+        --package-path "$repository_root/Packages/KodCore" \
+        --filter 'TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests|PreviewCoreLatencyTests|testFindWithinLargeFileStaysWellUnderPerformanceBudget|testFindWithinTenMegabyteFileStaysWithinPerformanceBudget|testTenMegabyteSnapshotPerformance|testWorkspaceSearchFirstResultOnWarmFixtureStaysWithinBudget|testStatusDiffAndBlameCompleteWithinABoundedLatencyBudget|testFilenameIndexSearchesOneHundredThousandPaths' \
+        -Xswiftc -warnings-as-errors \
+        2>&1 | tee "$acceptance_logs_dir/swift-test-large-file-$architecture.log"
+fi
 
 # `KodUI` is the presentation package: reusable `KodUIComponents` plus
 # `SearchUI`, `PreviewUI`, `GitUI`, and `EditorUI`. Its component,
@@ -259,13 +261,13 @@ if [ "$phase" = "12" ]; then
     "$repository_root/Scripts/audit-release-blockers/run.sh"
 
     if [ "${KOD_RUN_PERFORMANCE_SUITE:-0}" = "1" ]; then
-        printf '%s\n' "==> Running Phase 12 consolidated 30-iteration performance suite (KOD_RUN_PERFORMANCE_SUITE=1)"
+        printf '%s\n' "==> Running reference-hardware 30-iteration performance suite"
         KOD_RUN_PERFORMANCE_SUITE=1 KOD_RUN_SCALE_TESTS=0 swift test \
             --package-path "$repository_root/Packages/KodCore" \
             --filter PerformanceSuiteTests \
             -Xswiftc -warnings-as-errors
     else
-        printf '%s\n' "==> Skipping the consolidated performance suite (set KOD_RUN_PERFORMANCE_SUITE=1; the 100k scale gate is controlled separately)"
+        printf '%s\n' "==> Skipping wall-clock performance budgets on shared hardware (set KOD_RUN_PERFORMANCE_SUITE=1 on a reference Mac)"
     fi
 
     printf '%s\n' "==> Running Phase 12 acceptance-evidence generation (headless KodAppTests included; KOD_RUN_SCALE_TESTS controls the 100k gate)"

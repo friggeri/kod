@@ -20,9 +20,9 @@ Thank you for your interest in contributing to Kod!
 4. Run `Scripts/verify` before release-sensitive changes. It is the complete,
    deliberately slower release-qualification gate.
 
-Large-file performance checks are release-only by default. Run
-`Scripts/check large-file` explicitly when changing parsing, rendering, or
-preview algorithms.
+Wall-clock performance checks are never enforced on shared GitHub runners.
+Run `Scripts/check large-file` on the reference Apple Silicon Mac when changing
+parsing, rendering, search, Git latency, or preview algorithms.
 
 ## Guidelines
 

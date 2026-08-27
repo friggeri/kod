@@ -672,9 +672,10 @@ Trust is recorded against canonical path and volume identity, is visible in the 
 - Recorded LSP transcript tests for every launch language and every advertised capability.
 - Integration tests with pinned supported language-server versions.
 - UI tests for opening, splitting, navigation history, search, diagnostics, restoration, trust, and VoiceOver labels.
-- Performance tests for every budget in section 12 run in protected release
-  qualification; shared pull-request runners enforce functional tests and
-  release-blocker audits.
+- Performance tests for section 12 run explicitly on reference Apple Silicon
+  hardware; shared GitHub runners do not enforce wall-clock thresholds.
+  Pull-request and release workflows enforce deterministic functional, scale,
+  memory, security, and packaging gates.
 - Filesystem tests that snapshot a fixture repository before and after Kod workflows and require byte-for-byte repository equality.
 
 ### 16.2 v0.1.0 acceptance criteria

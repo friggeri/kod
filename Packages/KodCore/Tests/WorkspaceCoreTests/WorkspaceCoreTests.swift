@@ -840,7 +840,13 @@ final class WorkspaceCoreTests: XCTestCase {
         XCTAssertEqual(matches.first?.entry.relativePath, "Sources/User.swift")
     }
 
-    func testFilenameIndexSearchesOneHundredThousandPaths() async {
+    func testFilenameIndexSearchesOneHundredThousandPaths() async throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment[
+                "KOD_RUN_LARGE_FILE_BENCHMARKS"
+            ] == "1",
+            "Performance benchmark runs through release qualification."
+        )
         let index = FilenameIndex()
         let entries = (0..<100_000).map { item in
             entry(String(format: "Sources/%03d/File-%06d.swift", item / 1_000, item))
