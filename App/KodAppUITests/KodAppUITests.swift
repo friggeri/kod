@@ -6,6 +6,28 @@ final class KodAppUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    private func launch(
+        _ app: XCUIApplication,
+        arguments: [String] = []
+    ) {
+        app.launchArguments = ["--ui-test-normalize-window"] + arguments
+        app.launch()
+    }
+
+    private func windowCoordinate(
+        in window: XCUIElement,
+        at point: CGPoint
+    ) -> XCUICoordinate {
+        window.coordinate(
+            withNormalizedOffset: CGVector(dx: 0, dy: 0)
+        ).withOffset(
+            CGVector(
+                dx: point.x - window.frame.minX,
+                dy: point.y - window.frame.minY
+            )
+        )
+    }
+
     func testWelcomeWindowLaunchesWithVisibleCommands() {
         let app = XCUIApplication()
         app.launch()
@@ -169,10 +191,8 @@ final class KodAppUITests: XCTestCase {
         let sourceURL = repositoryRoot
             .appendingPathComponent("Fixtures/SmallWorkspace/Sources/Hello.swift")
         let originalData = try Data(contentsOf: sourceURL)
-
         let app = XCUIApplication()
-        app.launchArguments = ["--open-file", sourceURL.path]
-        app.launch()
+        launch(app, arguments: ["--open-file", sourceURL.path])
 
         let viewport = app.textViews["code.viewport"]
         XCTAssertTrue(
@@ -181,7 +201,17 @@ final class KodAppUITests: XCTestCase {
         )
         XCTAssertTrue(app.staticTexts["document.path"].exists)
 
-        viewport.click()
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.exists)
+        let viewportPoint = CGPoint(
+            x: min(viewport.frame.maxX - 1, viewport.frame.minX + 96),
+            y: viewport.frame.midY
+        )
+        XCTAssertTrue(
+            window.frame.contains(viewportPoint),
+            "Viewport point \(viewportPoint) must be inside \(window.frame)"
+        )
+        windowCoordinate(in: window, at: viewportPoint).click()
         viewport.typeText("this must never be inserted")
         app.typeKey("a", modifierFlags: .command)
         app.typeKey("c", modifierFlags: .command)
@@ -206,19 +236,28 @@ final class KodAppUITests: XCTestCase {
         }
 
         let app = XCUIApplication()
-        app.launchArguments = ["--open-folder", workspace.path]
-        app.launch()
+        launch(app, arguments: ["--open-folder", workspace.path])
 
         XCTAssertTrue(app.outlines["workspace.explorer"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.windows.firstMatch.title, workspace.lastPathComponent)
 
-        let trustButton = app.buttons["workspace.trust"]
-        XCTAssertTrue(trustButton.exists)
+        let trustButton = app.buttons["workspace.trustStatus"]
+        XCTAssertTrue(trustButton.waitForExistence(timeout: 5))
         trustButton.click()
-        let dismissTrustButton = app.buttons["workspace.trustDismiss"]
-        XCTAssertTrue(dismissTrustButton.exists)
-        dismissTrustButton.click()
-        XCTAssertFalse(trustButton.exists)
+        let trustConfirmation = app.sheets.buttons["Trust Workspace"]
+        XCTAssertTrue(trustConfirmation.waitForExistence(timeout: 5))
+        trustConfirmation.click()
+        let trustedStatus = "This workspace is trusted: language servers and repository tools are enabled."
+        let trustUpdated = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                trustButton.label == trustedStatus
+            },
+            object: nil
+        )
+        XCTAssertTrue(
+            XCTWaiter().wait(for: [trustUpdated], timeout: 5) == .completed,
+            "Trust status did not update: \(trustButton.debugDescription)"
+        )
 
         app.typeKey("p", modifierFlags: .command)
         let search = app.searchFields["quickOpen.search"]
@@ -247,7 +286,6 @@ final class KodAppUITests: XCTestCase {
         addTeardownBlock {
             try? FileManager.default.removeItem(at: workspace)
         }
-
         let app = XCUIApplication()
         app.launchArguments = ["--open-folder", workspace.path]
         app.launch()
@@ -304,8 +342,7 @@ final class KodAppUITests: XCTestCase {
         }
 
         let app = XCUIApplication()
-        app.launchArguments = ["--open-folder", workspace.path]
-        app.launch()
+        launch(app, arguments: ["--open-folder", workspace.path])
 
         func waitForGroupCount(_ expectedCount: Int) {
             let predicate = NSPredicate { _, _ in
@@ -341,21 +378,7 @@ final class KodAppUITests: XCTestCase {
             "Splitting should open the current file in both panes"
         )
 
-        let duplicatedTitles = app.buttons.matching(
-            identifier: "tab.title.Sources/Pane.swift"
-        ).allElementsBoundByIndex
-        let rightTabTitle = try XCTUnwrap(
-            duplicatedTitles.max { $0.frame.minX < $1.frame.minX }
-        )
-        rightTabTitle.hover()
-        let closeButtons = app.buttons.matching(
-            identifier: "tab.close.Sources/Pane.swift"
-        )
-        XCTAssertTrue(closeButtons.firstMatch.waitForExistence(timeout: 5))
-        let rightCloseButton = try XCTUnwrap(
-            closeButtons.allElementsBoundByIndex.max { $0.frame.minX < $1.frame.minX }
-        )
-        rightCloseButton.click()
+        app.menuItems["Close Editor Group"].click()
         waitForGroupCount(1)
 
         app.buttons["Split Down"].click()
@@ -384,7 +407,6 @@ final class KodAppUITests: XCTestCase {
         addTeardownBlock {
             try? FileManager.default.removeItem(at: workspace)
         }
-
         let app = XCUIApplication()
         app.launchArguments = ["--open-folder", workspace.path]
         app.launch()
@@ -446,8 +468,7 @@ final class KodAppUITests: XCTestCase {
         }
 
         let app = XCUIApplication()
-        app.launchArguments = ["--open-folder", workspace.path]
-        app.launch()
+        launch(app, arguments: ["--open-folder", workspace.path])
         XCTAssertTrue(app.outlines["workspace.explorer"].waitForExistence(timeout: 5))
 
         func openViaQuickOpen(_ query: String) {
@@ -511,7 +532,20 @@ final class KodAppUITests: XCTestCase {
         let rightFirst = try XCTUnwrap(
             firstTabs.allElementsBoundByIndex.max { $0.frame.minX < $1.frame.minX }
         )
-        second.click(forDuration: 0.1, thenDragTo: rightFirst)
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.exists)
+        let sourceCoordinate = windowCoordinate(in: window, at: CGPoint(
+            x: second.frame.midX,
+            y: second.frame.midY
+        ))
+        let destinationCoordinate = windowCoordinate(in: window, at: CGPoint(
+            x: rightFirst.frame.midX,
+            y: rightFirst.frame.midY
+        ))
+        sourceCoordinate.press(
+            forDuration: 0.1,
+            thenDragTo: destinationCoordinate
+        )
 
         let movedToRight = NSPredicate { _, _ in
             second.exists && second.frame.midX > app.windows.firstMatch.frame.midX
@@ -526,30 +560,17 @@ final class KodAppUITests: XCTestCase {
         waitForGroupCount(2)
         assertGroupFrames(groupFrames(), equal: splitFrames)
 
-        second.hover()
-        let secondClose = app.buttons["tab.close.Second.swift"]
-        XCTAssertTrue(secondClose.waitForExistence(timeout: 5))
-        secondClose.click()
-
-        let currentFirstTabs = app.buttons.matching(identifier: "tab.title.First.swift")
-        let rightRemainingFirst = try XCTUnwrap(
-            currentFirstTabs.allElementsBoundByIndex.max { $0.frame.minX < $1.frame.minX }
+        app.menuItems["Close Tab"].click()
+        XCTAssertEqual(
+            app.buttons.matching(identifier: "tab.title.Second.swift").count,
+            0
         )
-        rightRemainingFirst.hover()
-        let firstCloseButtons = app.buttons.matching(identifier: "tab.close.First.swift")
-        XCTAssertTrue(firstCloseButtons.firstMatch.waitForExistence(timeout: 5))
-        let rightClose = try XCTUnwrap(
-            firstCloseButtons.allElementsBoundByIndex.max { $0.frame.minX < $1.frame.minX }
-        )
-        rightClose.click()
+        app.menuItems["Close Tab"].click()
         waitForGroupCount(1)
 
         let lastFirst = app.buttons["tab.title.First.swift"]
         XCTAssertTrue(lastFirst.waitForExistence(timeout: 5))
-        lastFirst.hover()
-        let lastClose = app.buttons["tab.close.First.swift"]
-        XCTAssertTrue(lastClose.waitForExistence(timeout: 5))
-        lastClose.click()
+        app.menuItems["Close Tab"].click()
         waitForGroupCount(1)
         XCTAssertFalse(app.buttons["tab.title.First.swift"].exists)
 
@@ -569,10 +590,8 @@ final class KodAppUITests: XCTestCase {
         addTeardownBlock {
             try? FileManager.default.removeItem(at: workspace)
         }
-
         let app = XCUIApplication()
-        app.launchArguments = ["--open-folder", workspace.path]
-        app.launch()
+        launch(app, arguments: ["--open-folder", workspace.path])
 
         let outline = app.outlines["workspace.explorer"]
         let directoryName = app.staticTexts["workspace.directoryName"]
@@ -675,10 +694,8 @@ final class KodAppUITests: XCTestCase {
             XCTAssertEqual(try Data(contentsOf: alphaURL), alphaData)
             XCTAssertEqual(try Data(contentsOf: betaURL), betaData)
         }
-
         let app = XCUIApplication()
-        app.launchArguments = ["--open-folder", workspace.path]
-        app.launch()
+        launch(app, arguments: ["--open-folder", workspace.path])
 
         XCTAssertTrue(app.outlines["workspace.explorer"].waitForExistence(timeout: 5))
         let trustButton = app.buttons["workspace.trust"]
@@ -736,14 +753,34 @@ final class KodAppUITests: XCTestCase {
         findField.typeText("BETAMARK")
         let matchCount = app.staticTexts["find.matchCount"]
         XCTAssertTrue(matchCount.waitForExistence(timeout: 5))
-        let matchCountValue = try XCTUnwrap(matchCount.value as? String)
-        XCTAssertEqual(matchCountValue, "1 of 4")
+        let allMatchCount = "1 of 4"
+        let allMatches = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                matchCount.value as? String == allMatchCount
+            },
+            object: nil
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [allMatches], timeout: 5),
+            .completed,
+            "Expected \(allMatchCount), actual: \(matchCount.value ?? "<none>")"
+        )
 
         // Toggling case-sensitive mode narrows the match to the three
         // uppercase "BETAMARK" string-literal occurrences only.
         app.checkBoxes["find.matchCase"].click()
-        let caseSensitiveMatchCountValue = try XCTUnwrap(matchCount.value as? String)
-        XCTAssertEqual(caseSensitiveMatchCountValue, "1 of 3")
+        let caseSensitiveMatchCount = "1 of 3"
+        let caseSensitiveMatches = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                matchCount.value as? String == caseSensitiveMatchCount
+            },
+            object: nil
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [caseSensitiveMatches], timeout: 5),
+            .completed,
+            "Expected \(caseSensitiveMatchCount), actual: \(matchCount.value ?? "<none>")"
+        )
 
         app.typeKey(.escape, modifierFlags: [])
         XCTAssertFalse(app.searchFields["find.query"].exists)
@@ -775,10 +812,8 @@ final class KodAppUITests: XCTestCase {
         // Quit (triggering windowWillClose persistence) and relaunch: tabs
         // and the split layout must be restored from external metadata.
         app.terminate()
-
         let relaunched = XCUIApplication()
-        relaunched.launchArguments = ["--open-folder", workspace.path]
-        relaunched.launch()
+        launch(relaunched, arguments: ["--open-folder", workspace.path])
 
         XCTAssertTrue(relaunched.outlines["workspace.explorer"].waitForExistence(timeout: 5))
         XCTAssertEqual(relaunched.groups.matching(identifier: "editorGroup.container").count, 2)

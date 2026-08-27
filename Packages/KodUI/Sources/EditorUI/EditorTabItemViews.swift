@@ -133,6 +133,25 @@ private final class EditorTabVisualView: NSView {
     }
 }
 
+/// A borderless image button whose drawn `frame` is pinned to exactly the
+/// rect its Auto Layout constraints request.
+///
+/// Auto Layout positions/sizes a control by its *alignment rect*, not its
+/// frame; `NSButtonCell` derives `alignmentRectInsets` from the button's
+/// bezel style, and that per-bezel-style metric is an AppKit implementation
+/// detail that has shifted by up to a full point across macOS releases —
+/// even with `isBordered = false`, since the insets model the bezel that
+/// *would* be drawn. That made the pin/close overlay buttons' visible
+/// frame (and therefore their vertical center) drift a point off of the
+/// tab's true center depending on which macOS version laid it out,
+/// despite the 18x18/centerY constraints never changing. Zeroing the
+/// insets makes `frame == alignmentRect`, so the constrained box is what
+/// actually gets drawn/hit-tested — pixel-exact and OS-version-independent.
+@MainActor
+private final class EditorTabAuxiliaryButton: NSButton {
+    override var alignmentRectInsets: NSEdgeInsets { .init() }
+}
+
 @MainActor
 final class EditorTabCollectionItem: NSCollectionViewItem {
     private let itemView = EditorTabItemView()
@@ -141,7 +160,7 @@ final class EditorTabCollectionItem: NSCollectionViewItem {
     private let fileIconView = EditorTabIconView()
     private let contentView = EditorTabContentView()
     private let selectionBackgroundView = EditorTabBackgroundView()
-    private let pinButton = NSButton(
+    private let pinButton = EditorTabAuxiliaryButton(
         image: NSImage(
             systemSymbolName: "pin",
             accessibilityDescription: editorUIStrings.string(
@@ -152,7 +171,7 @@ final class EditorTabCollectionItem: NSCollectionViewItem {
         target: nil,
         action: nil
     )
-    private let closeButton = NSButton(
+    private let closeButton = EditorTabAuxiliaryButton(
         image: NSImage(
             systemSymbolName: "xmark",
             accessibilityDescription: editorUIStrings.string(

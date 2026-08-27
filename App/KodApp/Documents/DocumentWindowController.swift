@@ -49,7 +49,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
                     )
                     window.contentViewController = contentViewController
                     window.minSize = NSSize(width: 640, height: 420)
-                    window.center()
+                    if !UITestWindowGeometry.apply(to: window) {
+                        window.center()
+                    }
                     return window
                 },
                 present: { $0.showWindow(nil) },

@@ -1,6 +1,34 @@
 import AppKit
 import WorkspaceCore
 
+/// Applies a predictable, maximally usable frame only when UI tests explicitly
+/// request it. Normal launches retain their user-selected/default geometry.
+@MainActor
+enum UITestWindowGeometry {
+    private static let launchArgument = "--ui-test-normalize-window"
+
+    @discardableResult
+    static func apply(to window: NSWindow) -> Bool {
+        guard CommandLine.arguments.contains(launchArgument),
+              let screen = window.screen ?? NSScreen.main else {
+            return false
+        }
+
+        let visibleFrame = screen.visibleFrame
+        let horizontalInset = min(
+            24,
+            max(0, (visibleFrame.width - window.minSize.width) / 2)
+        )
+        let verticalInset = min(
+            24,
+            max(0, (visibleFrame.height - window.minSize.height) / 2)
+        )
+        let frame = visibleFrame.insetBy(dx: horizontalInset, dy: verticalInset)
+        window.setFrame(frame, display: false)
+        return true
+    }
+}
+
 @MainActor
 final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     struct Services {
@@ -21,7 +49,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
                 )
                 window.contentViewController = contentViewController
                 window.minSize = NSSize(width: 640, height: 420)
-                window.center()
+                if !UITestWindowGeometry.apply(to: window) {
+                    window.center()
+                }
                 return window
             },
             present: { $0.showWindow(nil) },

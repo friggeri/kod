@@ -142,7 +142,15 @@ final class ImagePreviewViewControllerTests: XCTestCase {
 
     func testPlayPauseTogglesAccessibilityLabelAndValue() throws {
         let data = try PreviewTestImageFixture.makePNG(width: 4, height: 4)
-        let controller = ImagePreviewViewController(decodeResult: ImageDecoder.decode(data))
+        // Inject a fixed "Reduce Motion off" preference: this test asserts
+        // the default/automatic playback state, which starts playing only
+        // when motion isn't reduced, so it must not depend on whatever the
+        // real Reduce Motion setting happens to be on the host running the
+        // test (e.g. CI runners that have it enabled).
+        let controller = ImagePreviewViewController(
+            decodeResult: ImageDecoder.decode(data),
+            accessibilityDisplayShouldReduceMotion: { false }
+        )
         controller.loadView()
         XCTAssertEqual(controller.playPauseAccessibilityLabel, "Pause Animation")
         XCTAssertEqual(controller.playPauseAccessibilityValue, "Playing")
