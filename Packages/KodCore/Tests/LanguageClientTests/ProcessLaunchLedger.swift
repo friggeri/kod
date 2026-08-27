@@ -10,7 +10,11 @@ struct ProcessLaunchLedger {
     let executableURL: URL
     let logURL: URL
 
-    static func make() throws -> ProcessLaunchLedger {
+    /// - Parameter failingAfterFirstLaunch: when true, only the first
+    ///   spawn becomes a real server; every later one exits immediately
+    ///   without answering `initialize`, which is what a server that
+    ///   cannot be relaunched successfully looks like to the connection.
+    static func make(failingAfterFirstLaunch: Bool = false) throws -> ProcessLaunchLedger {
         let realServerURL = try FakeLanguageServerLocator.executableURL()
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("kod-launch-ledger-\(UUID().uuidString)", isDirectory: true)
@@ -19,10 +23,16 @@ struct ProcessLaunchLedger {
         let logURL = directoryURL.appendingPathComponent("launches.log")
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
 
+        let failFast = failingAfterFirstLaunch ? """
+        if [ "$(wc -l < '\(logURL.path)')" -gt 1 ]; then
+            exit 1
+        fi
+        """ : ""
         let executableURL = directoryURL.appendingPathComponent("language-server-shim")
         let script = """
         #!/bin/sh
         printf 'launch\\n' >> '\(logURL.path)'
+        \(failFast)
         exec '\(realServerURL.path)' "$@"
 
         """

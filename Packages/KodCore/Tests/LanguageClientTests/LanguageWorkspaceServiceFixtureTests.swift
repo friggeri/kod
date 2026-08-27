@@ -437,8 +437,17 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
         XCTAssertTrue(hasDisabled(), "Expected the crash-loop budget to eventually disable the service, got: \(states.snapshot())")
     }
 
+    /// A failed `initialize` is terminal: the service reports exactly
+    /// `.starting` → `.crashed(initialization failed)` and then stops
+    /// moving. The teardown of that failed launch closes the server's
+    /// message stream, and a stream end must never be mistaken for the
+    /// crash of a running server — doing so restarted a server the
+    /// caller's `start()` was in the middle of failing, and the resulting
+    /// self-sustaining "exited unexpectedly → restart" loop burned the
+    /// restart budget and left the service `.disabled`. The settle window
+    /// after the crash is what proves nothing restarts behind the caller.
     @MainActor
-    func testInitializationFailureReportsStartingThenCrashed() async throws {
+    func testInitializationFailureReportsStartingThenCrashedAndNeverAutoRestarts() async throws {
         let root = try makeWorkspaceRoot()
         let states = LockedArray<LanguageServerState>()
         let service = LanguageWorkspaceService(
@@ -448,6 +457,7 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
             dependencies: try makeDependencies(scenario: "initialize-error"),
             onStateChange: { states.append($0) }
         )
+        addTeardownBlock { await service.stop() }
 
         do {
             try await service.start()
@@ -455,14 +465,31 @@ final class LanguageWorkspaceServiceFixtureTests: XCTestCase {
         } catch {
             // expected
         }
-        try await Task.sleep(for: .milliseconds(50))
 
-        let observedStates = states.snapshot()
-        XCTAssertEqual(observedStates.first, .starting)
-        guard case .crashed(let reason)? = observedStates.last else {
-            return XCTFail("Expected a crashed state, got \(observedStates)")
+        let expectedCrash = LanguageServerState.crashed(
+            reason: "Language server initialization failed: No compatible language runtime was found."
+        )
+        let expectedStates: [LanguageServerState] = [.starting, expectedCrash]
+        // Long enough for a stream-end-driven relaunch to have happened:
+        // the regression produced its first spurious `.crashed`/`.starting`
+        // pair within a couple of milliseconds of the failed start.
+        let deadline = Date().addingTimeInterval(1)
+        while states.snapshot() != expectedStates, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
         }
-        XCTAssertTrue(reason.contains("No compatible language runtime was found"))
+        try await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(
+            states.snapshot(),
+            expectedStates,
+            "A failed initialization must report exactly starting → crashed, with no relaunch of the torn-down server"
+        )
+        let currentState = await service.currentState
+        XCTAssertEqual(
+            currentState,
+            expectedCrash,
+            "The connection must stay crashed rather than drifting through restarts into .disabled"
+        )
     }
 
     @MainActor

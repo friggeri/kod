@@ -117,6 +117,15 @@ public actor LanguageServerProcessTransport {
         stdinHandle = stdinPipe.fileHandleForWriting
         stdoutHandle = stdoutPipe.fileHandleForReading
         stderrHandle = stderrPipe.fileHandleForReading
+        // A language server can exit at any moment — most sharply during
+        // the crash/restart lifecycle, where a request is written to a
+        // process that is already dying. Writing to a pipe whose reader
+        // is gone raises SIGPIPE, whose default disposition would kill
+        // the *host* process. Per-descriptor `F_SETNOSIGPIPE` turns that
+        // into a plain `EPIPE` this actor already reports as
+        // `TransportError.writeFailed`, without touching the global
+        // signal disposition on the host's behalf.
+        _ = fcntl(stdinPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
 
         let stdoutChunks = AsyncStream<Data> { continuation in
             stdoutPipe.fileHandleForReading.readabilityHandler = { handle in

@@ -137,6 +137,25 @@ public actor LanguageServerConnection {
     private var restartBudget: RestartBudget
     private var isShuttingDown = false
     private var indexingProgressTokens: Set<ProgressToken> = []
+    /// Monotonic identifier of the most recent process launch. Every
+    /// transport, read loop, and stream-end callback is stamped with the
+    /// launch it belongs to, so a callback that lands after that launch
+    /// was superseded or torn down is identifiable rather than
+    /// indistinguishable from the live one.
+    private var launchEpoch = 0
+    /// The launch whose transport this connection currently owns, i.e.
+    /// the only one allowed to deliver messages or drive crash handling.
+    /// `nil` whenever no launch is live: before the first `start()`,
+    /// after a failed start's cleanup, after a crash has been taken over
+    /// by the restart path, and after `shutdown()`.
+    private var activeLaunchEpoch: Int?
+    /// The launch that completed its `initialize`/`initialized`
+    /// handshake. Only such a launch's transport loss is an unexpected
+    /// *crash*; a transport that dies before or during the handshake is
+    /// reported by the `start()`/restart flow that is awaiting it, which
+    /// keeps a failed initialization from being restarted behind that
+    /// caller's back.
+    private var handshakeCompletedEpoch: Int?
 
     public init(
         configuration: Configuration,
@@ -191,6 +210,12 @@ public actor LanguageServerConnection {
         "Workspace is not trusted; no language server process was launched. Manual restart required after granting trust."
 
     private func cleanUpFailedStart() async {
+        // Detach the failed launch first, and synchronously: from here on
+        // its transport is being torn down by this flow, so the stream
+        // end that tear-down produces must not be mistaken for a crash of
+        // a running server and must not initiate an automatic restart.
+        activeLaunchEpoch = nil
+        handshakeCompletedEpoch = nil
         isShuttingDown = true
         readLoopTask?.cancel()
         readLoopTask = nil
@@ -224,6 +249,14 @@ public actor LanguageServerConnection {
             throw LanguageClientError.notTrusted
         }
         dynamicallyRegisteredMethods.removeAll()
+        // Stamp this launch. Everything the transport below produces —
+        // inbound messages and the eventual stream end — carries this
+        // epoch, so callbacks from a superseded or torn-down launch are
+        // inert instead of racing the launch that replaced them.
+        launchEpoch += 1
+        let epoch = launchEpoch
+        activeLaunchEpoch = epoch
+        handshakeCompletedEpoch = nil
         let transport = LanguageServerProcessTransport(
             executableURL: configuration.executableURL,
             arguments: configuration.arguments,
@@ -249,9 +282,9 @@ public actor LanguageServerConnection {
         readLoopTask?.cancel()
         readLoopTask = Task { [weak self] in
             for await data in stream {
-                await self?.handleIncoming(data)
+                await self?.handleIncoming(data, epoch: epoch)
             }
-            await self?.handleStreamEnded()
+            await self?.handleStreamEnded(epoch: epoch)
         }
 
         let textDocumentCapabilities = ClientCapabilities.TextDocument(
@@ -280,6 +313,10 @@ public actor LanguageServerConnection {
         let result: InitializeResult = try await sendRequest(.initialize, params: params)
         serverCapabilities = result.capabilities
         try await sendNotificationUnchecked(.initialized, params: EmptyParams())
+        // Only a launch that got this far owns a *running* server, and so
+        // only its transport loss is an unexpected crash worth restarting
+        // automatically.
+        handshakeCompletedEpoch = epoch
         state = .ready
     }
 
@@ -306,6 +343,11 @@ public actor LanguageServerConnection {
         }
 
         readLoopTask?.cancel()
+        // The shutdown round trip is over, so this launch no longer owns
+        // anything: the read loop's imminent stream end belongs to this
+        // shutdown, not to a crashed server.
+        activeLaunchEpoch = nil
+        handshakeCompletedEpoch = nil
         for (_, pending) in pendingRequests {
             pending.timeoutTask?.cancel()
             pending.continuation.resume(throwing: LanguageClientError.notConnected)
@@ -511,7 +553,13 @@ public actor LanguageServerConnection {
 
     // MARK: - Inbound dispatch
 
-    private func handleIncoming(_ data: Data) async {
+    private func handleIncoming(_ data: Data, epoch: Int) async {
+        // A message from a transport this connection no longer owns
+        // describes a server that is already gone; resolving anything
+        // with it would let a torn-down launch mutate live state.
+        guard epoch == activeLaunchEpoch else {
+            return
+        }
         let message: JSONRPCMessage
         do {
             message = try JSONRPCMessage.decode(from: data)
@@ -728,16 +776,33 @@ public actor LanguageServerConnection {
         connectionLog.error("Transport framing error: \(String(describing: error), privacy: .public)")
     }
 
-    private func handleStreamEnded() async {
-        guard !isShuttingDown, state != .stopped else {
+    /// Handles the end of `epoch`'s message stream: the only place an
+    /// unexpected server exit turns into crash/restart handling.
+    ///
+    /// Two ownership checks make that deterministic. The stream must
+    /// belong to the launch this connection still owns — a stream that
+    /// ended because its launch was torn down (a failed start's cleanup,
+    /// an explicit `shutdown()`, or a superseding relaunch) describes
+    /// nothing that is running. And that launch must have completed its
+    /// `initialize`/`initialized` handshake — a transport that dies
+    /// before the server was ever ready is the failure of the
+    /// `start()`/restart flow awaiting it, which reports it to its own
+    /// caller; restarting it from here would relaunch a server behind
+    /// the back of a `start()` that is in the middle of failing.
+    private func handleStreamEnded(epoch: Int) async {
+        guard epoch == activeLaunchEpoch, !isShuttingDown, state != .stopped else {
             return
         }
+        // Claim the loss exactly once: this transport is dead either way,
+        // so no later callback may treat it as live.
+        activeLaunchEpoch = nil
         // This callback runs inside the read-loop task. Clear its stored
         // handle before relaunching so launchAndInitialize() does not cancel
         // the task that is performing the automatic restart.
         readLoopTask = nil
-        let exitCode = await transport?.waitForTermination() ?? -1
-        let reason = "Server exited unexpectedly (code \(exitCode))."
+        // Fail everything the dead transport can no longer answer before
+        // deciding what to do, so an in-flight handshake observes the
+        // loss immediately instead of waiting out its request timeout.
         for (_, pending) in pendingRequests {
             pending.timeoutTask?.cancel()
             pending.continuation.resume(throwing: LanguageClientError.notConnected)
@@ -746,26 +811,50 @@ public actor LanguageServerConnection {
         serverCapabilities = nil
         dynamicallyRegisteredMethods.removeAll()
 
+        guard epoch == handshakeCompletedEpoch else {
+            return
+        }
+        handshakeCompletedEpoch = nil
+
+        let exitCode = await transport?.waitForTermination() ?? -1
+        let reason = "Server exited unexpectedly (code \(exitCode))."
+
         guard restartBudget.recordCrashAndCheckIfRestartAllowed() else {
             state = .disabled(reason: "\(reason) Restart budget exhausted; manual restart required.")
             return
         }
 
         state = .crashed(reason: reason)
-        do {
+        await restartAfterCrash(reason: reason)
+    }
+
+    /// Relaunches a crashed server, re-consulting the launch gate and the
+    /// restart budget for every attempt. A failed attempt is retried from
+    /// here rather than from the failed attempt's stream end, so the
+    /// crash-loop → budget → `.disabled` progression is driven by one
+    /// owner instead of by racing teardown callbacks.
+    private func restartAfterCrash(reason: String) async {
+        while true {
             state = .starting
-            try await launchAndInitialize()
-        } catch {
-            await cleanUpFailedStart()
-            if case LanguageClientError.notTrusted = error {
-                // Trust was revoked while the server was running. No
-                // replacement process is launched, and the connection
-                // stays `.disabled` rather than `.crashed`, so nothing
-                // retries this automatically.
-                state = .disabled(reason: "\(reason) \(Self.notTrustedReason)")
+            do {
+                try await launchAndInitialize()
                 return
+            } catch {
+                await cleanUpFailedStart()
+                if case LanguageClientError.notTrusted = error {
+                    // Trust was revoked while the server was running. No
+                    // replacement process is launched, and the connection
+                    // stays `.disabled` rather than `.crashed`, so nothing
+                    // retries this automatically.
+                    state = .disabled(reason: "\(reason) \(Self.notTrustedReason)")
+                    return
+                }
+                guard restartBudget.recordCrashAndCheckIfRestartAllowed() else {
+                    state = .disabled(reason: "\(reason) Restart budget exhausted; manual restart required.")
+                    return
+                }
+                state = .crashed(reason: "\(reason) Automatic restart failed: \(error)")
             }
-            state = .crashed(reason: "\(reason) Automatic restart failed: \(error)")
         }
     }
 }

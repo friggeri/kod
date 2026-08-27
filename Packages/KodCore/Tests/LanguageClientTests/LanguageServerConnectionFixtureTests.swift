@@ -703,6 +703,105 @@ final class LanguageServerConnectionFixtureTests: XCTestCase {
         }
     }
 
+    /// The counterpart to the crash-restart guarantee above: a server
+    /// that never became ready must not be relaunched by the teardown of
+    /// its own failed start. Tearing that launch down closes the message
+    /// stream, and treating that stream end as the crash of a running
+    /// server relaunched a process behind the back of the `start()` that
+    /// was in the middle of failing — a loop that then exhausted the
+    /// restart budget and left the connection `.disabled`. The launch
+    /// ledger is the decisive evidence: exactly one process, ever.
+    func testFailedInitializationIsTerminalAndNeverRelaunchesTheServer() async throws {        let ledger = try ProcessLaunchLedger.make()
+        addTeardownBlock { ledger.cleanUp() }
+
+        var configuration = try makeConfiguration(
+            scenario: "initialize-error",
+            restartBudget: RestartBudget(maxRestarts: 3, window: 60)
+        )
+        configuration.executableURL = ledger.executableURL
+
+        let states = LockedArray<LanguageServerState>()
+        let connection = LanguageServerConnection(
+            configuration: configuration,
+            onStateChange: { states.append($0) }
+        )
+        addTeardownBlock { await connection.shutdown() }
+
+        do {
+            try await connection.start()
+            XCTFail("start() must fail when the server rejects initialize")
+        } catch let error as LanguageClientError {
+            guard case .serverError(let responseError) = error else {
+                return XCTFail("expected the server's initialize error, got \(error)")
+            }
+            XCTAssertEqual(responseError.message, "No compatible language runtime was found.")
+        }
+
+        // Long enough for a stream-end-driven relaunch to have spawned a
+        // replacement process and reported it.
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(
+            ledger.launchCount,
+            1,
+            "A failed initialization must never spawn a replacement process"
+        )
+        let expectedCrash = LanguageServerState.crashed(
+            reason: "Language server initialization failed: No compatible language runtime was found."
+        )
+        let state = await connection.state
+        XCTAssertEqual(state, expectedCrash)
+        XCTAssertEqual(
+            states.snapshot(),
+            [.starting, expectedCrash],
+            "A failed initialization must report exactly starting → crashed"
+        )
+    }
+
+    /// A *post-ready* crash keeps its automatic restart, and a relaunch
+    /// that cannot come back up is retried by the restart owner until the
+    /// budget runs out — never longer. This is the bound on the retry
+    /// path: one initial launch plus exactly `maxRestarts` attempts, then
+    /// `.disabled`.
+    func testARelaunchThatCannotInitializeStopsAtTheRestartBudget() async throws {
+        let ledger = try ProcessLaunchLedger.make(failingAfterFirstLaunch: true)
+        addTeardownBlock { ledger.cleanUp() }
+
+        var configuration = try makeConfiguration(
+            scenario: "crash-immediately",
+            restartBudget: RestartBudget(maxRestarts: 2, window: 60)
+        )
+        configuration.executableURL = ledger.executableURL
+
+        let connection = LanguageServerConnection(configuration: configuration)
+        try await connection.start()
+        addTeardownBlock { await connection.shutdown() }
+
+        let deadline = Date().addingTimeInterval(5)
+        var state = await connection.state
+        while true {
+            if case .disabled = state {
+                break
+            }
+            guard Date() < deadline else {
+                XCTFail("Expected the connection to become disabled, last state: \(state)")
+                return
+            }
+            try await Task.sleep(nanoseconds: 30_000_000)
+            state = await connection.state
+        }
+
+        guard case .disabled(let reason) = state else {
+            return XCTFail("expected .disabled, got \(state)")
+        }
+        XCTAssertTrue(reason.contains("Restart budget exhausted"), "unexpected reason: \(reason)")
+
+        // One real server plus exactly the two budgeted relaunch
+        // attempts: a failed relaunch must not spawn beyond the budget.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(ledger.launchCount, 3)
+    }
+
     // MARK: - Invalid/stale ranges (validated at the SwiftWorkspaceLanguageService layer,
     // exercised here just to confirm the fixture and raw connection round-trip an
     // out-of-bounds range without the connection itself rejecting it — validation is

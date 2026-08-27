@@ -84,8 +84,20 @@ final class RustLanguageAdapterIntegrationTests: XCTestCase {
         )
         XCTAssertTrue(hoverValue.contains("greet"), "Expected hover to mention 'greet', got: \(hoverValue)")
 
-        let definitions = try await service.definition(snapshot: snapshot, utf8Offset: hoverOffset)
-        XCTAssertFalse(definitions.isEmpty, "Expected at least one real definition location")
+        // A usable hover arrives before rust-analyzer has necessarily
+        // finished constructing its cross-reference index. Keep asking for
+        // the definition through the same bounded project-load window,
+        // rather than treating that earlier hover as an indexing barrier.
+        let definitions = try await retryUntilNonEmpty(
+            attempts: 240,
+            delayNanoseconds: 500_000_000
+        ) {
+            try await service.definition(snapshot: snapshot, utf8Offset: hoverOffset)
+        }
+        XCTAssertFalse(
+            definitions.isEmpty,
+            "Expected at least one real definition location after rust-analyzer project-load retries"
+        )
 
         let symbols = try await retryUntilNonEmpty { try await service.documentSymbols(snapshot: snapshot) }
         XCTAssertTrue(symbols.contains { $0.name == "Greeter" }, "Expected a 'Greeter' document symbol, got: \(symbols.map(\.name))")
