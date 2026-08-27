@@ -149,10 +149,30 @@ RUBY
     release-build)
         require_apple_silicon
         configure_swiftpm
-        run_xcode CIRelease \
+        output_dir="$repository_root/Artifacts/ci-release"
+        archive_path="$output_dir/Kod.xcarchive"
+        archive_zip="$output_dir/Kod.xcarchive.zip"
+        rm -rf -- "$output_dir"
+        mkdir -p "$output_dir"
+        xcodebuild \
+            -project "$repository_root/Kod.xcodeproj" \
+            -scheme Kod \
             -configuration Release \
+            -destination "generic/platform=macOS" \
+            -derivedDataPath "$repository_root/DerivedData/CIRelease" \
+            -archivePath "$archive_path" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            SWIFT_ENABLE_EXPLICIT_MODULES=NO \
+            clean archive \
+            -quiet
+        app_path="$archive_path/Products/Applications/Kod.app"
+        test -x "$app_path/Contents/MacOS/Kod"
+        test "$(lipo -archs "$app_path/Contents/MacOS/Kod")" = "arm64"
+        /usr/bin/ditto -c -k --sequesterRsrc --keepParent \
+            "$archive_path" "$archive_zip"
+        test -s "$archive_zip"
         ;;
     ui-1)
         require_apple_silicon

@@ -6,12 +6,15 @@ the same GitHub Release.
 
 Pushing an annotated `v*` tag automatically starts the protected draft-build
 workflow; `workflow_dispatch` remains available for retries against that exact
-tag. The workflow resolves dependencies, runs deterministic functional, scale,
-memory, packaging, and security qualification, and downloads/checksums Sparkle
-and CycloneDX tools before importing Developer ID credentials or writing any
-notarization key. Wall-clock performance budgets are intentionally excluded
-from GitHub-hosted runners; run `Scripts/check large-file` on the reference Mac
-when performance-sensitive code changes. `package-release.sh` is
+tag. CI has already run deterministic static, package, language, app, and UI
+tests for the commit and produced an unsigned arm64 Release archive only after
+they passed. The tag workflow downloads that exact commit's archive, verifies
+its GitHub build-provenance attestation, and promotes it into signing and
+notarization without rerunning tests or recompiling. It downloads/checksums
+Sparkle and CycloneDX tools before importing Developer ID credentials or
+writing any notarization key. Wall-clock performance budgets are intentionally
+excluded from GitHub-hosted runners; run `Scripts/check large-file` on the
+reference Mac when performance-sensitive code changes. `package-release.sh` is
 intentionally fail-closed: `preflight.sh` requires the exact annotated
 `v<MARKETING_VERSION>` tag, a clean `friggeri/kod` tree, Apple Silicon, and
 real signing and notarization credentials. It never packages an ad-hoc or
@@ -25,8 +28,8 @@ Intel build, and it aborts before a draft GitHub Release can be created.
   `KOD_NOTARIZATION_API_KEY_PATH`, `KOD_NOTARIZATION_API_KEY_ID`, and
   `KOD_NOTARIZATION_API_ISSUER_ID`
 - `SPARKLE_PUBLIC_ED_KEY`
-- `KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR`, populated by a successful
-  dependency-resolution step before credentials are imported
+- `KOD_PREBUILT_ARCHIVE_PATH`, populated from the attested successful CI run
+  for the exact tagged commit
 
 The short, post-packaging Sparkle signing step additionally requires:
 

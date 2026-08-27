@@ -109,6 +109,8 @@ jobs:
     runs-on: macos-26
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -116,8 +118,19 @@ jobs:
           persist-credentials: false
       - name: Verify pinned toolchain
         run: test "$(xcodebuild -version | sed -n '1p')" = "Xcode 26.5"
-      - name: Build Release configuration
+      - name: Build reusable unsigned Release archive
         run: Scripts/check release-build
+      - name: Attest tested archive
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: Artifacts/ci-release/Kod.xcarchive.zip
+      - name: Retain tested archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: kod-release-archive-${{ github.sha }}
+          path: Artifacts/ci-release/Kod.xcarchive.zip
+          if-no-files-found: error
+          retention-days: 14
 
   ui:
     name: UI tests (${{ matrix.shard }}/2)

@@ -31,6 +31,7 @@ jobs:
     environment: release
     timeout-minutes: 240
     permissions:
+      actions: read
       contents: write
       id-token: write
       attestations: write
@@ -76,61 +77,58 @@ jobs:
           git merge-base --is-ancestor HEAD origin/main
           test -z "$(git status --porcelain)"
 
-      - name: Allow SwiftPM bare repositories
-        run: git config --global safe.bareRepository all
-
-      - name: Install rust-analyzer via rustup
+      - name: Download and verify tested CI archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
-          if ! command -v rustup >/dev/null 2>&1; then
-            curl --proto '=https' --tlsv1.2 --fail --silent --show-error https://sh.rustup.rs \
-              | sh -s -- -y --default-toolchain stable --profile minimal --component rust-analyzer
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-            export PATH="$HOME/.cargo/bin:$PATH"
+          ci_runs=$(
+            gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow ci.yml \
+              --commit "$GITHUB_SHA" \
+              --event push \
+              --status success \
+              --limit 20 \
+              --json databaseId,headSha,conclusion
+          )
+          ci_run_id=$(
+            printf '%s' "$ci_runs" | jq -r --arg sha "$GITHUB_SHA" \
+              '[.[] | select(.headSha == $sha and .conclusion == "success")][0].databaseId // empty'
+          )
+          if [ -z "$ci_run_id" ]; then
+            echo "BLOCKED: no successful CI push run exists for $GITHUB_SHA." >&2
+            exit 65
           fi
-          rustup component add rust-analyzer
-          test -x "$(rustup which rust-analyzer)"
 
-      - name: Provision pinned integration dependencies
-        run: Scripts/vendor-test-language-servers/setup.sh
+          artifact_name="kod-release-archive-$GITHUB_SHA"
+          download_dir="$RUNNER_TEMP/tested-ci-archive"
+          extract_dir="$RUNNER_TEMP/tested-ci-archive-extracted"
+          rm -rf -- "$download_dir" "$extract_dir"
+          mkdir -p "$download_dir" "$extract_dir"
+          gh run download "$ci_run_id" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$artifact_name" \
+            --dir "$download_dir"
+          archive_zip="$download_dir/Kod.xcarchive.zip"
+          test -s "$archive_zip"
 
-      - name: Resolve pinned Swift package dependencies
-        run: |
-          set -euo pipefail
-          packages_dir="$RUNNER_TEMP/kod-source-packages"
-          rm -rf -- "$packages_dir"
-          xcodebuild \
-            -resolvePackageDependencies \
-            -project Kod.xcodeproj \
-            -scheme Kod \
-            -clonedSourcePackagesDirPath "$packages_dir"
-          test -d "$packages_dir/checkouts/Sparkle"
-          echo "KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR=$packages_dir" >> "$GITHUB_ENV"
+          gh attestation verify "$archive_zip" \
+            --repo friggeri/kod \
+            --signer-repo friggeri/kod \
+            --signer-workflow "friggeri/kod/.github/workflows/ci.yml@refs/heads/main" \
+            --cert-identity "https://github.com/friggeri/kod/.github/workflows/ci.yml@refs/heads/main" \
+            --source-ref "refs/heads/main" \
+            --source-digest "$GITHUB_SHA" \
+            --deny-self-hosted-runners
 
-      - name: Run complete release qualification
-        env:
-          # GitHub-hosted runners are not reference hardware. Strict wall-clock
-          # budgets run explicitly via Scripts/check large-file on a baseline Mac.
-          KOD_RUN_PERFORMANCE_SUITE: "0"
-          KOD_RUN_SCALE_TESTS: "1"
-        run: Scripts/verify
-
-      - name: Run pre-release UI automation
-        env:
-          KOD_DISABLE_UPDATER: "1"
-        run: |
-          set -euo pipefail
-          xcodebuild \
-            -project Kod.xcodeproj \
-            -scheme Kod \
-            -configuration Debug \
-            -destination "platform=macOS,arch=arm64" \
-            -derivedDataPath DerivedData/ReleaseUI \
-            -clonedSourcePackagesDirPath "$KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -only-testing:KodAppUITests \
-            SWIFT_ENABLE_EXPLICIT_MODULES=NO \
-            clean test
+          /usr/bin/ditto -x -k "$archive_zip" "$extract_dir"
+          archive_path="$extract_dir/Kod.xcarchive"
+          test -d "$archive_path/Products/Applications/Kod.app"
+          echo "KOD_PREBUILT_ARCHIVE_PATH=$archive_path" >> "$GITHUB_ENV"
+          echo "Promoting tested CI run $ci_run_id for commit $GITHUB_SHA" \
+            >> "$GITHUB_STEP_SUMMARY"
 
       - name: Download pinned Sparkle release tools
         run: |

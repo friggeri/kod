@@ -23,7 +23,7 @@ fi
 rm -rf -- "$output_dir"
 mkdir -p "$output_dir/archive"
 
-printf '%s\n' "==> [1/5] Building signed Apple Silicon archive"
+printf '%s\n' "==> [1/5] Promoting and signing tested Apple Silicon archive"
 "$release_scripts_dir/build-archive.sh" "$output_dir/archive" "$version"
 app_path="$output_dir/archive/Kod.xcarchive/Products/Applications/Kod.app"
 

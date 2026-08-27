@@ -1,5 +1,6 @@
 #!/bin/sh
-# Builds Kod's production, Developer-ID-signed Apple Silicon archive.
+# Promotes a tested CI archive, or builds one locally, then produces Kod's
+# Developer-ID-signed Apple Silicon archive.
 #
 # Usage: Scripts/release/build-archive.sh <output-dir> <version>
 
@@ -27,12 +28,6 @@ if [ -z "${SPARKLE_PUBLIC_ED_KEY:-}" ]; then
     printf '%s\n' "BLOCKED: SPARKLE_PUBLIC_ED_KEY is not set." >&2
     exit 78
 fi
-if [ -z "${KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR:-}" ] \
-    || [ ! -d "$KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR" ]; then
-    printf '%s\n' "BLOCKED: pre-resolved KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR is required." >&2
-    exit 78
-fi
-
 if [ "$SPARKLE_PUBLIC_ED_KEY" = "REPLACE_WITH_SPARKLE_PUBLIC_KEY" ]; then
     printf '%s\n' "BLOCKED: SPARKLE_PUBLIC_ED_KEY is still the placeholder." >&2
     exit 78
@@ -57,24 +52,57 @@ mkdir -p "$output_dir"
 archive_path="$output_dir/Kod.xcarchive"
 
 printf '%s\n' "==> Archiving Kod $version (arm64) to $archive_path"
-xcodebuild \
-    -project "$repository_root/Kod.xcodeproj" \
-    -scheme Kod \
-    -configuration Release \
-    -destination "generic/platform=macOS" \
-    -archivePath "$archive_path" \
-    -clonedSourcePackagesDirPath "$KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR" \
-    -disableAutomaticPackageResolution \
-    ARCHS=arm64 \
-    ONLY_ACTIVE_ARCH=NO \
-    CODE_SIGN_STYLE=Manual \
-    CODE_SIGN_IDENTITY="$KOD_CODE_SIGN_IDENTITY" \
-    DEVELOPMENT_TEAM="$KOD_DEVELOPMENT_TEAM" \
-    SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
-    SWIFT_ENABLE_EXPLICIT_MODULES=NO \
-    clean archive
+if [ -n "${KOD_PREBUILT_ARCHIVE_PATH:-}" ]; then
+    if [ ! -d "$KOD_PREBUILT_ARCHIVE_PATH" ]; then
+        printf '%s\n' "BLOCKED: KOD_PREBUILT_ARCHIVE_PATH is not an archive directory." >&2
+        exit 78
+    fi
+    rm -rf -- "$archive_path"
+    /usr/bin/ditto "$KOD_PREBUILT_ARCHIVE_PATH" "$archive_path"
+    printf '%s\n' "==> Promoted tested CI archive: $KOD_PREBUILT_ARCHIVE_PATH"
+else
+    if [ -z "${KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR:-}" ] \
+        || [ ! -d "$KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR" ]; then
+        printf '%s\n' "BLOCKED: KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR is required when no tested archive is supplied." >&2
+        exit 78
+    fi
+    xcodebuild \
+        -project "$repository_root/Kod.xcodeproj" \
+        -scheme Kod \
+        -configuration Release \
+        -destination "generic/platform=macOS" \
+        -archivePath "$archive_path" \
+        -clonedSourcePackagesDirPath "$KOD_SWIFTPM_CLONED_SOURCE_PACKAGES_DIR" \
+        -disableAutomaticPackageResolution \
+        ARCHS=arm64 \
+        ONLY_ACTIVE_ARCH=NO \
+        CODE_SIGNING_ALLOWED=NO \
+        SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
+        SWIFT_ENABLE_EXPLICIT_MODULES=NO \
+        clean archive
+fi
 
 app_path="$archive_path/Products/Applications/Kod.app"
+if [ ! -x "$app_path/Contents/MacOS/Kod" ]; then
+    printf '%s\n' "BLOCKED: archive does not contain the Kod executable." >&2
+    exit 65
+fi
+embedded_version=$(
+    /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+        "$app_path/Contents/Info.plist"
+)
+embedded_public_key=$(
+    /usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' \
+        "$app_path/Contents/Info.plist"
+)
+if [ "$embedded_version" != "$version" ]; then
+    printf '%s\n' "BLOCKED: archive version $embedded_version does not match $version." >&2
+    exit 65
+fi
+if [ "$embedded_public_key" != "$SPARKLE_PUBLIC_ED_KEY" ]; then
+    printf '%s\n' "BLOCKED: archive Sparkle public key does not match the release environment." >&2
+    exit 65
+fi
 strip -S -x "$app_path/Contents/MacOS/Kod"
 bundled_rg=$(
     find "$app_path/Contents/Resources" -type f \
