@@ -116,9 +116,7 @@ jobs:
 
           gh attestation verify "$archive_zip" \
             --repo friggeri/kod \
-            --signer-repo friggeri/kod \
-            --signer-workflow "friggeri/kod/.github/workflows/ci.yml@refs/heads/main" \
-            --cert-identity "https://github.com/friggeri/kod/.github/workflows/ci.yml@refs/heads/main" \
+            --signer-workflow "friggeri/kod/.github/workflows/ci.yml" \
             --source-ref "refs/heads/main" \
             --source-digest "$GITHUB_SHA" \
             --deny-self-hosted-runners

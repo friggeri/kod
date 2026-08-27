@@ -109,9 +109,7 @@ jobs:
           do
             gh attestation verify "$download_dir/$archive" \
               --repo friggeri/kod \
-              --signer-repo friggeri/kod \
-              --signer-workflow "friggeri/kod/.github/workflows/release.yml@refs/tags/v$VERSION" \
-              --cert-identity "https://github.com/friggeri/kod/.github/workflows/release.yml@refs/tags/v$VERSION" \
+              --signer-workflow "friggeri/kod/.github/workflows/release.yml" \
               --source-ref "$expected_source_ref" \
               --source-digest "$expected_source_digest" \
               --deny-self-hosted-runners
