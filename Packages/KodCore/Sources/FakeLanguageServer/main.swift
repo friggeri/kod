@@ -18,6 +18,9 @@ let stdin = FileHandle.standardInput
 let stdout = FileHandle.standardOutput
 let stderr = FileHandle.standardError
 let writeLock = NSLock()
+let progressQueue = DispatchQueue(
+    label: "com.kod.FakeLanguageServer.progress"
+)
 
 func writeFramed(_ data: Data) {
     let framed = JSONRPCFramingEncoder.frame(data)
@@ -309,7 +312,7 @@ func handleInitialized() {
         }
 
     case "progress":
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+        progressQueue.asyncAfter(deadline: .now() + 0.05) {
             requestClient(
                 id: .string("create-progress"),
                 method: "window/workDoneProgress/create",
@@ -319,17 +322,17 @@ func handleInitialized() {
                 "token": .string("indexing"),
                 "value": .object(["kind": .string("begin"), "title": .string("Indexing"), "percentage": .number(0)])
             ]))
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+            progressQueue.asyncAfter(deadline: .now() + 0.1) {
                 notify("$/progress", .object([
                     "token": .string("indexing"),
                     "value": .object(["kind": .string("report"), "percentage": .number(50)])
                 ]))
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
-                notify("$/progress", .object([
-                    "token": .string("indexing"),
-                    "value": .object(["kind": .string("end"), "message": .string("Done")])
-                ]))
+                progressQueue.asyncAfter(deadline: .now() + 0.1) {
+                    notify("$/progress", .object([
+                        "token": .string("indexing"),
+                        "value": .object(["kind": .string("end"), "message": .string("Done")])
+                    ]))
+                }
             }
         }
 
