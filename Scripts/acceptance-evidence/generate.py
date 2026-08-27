@@ -79,6 +79,7 @@ class RunContext:
         self.reuse_logs = reuse_logs
         self._swift_test_log: Optional[str] = None
         self._scale_test_log: Optional[str] = None
+        self._large_file_test_log: Optional[str] = None
         self._kodui_test_log: Optional[str] = None
         self._xcodebuild_log: Optional[str] = None
         LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -94,6 +95,7 @@ class RunContext:
         env = dict(os.environ)
         env["KOD_RUN_PERFORMANCE_SUITE"] = "0"
         env["KOD_RUN_SCALE_TESTS"] = "0"
+        env["KOD_RUN_LARGE_FILE_BENCHMARKS"] = "0"
         result = subprocess.run(
             ["swift", "test", "-Xswiftc", "-warnings-as-errors"],
             cwd=str(KODCORE_PACKAGE),
@@ -139,6 +141,39 @@ class RunContext:
         log = result.stdout + "\n" + result.stderr
         log_path.write_text(log)
         self._scale_test_log = log
+        return log
+
+    def large_file_test_log(self) -> str:
+        if self._large_file_test_log is not None:
+            return self._large_file_test_log
+        architecture = subprocess.run(
+            ["uname", "-m"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        log_path = LOGS_DIR / f"swift-test-large-file-{architecture}.log"
+        if self.reuse_logs and log_path.exists():
+            self._large_file_test_log = log_path.read_text()
+            return self._large_file_test_log
+        env = dict(os.environ)
+        env["KOD_RUN_LARGE_FILE_BENCHMARKS"] = "1"
+        env["KOD_RUN_PERFORMANCE_SUITE"] = "0"
+        env["KOD_RUN_SCALE_TESTS"] = "0"
+        result = subprocess.run(
+            [
+                "swift",
+                "test",
+                "--filter",
+                "TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests",
+                "-Xswiftc",
+                "-warnings-as-errors",
+            ],
+            cwd=str(KODCORE_PACKAGE),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        log = result.stdout + "\n" + result.stderr
+        log_path.write_text(log)
+        self._large_file_test_log = log
         return log
 
     def kodui_test_log(self) -> str:
@@ -336,8 +371,32 @@ def criterion_1(ctx: RunContext) -> Evidence:
 
 
 def criterion_2(ctx: RunContext) -> Evidence:
-    log = ctx.swift_test_log()
-    evidence = suites_outcome(log, ["TenMegabyteParseBenchmarkTests", "TenMegabyteRepaintBenchmarkTests", "CodeDocumentViewControllerTests"])
+    benchmark_evidence = suites_outcome(
+        ctx.large_file_test_log(),
+        [
+            "TenMegabyteParseBenchmarkTests",
+            "TenMegabyteRepaintBenchmarkTests",
+        ],
+    )
+    viewport_evidence = suites_outcome(
+        ctx.swift_test_log(),
+        ["CodeDocumentViewControllerTests"],
+    )
+    if benchmark_evidence.status == "passed" and viewport_evidence.status == "passed":
+        evidence = Evidence(
+            status="passed",
+            summary=(
+                "All mapped suites passed: TenMegabyteParseBenchmarkTests, "
+                "TenMegabyteRepaintBenchmarkTests, CodeDocumentViewControllerTests"
+            ),
+        )
+    else:
+        failed = [
+            result.summary
+            for result in [benchmark_evidence, viewport_evidence]
+            if result.status != "passed"
+        ]
+        evidence = Evidence(status="failed", summary="; ".join(failed))
     perf = load_performance_results()
     if perf:
         results = {r["name"]: r for r in perf.get("results", [])}

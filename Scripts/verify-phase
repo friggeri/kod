@@ -158,10 +158,19 @@ if [ "$phase" = "12" ]; then
 fi
 
 printf '%s\n' "==> Testing KodCore"
-KOD_RUN_PERFORMANCE_SUITE=0 KOD_RUN_SCALE_TESTS=0 swift test \
+KOD_RUN_PERFORMANCE_SUITE=0 KOD_RUN_SCALE_TESTS=0 \
+    KOD_RUN_LARGE_FILE_BENCHMARKS=0 swift test \
     --package-path "$repository_root/Packages/KodCore" \
     -Xswiftc -warnings-as-errors \
     2>&1 | tee "$acceptance_logs_dir/swift-test-$architecture.log"
+
+printf '%s\n' "==> Running isolated 10 MB source benchmarks"
+KOD_RUN_LARGE_FILE_BENCHMARKS=1 KOD_RUN_PERFORMANCE_SUITE=0 \
+    KOD_RUN_SCALE_TESTS=0 swift test \
+    --package-path "$repository_root/Packages/KodCore" \
+    --filter 'TenMegabyteParseBenchmarkTests|TenMegabyteRepaintBenchmarkTests' \
+    -Xswiftc -warnings-as-errors \
+    2>&1 | tee "$acceptance_logs_dir/swift-test-large-file-$architecture.log"
 
 # `KodUI` is the presentation package: reusable `KodUIComponents` plus
 # `SearchUI`, `PreviewUI`, `GitUI`, and `EditorUI`. Its component,

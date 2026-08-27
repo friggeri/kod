@@ -10,6 +10,17 @@ import XCTest
 /// paying the cost of `XCTest.measure`'s ten-iteration default against
 /// files this large.
 final class TenMegabyteParseBenchmarkTests: XCTestCase {
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        guard ProcessInfo.processInfo.environment[
+            "KOD_RUN_LARGE_FILE_BENCHMARKS"
+        ] == "1" else {
+            throw XCTSkip(
+                "Set KOD_RUN_LARGE_FILE_BENCHMARKS=1 to run 10 MB benchmarks."
+            )
+        }
+    }
+
     private func tenMegabyteSwiftSource() -> String {
         let unit = "func compute(_ value: Int) -> Int {\n    return value * 2 + 1\n}\n\n"
         let unitByteCount = unit.utf8.count

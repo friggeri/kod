@@ -19,6 +19,17 @@ import XCTest
 final class TenMegabyteRepaintBenchmarkTests: XCTestCase {
     private var windows: [NSWindow] = []
 
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        guard ProcessInfo.processInfo.environment[
+            "KOD_RUN_LARGE_FILE_BENCHMARKS"
+        ] == "1" else {
+            throw XCTSkip(
+                "Set KOD_RUN_LARGE_FILE_BENCHMARKS=1 to run 10 MB benchmarks."
+            )
+        }
+    }
+
     private func hostedViewport(snapshot: SourceSnapshot, size: NSSize) -> CodeViewport {
         let viewport = CodeViewport(snapshot: snapshot)
         let window = NSWindow(
